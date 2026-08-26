@@ -1,0 +1,44 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":52,"width":178,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor User as Tech Lead / Repository Admin
+    participant DASH as Next.js Dashboard
+    participant GW as API Gateway
+    participant DB as PostgreSQL
+
+    User->>DASH: open Review History
+    DASH->>GW: GET /v1/reviews?limit=25&offset=0
+    GW->>GW: resolve session, scope every query to the caller's organization
+    GW->>DB: select reviews joined to repositories, ordered by created_at desc
+    DB-->>GW: rows + total count
+    GW-->>DASH: items[] + pageInfo
+    DASH-->>User: table of PRs with status chips, finding counts, timestamps (AC-09)
+
+    User->>DASH: filter by repository, status, severity and date
+    DASH->>GW: GET /v1/reviews?repositoryId=…&status=partial&minSeverity=critical&from=…
+    GW->>DB: same query with the filters applied
+    alt no reviews match
+        DB-->>GW: 0 rows
+        GW-->>DASH: items = [], pageInfo.total = 0
+        DASH-->>User: empty state rather than an empty table (UC-5 alternate flow)
+    else rows returned
+        DB-->>GW: filtered rows
+        GW-->>DASH: items[] + pageInfo
+        DASH-->>User: filtered list
+    end
+
+    User->>DASH: select one pull request
+    DASH->>GW: GET /v1/reviews/{reviewId}
+    GW->>DB: load review, agent_runs, findings, suggestions, similar issues
+    DB-->>GW: combined report rows
+    GW-->>DASH: CombinedReport — de-duplicated, ranked by severity then confidence
+    DASH-->>User: report detail with critical / warning / auto-fixed counts
+
+    User->>DASH: filter the report to one agent
+    DASH->>GW: GET /v1/reviews/{reviewId}?agent=security
+    GW-->>DASH: the same report, findings narrowed to that agent (FR-WEB-04)
+    DASH-->>User: per-agent view
+
+    Note over DASH,DB: agents that timed out are shown as no result with their<br/>recorded latency, so a partial review explains itself (NFR-12)
+
+    Note over User,DASH: severity colours and wording here match the<br/>GitHub comments and Check Run (NFR-08)

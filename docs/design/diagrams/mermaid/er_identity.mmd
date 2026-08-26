@@ -1,0 +1,102 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eef2f8","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+erDiagram
+    ORGANIZATIONS ||--o{ ORGANIZATION_MEMBERS   : "has member"
+    USERS         ||--o{ ORGANIZATION_MEMBERS   : "belongs to"
+    ORGANIZATIONS ||--o{ GITHUB_INSTALLATIONS   : "installs app as"
+    ORGANIZATIONS ||--o{ REPOSITORIES           : "owns"
+    GITHUB_INSTALLATIONS ||--o{ REPOSITORIES    : "grants access to"
+    AUTH_USERS    ||--|| USERS                  : "mirrored by"
+    USERS         ||--o| GITHUB_USER_TOKENS     : "links GitHub with"
+    REPOSITORIES  ||--|| REPOSITORY_SETTINGS    : "configured by"
+    REPOSITORIES  ||--o{ REPOSITORY_AGENT_CONFIG : "sets agent modes in"
+    ORGANIZATIONS ||--o{ ORGANIZATION_AGENT_DEFAULTS : "sets default modes in"
+
+    ORGANIZATIONS {
+        uuid        id                           PK
+        text        github_org_login             "unique"
+        bigint      github_org_id                "unique"
+        enum        account_type                 "user or organization"
+        text        display_name
+        numeric     default_confidence_threshold "org-wide default, 0.800"
+        text_array  default_review_branches      "empty: each repo's default branch"
+        timestamptz created_at
+    }
+
+    ORGANIZATION_AGENT_DEFAULTS {
+        uuid        organization_id PK, FK
+        enum        agent           PK "missing row: platform default"
+        enum        mode            "off, comment or block"
+        uuid        updated_by      FK
+        timestamptz updated_at
+    }
+
+    AUTH_USERS {
+        uuid id PK "Supabase Auth: passwords, OAuth identities, sessions, TOTP factors"
+    }
+
+    USERS {
+        uuid        id             PK "= auth.users.id"
+        bigint      github_user_id "unique, null until GitHub is linked"
+        text        github_login
+        text        email          "unique"
+        text        name
+        text        avatar_url
+        timestamptz last_seen_at
+    }
+
+    GITHUB_USER_TOKENS {
+        uuid        user_id              PK, FK
+        text        access_token_sealed  "AES-256-GCM, 8 h GitHub App user token"
+        text        refresh_token_sealed "AES-256-GCM"
+        timestamptz expires_at
+        timestamptz refresh_expires_at
+    }
+
+    ORGANIZATION_MEMBERS {
+        uuid        organization_id PK, FK
+        uuid        user_id         PK, FK
+        enum        role            "admin or member; admin gates config writes"
+        timestamptz added_at
+    }
+
+    GITHUB_INSTALLATIONS {
+        uuid        id                     PK
+        uuid        organization_id        FK
+        bigint      github_installation_id "unique"
+        text        account_login
+        text        webhook_secret_ref     "secret-manager reference, never the secret"
+        timestamptz suspended_at
+        timestamptz installed_at
+    }
+
+    REPOSITORIES {
+        uuid   id                     PK
+        uuid   organization_id        FK
+        uuid   github_installation_id FK
+        bigint github_repo_id
+        text   full_name
+        text   default_branch
+        text   primary_language
+        bool   review_enabled
+        bool   use_org_defaults       "modes and branches from the org"
+        timestamptz removed_at        "left the installation; reviews kept"
+    }
+
+    REPOSITORY_SETTINGS {
+        uuid        repository_id                 PK, FK
+        numeric     confidence_threshold_override "NULL means inherit, FR-WEB-03"
+        int         agent_timeout_ms              "default 20000, NFR-02"
+        bool        auto_fix_style
+        bool        post_inline_comments
+        text_array  review_branches               "base-branch globs; empty: default branch"
+        uuid        updated_by                    FK
+        timestamptz updated_at
+    }
+
+    REPOSITORY_AGENT_CONFIG {
+        uuid        repository_id PK, FK
+        enum        agent         PK "one row per agent, FR-WEB-02"
+        enum        mode          "off, comment or block"
+        uuid        updated_by    FK
+        timestamptz updated_at
+    }

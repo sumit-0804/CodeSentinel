@@ -1,0 +1,63 @@
+%%{init: {"theme":"base","themeVariables":{"lineColor":"#6b7280","primaryTextColor":"#1a1a1a"},"flowchart":{"curve":"linear","nodeSpacing":45,"rankSpacing":58}} }%%
+flowchart TB
+
+    subgraph CLIENT["CLIENT LAYER  "]
+        direction LR
+        GH["<b>GitHub App</b><br/>webhook-triggered PR review<br/>Octokit · Checks &amp; Review API"]
+        WEB["<b>Next.js Dashboard</b><br/>history, reports, agent config<br/>responsive to 375px"]
+    end
+
+    subgraph GATEWAY["API GATEWAY  "]
+        GW["<b>API Gateway — Express + TypeScript</b><br/>authentication · HMAC webhook verification · routing · rate limiting"]
+    end
+
+    subgraph ORCH["ORCHESTRATION LAYER  "]
+        OR["<b>Orchestrator — LangGraph (TypeScript)</b><br/>parallel fan-out · per-agent timeout · aggregation · de-duplication · severity ranking"]
+    end
+
+    subgraph AGENTS["AGENT SERVICES — independently deployable, one shared REST contract  "]
+        direction LR
+        SEC["<b>Security Agent</b><br/>SAST, secret detection<br/>FR-SEC-01..04"]
+        STY["<b>Style Agent</b><br/>linters in Docker sandbox<br/>FR-STY-01..04"]
+        PERF["<b>Performance Agent</b><br/>hot-path anti-patterns<br/>FR-PERF-01..02"]
+        LOG["<b>Logic Agent</b><br/>bugs and edge cases<br/>FR-LOG-01..02"]
+        DOC["<b>Documentation Agent</b><br/>docstring coverage<br/>FR-DOC-01..02"]
+    end
+
+    subgraph DATA["DATA LAYER  "]
+        direction LR
+        PG[("<b>PostgreSQL</b><br/>reviews, findings, suggestions, agent runs<br/>users, installations, repository config")]
+        CH[("<b>ChromaDB — Vector Store</b><br/>embeddings of previously flagged issues<br/>similarity lookup for review context")]
+    end
+
+    GH  -- "HTTPS / REST / JSON" --> GW
+    WEB --> GW
+
+    GW -- "review request / response" --> OR
+
+    OR -- "POST /v1/review — five calls in parallel" --> SEC
+    OR --> STY
+    OR --> PERF
+    OR --> LOG
+    OR --> DOC
+
+    OR -- "persist review, agent runs, findings" --> PG
+    OR -- "embed findings / query similar" --> CH
+
+    classDef client   fill:#dce7f7,stroke:#4a6fa5,stroke-width:1.5px,color:#24405f
+    classDef gateway  fill:#fdead3,stroke:#d9822b,stroke-width:1.5px,color:#8a4b0b
+    classDef orchestr fill:#e7ddf5,stroke:#7048b6,stroke-width:1.5px,color:#432371
+    classDef agent    fill:#d9f0e1,stroke:#2f9e5e,stroke-width:1.5px,color:#155c33
+    classDef data     fill:#fbdcdc,stroke:#d64545,stroke-width:1.5px,color:#8a1f1f
+
+    class GH,WEB client
+    class GW gateway
+    class OR orchestr
+    class SEC,STY,PERF,LOG,DOC agent
+    class PG,CH data
+
+    style CLIENT  fill:#f7f8fa,stroke:#d9dce2
+    style GATEWAY fill:#f7f8fa,stroke:#d9dce2
+    style ORCH    fill:#f7f8fa,stroke:#d9dce2
+    style AGENTS  fill:#f7f8fa,stroke:#d9dce2
+    style DATA    fill:#f7f8fa,stroke:#d9dce2

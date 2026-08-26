@@ -1,0 +1,51 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":50,"width":175,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor Admin as Repository Admin
+    participant DASH as Next.js Dashboard
+    participant GW as API Gateway
+    participant DB as PostgreSQL
+    participant OR as Orchestrator
+
+    Admin->>DASH: open Agent Config for a repository
+    DASH->>GW: GET /v1/repositories/{id}/config
+    GW->>GW: check admin role in the owning organization
+    alt caller is not an admin
+        GW-->>DASH: 403 forbidden
+        DASH-->>Admin: read-only view
+    else caller is an admin
+        GW->>DB: read repository_agent_config + repository_settings
+        DB-->>GW: per-agent flags, override, org default
+        GW-->>DASH: effective config + thresholdSource
+        DASH-->>Admin: five agent toggles, threshold slider showing<br/>where the current value comes from
+    end
+
+    Admin->>DASH: toggle an agent off
+    opt threshold override control has shipped (FR-WEB-03, Should)
+        Admin->>DASH: drag the confidence threshold slider
+        Note over DASH: until this ships, the platform default of 0.8<br/>applies and steps 1-2, 4-5 still work (FR-ORC-06)
+    end
+    Admin->>DASH: Save changes
+
+    DASH->>GW: PUT /v1/repositories/{id}/config
+    GW->>GW: validate — at least one agent must stay enabled
+
+    alt every agent disabled
+        GW-->>DASH: 400 no_agents_enabled
+        DASH-->>Admin: inline error, nothing is saved
+        Note over DB: the previous configuration is left untouched
+    else valid
+        GW->>DB: upsert repository_agent_config + repository_settings
+        DB-->>GW: saved, updated_by and updated_at recorded
+        GW-->>DASH: 200 effective config
+        DASH-->>Admin: saved
+    end
+
+    Note over GW,OR: the change is not retro-active
+
+    Admin->>DASH: a later pull request triggers a review
+    DASH->>GW: (webhook path, UC-1)
+    GW->>DB: resolve enabled agents + threshold
+    DB-->>GW: the new configuration
+    GW->>OR: POST /internal/v1/review-jobs (enabledAgents, confidenceThreshold)
+    OR-->>GW: the disabled agent is not called at all (AC-07)

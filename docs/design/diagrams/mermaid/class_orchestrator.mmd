@@ -1,0 +1,107 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#e7ddf5","primaryBorderColor":"#7048b6","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+classDiagram
+    direction TB
+
+    class ReviewJobController {
+        <<REST adapter>>
+        +createJob(ReviewJobRequest) ReviewJob
+        +getJob(jobId) ReviewJob
+        +cancelJob(jobId) ReviewJob
+        -resolveIdempotency(key) ReviewJob
+    }
+
+    class ReviewGraph {
+        <<LangGraph StateGraph>>
+        -nodes : Map~string, GraphNode~
+        +compile() CompiledGraph
+        +invoke(ReviewState) ReviewState
+    }
+
+    class ReviewState {
+        +reviewId : UUID
+        +organizationId : UUID
+        +files : ChangedFile[]
+        +enabledAgents : AgentKind[]
+        +confidenceThreshold : number
+        +agentTimeoutMs : number
+        +rawFindings : Finding[]
+        +agentRuns : AgentRunSummary[]
+        +report : CombinedReport
+    }
+
+    class FanOutNode {
+        -timeoutMs : number
+        +run(ReviewState) ReviewState
+        -callAll(AgentKind[]) Settled~AgentResult~[]
+    }
+
+    class AggregateNode {
+        +run(ReviewState) ReviewState
+    }
+
+    class ContextNode {
+        +run(ReviewState) ReviewState
+    }
+
+    class ThresholdNode {
+        +run(ReviewState) ReviewState
+        -clears(Finding, number) boolean
+    }
+
+    class AgentClient {
+        -baseUrl : string
+        -timeoutMs : number
+        +review(AgentReviewRequest) AgentReviewResponse
+        +capabilities() Capabilities
+        +health() Health
+    }
+
+    class FindingAggregator {
+        +dedupe(Finding[]) Finding[]
+        -dedupeKey(Finding) string
+    }
+
+    class SeverityRanker {
+        +rank(Finding[]) Finding[]
+        -weight(Severity) number
+    }
+
+    class SimilarIssueLookup {
+        +findSimilar(Finding, orgId) SimilarPastIssue[]
+        +index(Finding) void
+    }
+
+    class JobStore {
+        <<interface>>
+        +get(jobId) ReviewJob
+        +findByIdempotencyKey(key) ReviewJob
+        +insert(ReviewJob, ReviewJobRequest, key) InsertResult
+        +markRunning(jobId, startedAt) void
+        +complete(ReviewJob, ReviewJobRequest) boolean
+        +failOrphaned(completedAt) number
+    }
+
+    class PrismaJobStore {
+        <<persistence>>
+        -writeReportRows(reviewId, CombinedReport) void
+    }
+
+    JobStore <|.. PrismaJobStore
+
+    ReviewJobController --> ReviewGraph : invokes
+    ReviewJobController --> JobStore : persists jobs through
+    ReviewGraph *-- ReviewState : carries
+    ReviewGraph o-- FanOutNode
+    ReviewGraph o-- AggregateNode
+    ReviewGraph o-- ContextNode
+    ReviewGraph o-- ThresholdNode
+
+    FanOutNode --> AgentClient : one per enabled agent
+    AggregateNode --> FindingAggregator
+    AggregateNode --> SeverityRanker
+    ContextNode --> SimilarIssueLookup
+
+    note for FanOutNode "Uses allSettled semantics: a rejected or<br/>timed-out agent yields status timed_out<br/>rather than failing the graph (FR-ORC-02, NFR-04)."
+    note for FindingAggregator "dedupeKey = hash(filePath, lineStart, lineEnd, ruleId)<br/>collapses the same issue reported by two agents (FR-ORC-03)."
+    note for PrismaJobStore "A reviews row per job; on finish one transaction writes<br/>report JSON + agent_runs, findings, suggestions,<br/>guarded by status in (queued, running).<br/>InMemoryJobStore implements JobStore without DATABASE_URL."
+    note for ThresholdNode "Only findings at or above the repository threshold<br/>get a committable suggestion (FR-ORC-06)."

@@ -1,0 +1,108 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#eef2f8","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+erDiagram
+    REPOSITORIES  ||--o{ REVIEWS              : "is reviewed by"
+    REVIEWS       ||--o{ AGENT_RUNS           : "fans out to"
+    AGENT_RUNS    ||--o{ FINDINGS             : "produces"
+    REVIEWS       ||--o{ FINDINGS             : "scopes"
+    FINDINGS      ||--o| SUGGESTIONS          : "may carry a fix for"
+    FINDINGS      ||--o| FINDING_EMBEDDINGS   : "is indexed as"
+    FINDINGS      ||--o{ FINDING_SIMILARITIES : "matches"
+    FINDINGS      ||--o{ FINDINGS             : "duplicate_of"
+    USERS         ||--o{ SUGGESTIONS          : "accepts or rejects"
+
+    REPOSITORIES {
+        uuid   id                     PK
+        uuid   organization_id        FK
+        uuid   github_installation_id FK
+        bigint github_repo_id         "unique, from GitHub"
+        text   full_name
+        text   primary_language
+        bool   review_enabled
+        timestamptz removed_at
+    }
+
+    REVIEWS {
+        uuid        id                   PK
+        uuid        organization_id      FK "tenant scope, NFR-13"
+        uuid        repository_id        FK
+        enum        trigger              "github_pull_request, dashboard_manual"
+        uuid        job_id               "orchestrator job, unique"
+        text        idempotency_key      "unique, the webhook delivery id"
+        int         pr_number            "required for github_pull_request"
+        text        head_sha
+        enum        status               "queued, running, completed, partial, failed, cancelled"
+        jsonb       report               "full CombinedReport returned by the API"
+        numeric     confidence_threshold "resolved at job start, FR-ORC-06"
+        bigint      github_check_run_id
+        enum        check_conclusion     "pass, fail, neutral"
+        int         duration_ms
+        text        delivery_id          "GitHub delivery id, idempotency"
+        timestamptz created_at
+    }
+
+    AGENT_RUNS {
+        uuid        id                 PK
+        uuid        review_id          FK
+        enum        agent              "security, style, performance, logic, documentation"
+        enum        status             "succeeded, timed_out, failed, skipped"
+        text        llm_provider       "which provider answered, NFR-11"
+        smallint    llm_fallback_depth "0 when the primary provider answered"
+        int         findings_count
+        int         latency_ms         "written even on timeout, NFR-12"
+        int         timeout_ms
+        smallint    attempt
+    }
+
+    FINDINGS {
+        uuid     id            PK
+        uuid     review_id     FK
+        uuid     agent_run_id  FK
+        enum     agent
+        text     rule_id
+        text     title
+        text     file_path
+        int      line_start
+        int      line_end
+        enum     severity      "critical, warning, info"
+        numeric  confidence
+        smallint severity_rank "drives report ordering, FR-ORC-04"
+        text     dedupe_key    "hash of file, line range, issue type"
+        uuid     duplicate_of  FK "set when collapsed into another finding"
+    }
+
+    SUGGESTIONS {
+        uuid        id                    PK
+        uuid        finding_id            FK
+        enum        kind                  "deterministic or ai_suggested"
+        enum        state                 "proposed, accepted, rejected, superseded"
+        text        original_snippet
+        text        suggested_snippet
+        bigint      github_comment_id
+        uuid        resolved_by_user_id   FK "required before an AI fix is accepted, FR-GH-04"
+        text        resolution_commit_sha
+        timestamptz resolved_at
+        enum        rejection_reason      "false_positive, not_applicable, will_fix_manually, other"
+        text        rejection_comment     "at most 1000 characters"
+    }
+
+    FINDING_EMBEDDINGS {
+        uuid        finding_id      PK, FK
+        uuid        organization_id FK
+        text        collection      "ChromaDB collection"
+        text        vector_id
+        text        embedding_model
+        timestamptz indexed_at
+    }
+
+    FINDING_SIMILARITIES {
+        uuid        finding_id         PK, FK
+        uuid        similar_finding_id PK, FK
+        numeric     similarity_score
+        timestamptz retrieved_at
+    }
+
+    USERS {
+        uuid   id           PK
+        bigint github_user_id
+        text   github_login
+    }

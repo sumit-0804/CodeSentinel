@@ -1,0 +1,61 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":42,"width":168,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor Dev as PR Author
+    participant GH as GitHub
+    participant GW as API Gateway
+    participant OR as Orchestrator
+    participant AG as Agent Services (×5)
+    participant VDB as ChromaDB
+    participant DB as PostgreSQL
+
+    Dev->>GH: open or push to a pull request
+    GH->>GW: POST /webhooks/github (pull_request)
+
+    GW->>GW: verify X-Hub-Signature-256 (HMAC-SHA256)
+    alt signature invalid
+        GW-->>GH: 401 invalid_signature
+        Note over GW: payload is never parsed or forwarded (FR-GW-03)
+    else signature valid
+        GW->>DB: look up repository + enabled agents + threshold
+        DB-->>GW: config (agents, threshold, timeout)
+        GW->>OR: POST /internal/v1/review-jobs (Idempotency-Key = delivery id)
+        OR-->>GW: 202 { jobId, reviewId }
+        GW-->>GH: 202 accepted
+        GW->>GH: create Check Run in progress (within 5s, AC-01)
+    end
+
+    Note over OR,AG: fan-out — all enabled agents called in parallel (FR-ORC-01)
+
+    par Security
+        OR->>AG: POST /v1/review (diff hunks only, NFR-06)
+        AG-->>OR: findings[] + confidence
+    and Style
+        OR->>AG: POST /v1/review
+        AG-->>OR: deterministic fixes, no LLM call (NFR-07)
+    and Performance
+        OR->>AG: POST /v1/review
+        AG-->>OR: findings[]
+    and Logic
+        OR->>AG: POST /v1/review
+        AG-->>OR: findings[]
+    and Documentation
+        OR->>AG: POST /v1/review
+        AG--xOR: timeout after 20s (NFR-02)
+    end
+
+    Note over OR: the timed-out agent is marked no result,<br/>the review still completes (FR-ORC-02, NFR-04, AC-12)
+
+    OR->>OR: de-duplicate on (file, line range, issue type) — FR-ORC-03
+    OR->>OR: rank by severity, then confidence — FR-ORC-04
+    OR->>VDB: query similar past issues
+    VDB-->>OR: similar findings + resolutions (FR-ORC-05)
+    OR->>DB: persist review, agent_runs, findings, suggestions
+    GW->>OR: GET /internal/v1/review-jobs/{jobId} every 2 s
+    OR-->>GW: job with the combined report (status = partial)
+
+    GW->>GH: update Check Run with pass / fail / neutral (FR-GH-02)
+    GW->>GH: post inline suggested changes for findings ≥ threshold (FR-GH-03)
+    GH-->>Dev: review report and suggestions on the PR
+
+    Note over Dev,GH: nothing is committed to the branch<br/>until the author acts — see UC-3 (FR-GH-04)

@@ -1,0 +1,307 @@
+openapi: 3.1.0
+info:
+  title: Code-Sentinel Agent Service API
+  version: 1.0.0
+  description: >
+    One contract, implemented five times. The Security, Style, Performance, Logic and
+    Documentation agents each expose exactly these three operations, which is what lets the
+    orchestrator call them through a single client and lets any one of them be deployed,
+    tested and reused on its own (FR-SEC-04, NFR-10).
+
+    An agent never calls another agent and never writes to PostgreSQL. It receives a diff,
+    returns findings, and is otherwise stateless, so instances can be added or removed
+    freely (NFR-03).
+  contact:
+    name: Team Code-Sentinel
+
+servers:
+  - url: http://security-agent.internal:8081
+    description: Security Agent (Tej Prakash Tak)
+  - url: http://style-agent.internal:8082
+    description: Style Agent (Nevil Nandasana)
+  - url: http://performance-agent.internal:8083
+    description: Performance Agent (Parin Makwana)
+  - url: http://logic-agent.internal:8084
+    description: Logic Agent (Tej Prakash Tak)
+  - url: http://documentation-agent.internal:8085
+    description: Documentation Agent (Parin Makwana)
+
+security:
+  - serviceToken: []
+
+tags:
+  - name: Review
+    description: The analysis operation.
+  - name: Service
+    description: Discovery and health, used by the orchestrator and by deployment probes.
+
+paths:
+
+  /v1/review:
+    post:
+      tags: [Review]
+      operationId: reviewDiff
+      summary: Analyze a diff and return findings
+      description: >
+        Called by the orchestrator, in parallel with the other agents (FR-ORC-01). The caller
+        applies its own timeout and abandons the request if it is exceeded, so an agent should
+        return whatever it has rather than waiting on a slow dependency.
+
+        The Style Agent additionally runs its linters and formatters inside a per-request Docker
+        sandbox and returns deterministic fixes with no LLM call (FR-STY-02, FR-STY-03, NFR-07).
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentReviewRequest'
+            examples:
+              pythonDiff:
+                summary: A two-file Python change
+                value:
+                  reviewId: 8f1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a11
+                  language: python
+                  confidenceThreshold: 0.8
+                  files:
+                    - path: payments/retry_queue.py
+                      language: python
+                      changeType: modified
+                      patch: "@@ -128,6 +128,11 @@\n+    conn = psycopg2.connect(DSN)\n+    cur = conn.cursor()\n+    cur.execute(f\"SELECT * FROM payments WHERE id = {payment_id}\")\n"
+      responses:
+        '200':
+          description: Analysis finished. An empty findings array is a valid, successful result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentReviewResponse'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '413':
+          description: Diff exceeds the agent's configured maximum size.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '422':
+          description: The agent does not support this language and produced no findings.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '503':
+          description: >
+            A dependency the agent needs is unavailable (sandbox, or no LLM provider could answer:
+            Groq failed and Gemini is down or returned a quota error). The orchestrator records this as a failed agent run and continues.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/capabilities:
+    get:
+      tags: [Service]
+      operationId: getCapabilities
+      summary: Describe what this agent can analyze
+      description: >
+        Lets the orchestrator skip an agent for a language it does not handle, and lets an
+        outside consumer discover the service without reading its source.
+      security: []
+      responses:
+        '200':
+          description: Capability descriptor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+
+  /healthz:
+    get:
+      tags: [Service]
+      operationId: healthCheck
+      summary: Liveness and readiness probe
+      security: []
+      responses:
+        '200':
+          description: Service is ready to accept review requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Service is running but not ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+components:
+
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: Short-lived token issued to the orchestrator. Internal traffic is TLS 1.2+ (NFR-05).
+
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Propagated from the gateway so one review can be followed across all services (NFR-12).
+
+  schemas:
+
+    AgentReviewRequest:
+      type: object
+      required: [reviewId, files]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+          description: Correlation id only. The agent does not persist it.
+        language:
+          $ref: './common.yaml#/components/schemas/Language'
+          description: Repository-level hint. Per-file language on each entry wins.
+        files:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: './common.yaml#/components/schemas/ChangedFile'
+        confidenceThreshold:
+          $ref: './common.yaml#/components/schemas/Confidence'
+          description: >
+            Passed for information. The agent reports its true confidence and does not filter;
+            the threshold is applied by the orchestrator (FR-ORC-06).
+        options:
+          type: object
+          description: Agent-specific switches, ignored by agents that do not recognise them.
+          additionalProperties: true
+          properties:
+            deadlineMs:
+              type: integer
+              minimum: 0
+              description: >
+                Time the agent has left before the orchestrator abandons the call. The agent stops
+                starting new files once it passes and returns what it has, listing the rest as
+                over_budget skips.
+            llmProvider:
+              type: string
+              enum: [groq, gemini]
+              description: >
+                The provider whose quota the orchestrator reserved for this request. Set only for
+                LLM agents. When absent the agent makes no LLM call (rule-based checks only). A
+                failed Groq call may still be retried once on Gemini, reported in llm.fallbackDepth.
+          example:
+            autoFix: true
+            includeDocstringDrafts: true
+            deadlineMs: 43000
+            llmProvider: groq
+
+    AgentReviewResponse:
+      type: object
+      required: [reviewId, agent, findings]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        agent:
+          $ref: './common.yaml#/components/schemas/AgentKind'
+        serviceVersion:
+          type: string
+          example: 1.0.0
+        findings:
+          type: array
+          items:
+            $ref: './common.yaml#/components/schemas/Finding'
+        analyzedFileCount:
+          type: integer
+        skippedFiles:
+          type: array
+          description: Files the agent chose not to analyze, with the reason.
+          items:
+            $ref: './common.yaml#/components/schemas/SkippedFile'
+        llm:
+          type: object
+          description: Absent for the Style Agent, which must make no LLM call at all (NFR-07).
+          properties:
+            provider:
+              type: string
+              description: The provider that answered, groq or gemini.
+              example: groq
+            model:
+              type: string
+              example: openai/gpt-oss-120b
+            fallbackDepth:
+              type: integer
+              minimum: 0
+              description: >
+                0 when the assigned provider answered; 1 when a Groq call failed and Gemini answered
+                instead. Stored in agent_runs.llm_fallback_depth.
+            promptTokens:
+              type: integer
+            completionTokens:
+              type: integer
+        latencyMs:
+          type: integer
+
+    Capabilities:
+      type: object
+      required: [agent, languages, version]
+      properties:
+        agent:
+          $ref: './common.yaml#/components/schemas/AgentKind'
+        version:
+          type: string
+        languages:
+          type: array
+          items:
+            $ref: './common.yaml#/components/schemas/Language'
+        usesLlm:
+          type: boolean
+        producesDeterministicFixes:
+          type: boolean
+        maxDiffBytes:
+          type: integer
+          description: Whole request body cap; larger requests get 413.
+        maxFileTokens:
+          type: integer
+          description: >
+            Per-file limit in estimated tokens (~3 bytes each). A larger file is returned as a
+            too_large skip, never split. The orchestrator plans batches with it.
+        rules:
+          type: array
+          description: Rule identifiers this agent can emit, for documentation and test assertions.
+          items:
+            type: object
+            required: [ruleId, defaultSeverity]
+            properties:
+              ruleId:
+                type: string
+              title:
+                type: string
+              defaultSeverity:
+                $ref: './common.yaml#/components/schemas/Severity'
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unavailable]
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            sandbox: ok
+            llmProvider: degraded

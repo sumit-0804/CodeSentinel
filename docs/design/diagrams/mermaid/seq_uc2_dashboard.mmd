@@ -1,0 +1,46 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":46,"width":170,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant WEB as Next.js Dashboard
+    participant GW as API Gateway
+    participant GH as GitHub API
+    participant OR as Orchestrator
+    participant AG as Agent Services (×5)
+
+    Dev->>WEB: open a repository's Pull requests tab
+    WEB->>GW: GET /v1/repositories/{id}/pulls (Supabase session)
+    GW->>GH: list open pull requests (cached 30 s)
+    GW-->>WEB: open PRs, each with its latest review
+    Dev->>WEB: click Re-run review on a pull request
+
+    WEB->>GW: POST /v1/reviews { repositoryId, pullRequestNumber }
+    GW->>GW: verify session, resolve organization
+    GW->>GH: read the pull request
+
+    alt not open, reviews off, base branch not reviewed, or a review started < 30 s ago
+        GW-->>WEB: 404 / 409 with an error code
+        WEB-->>Dev: say why, nothing is queued
+    else reviewable
+        GW->>GH: list changed files, filter lockfiles, binaries, generated
+        GW->>OR: POST /internal/v1/review-jobs (trigger = dashboard_manual)
+        Note over GW,OR: an older running review of the same PR is cancelled
+        OR-->>GW: 202 { reviewId }
+        GW-->>WEB: 202 { reviewId, status }
+        WEB-->>Dev: open the review page, showing it in progress
+
+        par agents run in parallel
+            OR->>AG: POST /v1/review
+            AG-->>OR: findings[]
+        end
+        OR->>OR: aggregate, de-duplicate, rank, store the report
+
+        loop while the review is running
+            WEB->>GW: GET /v1/reviews/{id}
+            GW-->>WEB: status, and the report once completed
+        end
+        WEB-->>Dev: findings grouped by agent and severity
+        Note over GW,GH: Check Run and comments are posted as in UC-1
+    end
+
+    Note over Dev,WEB: accepting or rejecting a single AI fix follows UC-3

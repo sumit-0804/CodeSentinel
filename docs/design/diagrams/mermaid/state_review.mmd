@@ -1,0 +1,42 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#e7ddf5","primaryBorderColor":"#7048b6","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+stateDiagram-v2
+    direction TB
+
+    [*] --> queued : webhook verified or on-demand request accepted
+
+    queued --> running : orchestrator picks the job up
+    queued --> cancelled : PR closed or newer commit supersedes it
+
+    state running {
+        direction LR
+        [*] --> fanning_out
+        fanning_out --> collecting : all enabled agents called
+        collecting --> aggregating : every agent answered or timed out
+        aggregating --> ranking : duplicates collapsed
+        ranking --> contextualising : severity order applied
+        contextualising --> [*] : similar past issues attached
+    }
+
+    running --> completed : every agent returned
+    running --> partial : at least one agent timed out or failed
+    running --> failed : no agent returned, or persistence failed
+    running --> cancelled : superseded while in flight
+
+    completed --> reported : Check Run posted, suggestions published
+    partial --> reported : Check Run posted, missing agents marked no result
+
+    reported --> [*]
+    failed --> [*]
+    cancelled --> [*]
+
+    note right of partial
+        partial is a success state, not an error.
+        A single slow agent must not block the
+        whole review (FR-ORC-02, NFR-04, AC-12).
+    end note
+
+    note right of reported
+        Suggestions sit in state proposed until the
+        developer accepts or rejects them (UC-3).
+        Nothing reaches the branch on its own.
+    end note

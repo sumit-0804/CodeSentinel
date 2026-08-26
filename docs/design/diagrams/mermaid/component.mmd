@@ -1,0 +1,89 @@
+%%{init: {"theme":"base","themeVariables":{"lineColor":"#6b7280","primaryTextColor":"#1a1a1a"},"flowchart":{"curve":"linear","nodeSpacing":30,"rankSpacing":46}} }%%
+flowchart TB
+
+    subgraph DSH["DASHBOARD — Next.js 16  "]
+        direction LR
+        PRX["Proxy<br/><i>session refresh, early redirects</i>"]
+        SA["Auth Server Actions<br/><i>sign-in, sign-up, reset, link</i>"]
+        SHELL["App shell<br/><i>getClaims on every page</i>"]
+    end
+
+    subgraph GWS["API GATEWAY — Express + TypeScript  "]
+        direction LR
+        WHR["WebhookReceiver<br/><i>HMAC verify, delivery id</i>"]
+        AUTH["AuthMiddleware<br/><i>Supabase JWT, org scope</i>"]
+        RL["RateLimiter<br/><i>per installation</i>"]
+        RT["ReviewRouter<br/><i>/v1/reviews, /v1/findings</i>"]
+        CFG["ConfigRouter<br/><i>/v1/repositories</i>"]
+        GHC["GitHubClient<br/><i>Octokit, Checks & Review API</i>"]
+    end
+
+    subgraph ORS["ORCHESTRATOR — LangGraph  "]
+        direction LR
+        JOB["ReviewJobController"]
+        GRAPH["ReviewGraph<br/><i>fan-out → aggregate → rank → context</i>"]
+        AC["AgentClient<br/><i>per-agent timeout</i>"]
+        AGG["FindingAggregator<br/><i>de-duplication</i>"]
+        RANK["SeverityRanker"]
+        SIM["SimilarIssueLookup"]
+    end
+
+    subgraph AGS["AGENT SERVICE — the same shape five times  "]
+        direction LR
+        API["ReviewController<br/><i>POST /v1/review</i>"]
+        ANA["Analyzer<br/><i>agent-specific rules</i>"]
+        LLMC["LlmClient<br/><i>Groq, then Gemini</i>"]
+        SBX["SandboxRunner<br/><i>Style Agent only</i>"]
+    end
+
+    subgraph PERS["PERSISTENCE  "]
+        direction LR
+        REPO["Prisma stores<br/><i>PrismaStores, PrismaJobStore → Supabase Postgres</i>"]
+        VEC["VectorRepository"]
+        SBA["Supabase Auth<br/><i>email, GitHub, Google</i>"]
+    end
+
+    PRX --> SBA
+    SA --> SBA
+    SHELL --> SBA
+    SHELL -->|"gatewayFetch: Supabase bearer"| AUTH
+    AUTH --> SBA
+
+    WHR --> RT
+    AUTH --> RT
+    AUTH --> CFG
+    RL --> RT
+    RT --> JOB
+    CFG --> REPO
+    GHC --> RT
+
+    JOB --> GRAPH
+    GRAPH --> AC
+    GRAPH --> AGG
+    GRAPH --> RANK
+    GRAPH --> SIM
+    AC --> API
+    SIM --> VEC
+    JOB --> REPO
+
+    API --> ANA
+    ANA --> LLMC
+    ANA --> SBX
+
+    classDef dash     fill:#d8f3f8,stroke:#1f9fb5,stroke-width:1.4px,color:#0d5664
+    classDef gateway  fill:#fdead3,stroke:#d9822b,stroke-width:1.4px,color:#8a4b0b
+    classDef orchestr fill:#e7ddf5,stroke:#7048b6,stroke-width:1.4px,color:#432371
+    classDef agent    fill:#d9f0e1,stroke:#2f9e5e,stroke-width:1.4px,color:#155c33
+    classDef data     fill:#fbdcdc,stroke:#d64545,stroke-width:1.4px,color:#8a1f1f
+
+    class PRX,SA,SHELL dash
+    class WHR,AUTH,RL,RT,CFG,GHC gateway
+    class JOB,GRAPH,AC,AGG,RANK,SIM orchestr
+    class API,ANA,LLMC,SBX agent
+    class REPO,VEC,SBA data
+
+    style DSH  fill:#f7f8fa,stroke:#d9dce2
+    style GWS  fill:#f7f8fa,stroke:#d9dce2
+    style ORS  fill:#f7f8fa,stroke:#d9dce2
+    style AGS  fill:#f7f8fa,stroke:#d9dce2
+    style PERS fill:#f7f8fa,stroke:#d9dce2

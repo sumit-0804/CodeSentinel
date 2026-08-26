@@ -1,0 +1,72 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#e3f0fb","primaryBorderColor":"#2f7fb8","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+classDiagram
+    direction TB
+
+    class LlmClient {
+        -groq : GroqProvider
+        -gemini : GeminiProvider
+        +complete(LlmRequest, provider) LlmResponse
+        -checkInputBudget(LlmRequest) void
+    }
+
+    class GroqProvider {
+        -apiKey : string
+        -model : string
+        +complete(LlmRequest) LlmResponse
+        -parseRetryAfter(response) int
+    }
+
+    class GeminiProvider {
+        -apiKey : string
+        -model : string
+        +complete(LlmRequest) LlmResponse
+        -parseRetryDelay(error) int
+    }
+
+    class GeminiEmbedder {
+        -apiKey : string
+        -model : string
+        -dimensions : int
+        +embedMany(texts) number[][]
+    }
+
+    class QuotaBudget {
+        -requestsPerMinute : int
+        -tokensPerMinute : int
+        -requestsPerDay : int
+        -headroom : number
+        +tryReserve(QuotaCost) ReserveResult
+        +settle(Reservation, actual) void
+        +release(Reservation) void
+    }
+
+    class ReviewPlanner {
+        +planLlmReview(files, limits) LlmReviewPlan
+    }
+
+    class LlmRequest {
+        +systemPrompt : string
+        +diffHunks : string
+        +maxOutputTokens : int
+        +temperature : number
+    }
+
+    class LlmResponse {
+        +text : string
+        +provider : string
+        +fallbackDepth : int
+        +model : string
+        +promptTokens : int
+        +completionTokens : int
+    }
+
+    LlmClient *-- GroqProvider : primary
+    LlmClient *-- GeminiProvider : secondary
+    LlmClient ..> LlmRequest
+    LlmClient ..> LlmResponse
+    ReviewPlanner ..> QuotaBudget : one budget per provider
+    LlmResponse ..> QuotaBudget : settles with token counts
+    GeminiEmbedder ..> QuotaBudget : embedding quota
+
+    note for LlmClient "Groq (gpt-oss-120b) first, Gemini second:<br/>Groq when its quota fits, else Gemini, and<br/>Gemini retries a failed Groq call (fallbackDepth 1).<br/>Separate dev and prod keys (NFR-11, NFR-14).<br/>Over-budget input: file skipped, never split."
+    note for QuotaBudget "Reserved by the orchestrator before fan-out,<br/>so production never receives a 429.<br/>Sliding 1-minute and rolling 24-hour windows."

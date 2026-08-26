@@ -1,0 +1,376 @@
+openapi: 3.1.0
+info:
+  title: Code-Sentinel Shared Schemas
+  version: 1.0.0
+  description: >
+    Schemas shared by the Gateway, Orchestrator and Agent contracts. This file is not
+    served as an API of its own; it exists so that a Finding produced by an agent, carried
+    by the orchestrator and rendered by a client is described exactly once.
+
+paths: {}
+
+components:
+  schemas:
+
+    AgentKind:
+      type: string
+      enum: [security, style, performance, logic, documentation]
+
+    Severity:
+      type: string
+      enum: [critical, warning, info]
+
+    Confidence:
+      type: number
+      format: double
+      minimum: 0
+      maximum: 1
+      description: Model or rule confidence. Compared against the repository's threshold (default 0.8) before a fix is auto-suggested.
+
+    Language:
+      type: string
+      enum: [javascript, typescript, python, unknown]
+
+    CodeLocation:
+      type: object
+      required: [filePath, lineStart, lineEnd]
+      properties:
+        filePath:
+          type: string
+          example: payments/retry_queue.py
+        lineStart:
+          type: integer
+          minimum: 1
+          example: 132
+        lineEnd:
+          type: integer
+          minimum: 1
+          example: 138
+
+    ChangedFile:
+      type: object
+      required: [path, language, patch]
+      properties:
+        path:
+          type: string
+        language:
+          $ref: '#/components/schemas/Language'
+        changeType:
+          type: string
+          enum: [added, modified, renamed, deleted]
+          default: modified
+        previousPath:
+          type: string
+          description: Present only when changeType is renamed.
+        patch:
+          type: string
+          description: >
+            Unified diff hunks for this file only. Agents receive changed hunks rather than whole
+            files so that no more of the codebase reaches an LLM provider than the analysis needs
+            (NFR-06).
+        contextBefore:
+          type: string
+          description: Optional surrounding lines, when the agent needs more than the hunk to judge.
+
+    SkippedFile:
+      type: object
+      required: [path, reason]
+      description: >
+        A file that was not analyzed. Large diffs are skipped, never split (see plans/large-diffs.md).
+      properties:
+        path:
+          type: string
+        reason:
+          type: string
+          enum: [unsupported_language, too_large, generated_file, binary, over_budget]
+          description: >
+            too_large means the file alone exceeds the size limit; over_budget means it fit on its own
+            but the review's LLM token budget was already spent.
+
+    ReportSkippedFile:
+      allOf:
+        - $ref: '#/components/schemas/SkippedFile'
+        - type: object
+          properties:
+            agents:
+              type: array
+              description: Agents that skipped the file. Absent when the gateway dropped it before fan-out.
+              items:
+                $ref: '#/components/schemas/AgentKind'
+
+    ReviewCoverage:
+      type: object
+      required: [filesTotal, filesReviewed, changedLinesTotal, changedLinesReviewed]
+      description: A file counts as reviewed when at least one agent that succeeded analyzed it.
+      properties:
+        filesTotal:
+          type: integer
+        filesReviewed:
+          type: integer
+        changedLinesTotal:
+          type: integer
+        changedLinesReviewed:
+          type: integer
+
+    Suggestion:
+      type: object
+      required: [kind, originalSnippet, suggestedSnippet]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        kind:
+          type: string
+          enum: [deterministic, ai_suggested]
+          description: >
+            deterministic fixes come from ESLint/Prettier/Ruff/Black and involve no LLM call, so they
+            can be applied without review (NFR-07). ai_suggested fixes always require an explicit
+            developer action (FR-GH-04).
+        state:
+          type: string
+          enum: [proposed, accepted, rejected, superseded]
+          default: proposed
+          readOnly: true
+        originalSnippet:
+          type: string
+        suggestedSnippet:
+          type: string
+        explanation:
+          type: string
+          description: One or two sentences the developer sees next to the diff.
+        commitSha:
+          type: string
+          readOnly: true
+          description: The commit that applied the fix, once accepted.
+        rejectionReason:
+          $ref: '#/components/schemas/RejectionReason'
+
+    RejectionReason:
+      type: string
+      enum: [false_positive, not_applicable, will_fix_manually, other]
+      description: Why a person dismissed a suggested fix (UC-3).
+
+    SimilarPastIssue:
+      type: object
+      required: [findingId, similarityScore, title]
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        similarityScore:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        title:
+          type: string
+        repositoryFullName:
+          type: string
+        resolution:
+          type: string
+          description: How the earlier occurrence was resolved, when it was.
+        occurredAt:
+          type: string
+          format: date-time
+
+    Finding:
+      type: object
+      required: [agent, ruleId, title, description, location, severity, confidence]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        agent:
+          $ref: '#/components/schemas/AgentKind'
+        ruleId:
+          type: string
+          example: security/hardcoded-secret
+        title:
+          type: string
+          example: AWS access key committed in source
+        description:
+          type: string
+        location:
+          $ref: '#/components/schemas/CodeLocation'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        confidence:
+          $ref: '#/components/schemas/Confidence'
+        cweId:
+          type: string
+          example: CWE-798
+        suggestion:
+          $ref: '#/components/schemas/Suggestion'
+        similarPastIssues:
+          type: array
+          description: Attached by the orchestrator from the vector database (FR-ORC-05). Agents never populate this.
+          items:
+            $ref: '#/components/schemas/SimilarPastIssue'
+        duplicateCount:
+          type: integer
+          minimum: 1
+          default: 1
+          description: How many agents reported this same issue before de-duplication (FR-ORC-03).
+
+    AgentRunSummary:
+      type: object
+      required: [agent, status]
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentKind'
+        status:
+          type: string
+          enum: [succeeded, timed_out, failed, skipped]
+          description: >
+            timed_out and failed still produce a report; the agent is marked "no result" rather than
+            failing the whole review (FR-ORC-02, NFR-04).
+        findingsCount:
+          type: integer
+          minimum: 0
+        latencyMs:
+          type: integer
+          minimum: 0
+        llmProvider:
+          type: string
+          description: >
+            groq, or gemini when Groq's quota could not take the call or a Groq call failed
+            (NFR-11, NFR-14); "groq,gemini" when the agent's batches were split across both.
+            Absent for the Style Agent and for runs that made no LLM call.
+          example: groq
+        errorCode:
+          type: string
+          description: >
+            llm_quota_exhausted when the orchestrator could not fit this agent into the Groq or the
+            Gemini quota before the deadline; the run is then skipped and the review is partial.
+
+    ReviewSummary:
+      type: object
+      required: [criticalCount, warningCount, infoCount, autoFixedCount]
+      properties:
+        criticalCount:
+          type: integer
+        warningCount:
+          type: integer
+        infoCount:
+          type: integer
+        autoFixedCount:
+          type: integer
+          description: Style issues fixed deterministically, with no LLM involved.
+        suggestedFixCount:
+          type: integer
+
+    CombinedReport:
+      type: object
+      required: [reviewId, status, summary, findings, agentRuns]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, completed, partial, failed]
+          description: >
+            partial means at least one agent timed out, failed or was deferred by the Gemini quota
+            but a report was still produced. Skipped files alone do not make a review partial.
+        repositoryFullName:
+          type: string
+        pullRequestNumber:
+          type: integer
+        headSha:
+          type: string
+        confidenceThreshold:
+          $ref: '#/components/schemas/Confidence'
+        summary:
+          $ref: '#/components/schemas/ReviewSummary'
+        findings:
+          type: array
+          description: De-duplicated and ranked by severity, then by confidence (FR-ORC-03, FR-ORC-04).
+          items:
+            $ref: '#/components/schemas/Finding'
+        agentRuns:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRunSummary'
+        skippedFiles:
+          type: array
+          description: Files not analyzed, one entry per path and reason, from the gateway and every agent.
+          items:
+            $ref: '#/components/schemas/ReportSkippedFile'
+        coverage:
+          $ref: '#/components/schemas/ReviewCoverage'
+        durationMs:
+          type: integer
+        completedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: invalid_signature
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+          description: Echoed in every response and written to the run log so a report can be traced back (NFR-12).
+
+    PageInfo:
+      type: object
+      required: [total, limit, offset]
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: The request failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: >
+        Missing or invalid credentials. `code` is `unauthenticated` (no Authorization header),
+        `invalid_credentials` (an invalid or expired Supabase token), or
+        `session_revoked` (a valid token whose session was signed out).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: >
+        Authenticated but not allowed (NFR-13). `code` is `organization_forbidden` (not a member of
+        that organization), `organization_required` (no organization chosen), `admin_required` (not an admin of the
+        organization), or `mfa_required` (no authenticator code entered within `MFA_STEP_UP_MINUTES`).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: No such resource, or not visible to this tenant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Per-installation rate limit exceeded (FR-GW-05).
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

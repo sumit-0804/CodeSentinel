@@ -1,0 +1,89 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#d9f0e1","primaryBorderColor":"#2f9e5e","lineColor":"#6b7280","primaryTextColor":"#1a1a1a"}} }%%
+classDiagram
+    direction TB
+
+    class ReviewAgent {
+        <<interface>>
+        +review(AgentReviewRequest) AgentReviewResponse
+        +capabilities() Capabilities
+        +health() Health
+    }
+
+    class BaseAgentService {
+        <<abstract>>
+        #agentKind : AgentKind
+        #maxDiffBytes : int
+        +review(AgentReviewRequest) AgentReviewResponse
+        #analyze(ChangedFile)* Finding[]
+        #detectLanguage(ChangedFile) Language
+        #skip(ChangedFile, reason) void
+    }
+
+    class SecurityAgent {
+        -sastRules : RuleSet
+        -secretPatterns : PatternSet
+        #analyze(ChangedFile) Finding[]
+        -scanInjection(hunk) Finding[]
+        -scanSecrets(hunk) Finding[]
+    }
+
+    class StyleAgent {
+        -dispatcher : LinterDispatcher
+        #analyze(ChangedFile) Finding[]
+        +applyFixes(ChangedFile[]) PatchedFile[]
+    }
+
+    class PerformanceAgent {
+        #analyze(ChangedFile) Finding[]
+        -detectNPlusOne(hunk) Finding[]
+        -detectBlockingCall(hunk) Finding[]
+    }
+
+    class LogicAgent {
+        #analyze(ChangedFile) Finding[]
+        -checkNullHandling(hunk) Finding[]
+        -checkBoundaries(hunk) Finding[]
+    }
+
+    class DocumentationAgent {
+        #analyze(ChangedFile) Finding[]
+        -missingDocstrings(hunk) Finding[]
+        -draftDocstring(symbol) string
+    }
+
+    class LinterDispatcher {
+        +forLanguage(Language) Linter[]
+        -eslint : Linter
+        -prettier : Linter
+        -ruff : Linter
+        -black : Linter
+    }
+
+    class DockerSandbox {
+        -cpuLimit : string
+        -memoryLimit : string
+        -networkDisabled : boolean
+        +run(command, files) SandboxResult
+    }
+
+    class LlmClient {
+        +complete(LlmRequest) LlmResponse
+    }
+
+    ReviewAgent <|.. BaseAgentService
+    BaseAgentService <|-- SecurityAgent
+    BaseAgentService <|-- StyleAgent
+    BaseAgentService <|-- PerformanceAgent
+    BaseAgentService <|-- LogicAgent
+    BaseAgentService <|-- DocumentationAgent
+
+    StyleAgent *-- LinterDispatcher
+    LinterDispatcher --> DockerSandbox : runs every linter inside
+
+    SecurityAgent --> LlmClient
+    PerformanceAgent --> LlmClient
+    LogicAgent --> LlmClient
+    DocumentationAgent --> LlmClient
+
+    note for ReviewAgent "All five services implement this one contract,\nwhich is what lets each be called, tested and\nreused independently (FR-SEC-04, NFR-10)."
+    note for StyleAgent "The only agent with no LlmClient. Its fixes are\nrule-based and therefore safe to apply without\ndeveloper review (NFR-07)."

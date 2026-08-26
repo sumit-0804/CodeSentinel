@@ -1,0 +1,55 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":46,"width":168,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor Dev as Member
+    participant UI as Dashboard PR page
+    participant GW as API Gateway
+    participant GH as GitHub API
+    participant DB as PostgreSQL
+
+    Note over Dev,UI: precondition — the review produced at least one fix<br/>whose confidence cleared the threshold (posted inline, comment id stored)
+
+    Dev->>UI: expand the finding
+    UI-->>Dev: original vs suggested lines, Commit fix / Dismiss
+
+    alt Commit fix
+        Dev->>UI: Commit fix
+        UI->>GW: POST /v1/findings/{id}/suggestion/accept
+        GW->>DB: fix in this organization, still proposed?
+        alt already accepted, dismissed or superseded
+            GW-->>UI: 409 suggestion_decided
+        else proposed
+            GW->>GW: step-up: TOTP code from the last 10 min?
+            opt no fresh code
+                GW-->>UI: 403 mfa_required
+                UI-->>Dev: enter your authenticator code, then retry
+            end
+            GW->>GH: get the pull request
+            alt closed, from a fork, or head moved past the reviewed commit
+                GW-->>UI: 409 pull_request_closed / fork_not_supported / head_moved
+            else same head
+                GW->>GH: read the file at the head
+                alt reviewed lines changed
+                    GW-->>UI: 409 file_changed
+                else lines match
+                    GW->>GH: commit the fixed file onto the branch (Contents API)
+                    GH-->>GW: commit sha
+                    GW->>DB: state = accepted, resolved_by_user_id, commit sha
+                    GW->>GH: reply "Applied in {sha}" on the fix's comment
+                    GW-->>UI: 200 { state: accepted, commitSha }
+                    UI-->>Dev: Committed in {sha}
+                end
+            end
+        end
+
+    else Dismiss
+        Dev->>UI: Dismiss (reason, optional comment)
+        UI->>GW: POST /v1/findings/{id}/suggestion/reject
+        GW->>DB: state = rejected, reason, comment (only while proposed)
+        GW-->>UI: 200 recorded
+        UI-->>Dev: Dismissed — the finding stays visible, no code changed
+    end
+
+    Note over GW,DB: Code Sentinel never writes to a branch on its own.<br/>Accepting is the only path to a commit (FR-GH-04, AC-04).
+
+    Note over GW,DB: The commit is a push, so the pull request is reviewed again.<br/>When that review completes, older proposed fixes become superseded,<br/>including fixes committed with GitHub's own Commit suggestion button.

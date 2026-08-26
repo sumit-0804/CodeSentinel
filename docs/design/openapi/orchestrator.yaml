@@ -1,0 +1,313 @@
+openapi: 3.1.0
+info:
+  title: Code-Sentinel Orchestrator API
+  version: 1.0.0
+  description: >
+    Internal contract between the API Gateway and the LangGraph orchestrator. Only the gateway
+    calls it; it is not exposed to the internet.
+
+    A review job is accepted immediately and runs asynchronously, because a full fan-out can take
+    up to a minute (NFR-01) and neither a GitHub webhook delivery nor a dashboard request should be
+    held open that long. The caller either polls the job or supplies a callback URL.
+  contact:
+    name: Team Code-Sentinel
+
+servers:
+  - url: http://orchestrator.internal:8080
+    description: Orchestrator service (Sumit Goyal, Durgesh)
+
+security:
+  - serviceToken: []
+
+tags:
+  - name: Review Jobs
+    description: Starting, polling and cancelling a fan-out.
+  - name: Service
+    description: Health and configuration introspection.
+
+paths:
+
+  /internal/v1/review-jobs:
+    post:
+      tags: [Review Jobs]
+      operationId: createReviewJob
+      summary: Start a review and fan out to the enabled agents
+      description: >
+        Fans the request out to every enabled agent in parallel (FR-ORC-01), applies the per-agent
+        timeout (FR-ORC-02), then aggregates, de-duplicates and severity-ranks the results
+        (FR-ORC-03, FR-ORC-04), attaches similar past issues from the vector database (FR-ORC-05),
+        and marks which findings clear the confidence threshold (FR-ORC-06).
+
+        Returns 202 with a job id. The combined report is fetched from the job, or pushed to
+        callbackUrl when one is given.
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewJobRequest'
+      responses:
+        '202':
+          description: Job accepted and fan-out started.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewJob'
+        '200':
+          description: >
+            A job for this idempotency key already exists. Returned instead of starting a second
+            fan-out, which is what makes a redelivered GitHub webhook harmless.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewJob'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '422':
+          description: No agents are enabled for this repository, so there is nothing to run.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /internal/v1/review-jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Review Jobs]
+      operationId: getReviewJob
+      summary: Poll a review job and read its combined report
+      responses:
+        '200':
+          description: >
+            Current job state. While running, agentRuns shows which agents have already answered,
+            which is what drives the "in progress" Check Run and the dashboard's progress view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewJob'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /internal/v1/review-jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      tags: [Review Jobs]
+      operationId: cancelReviewJob
+      summary: Cancel a running job
+      description: >
+        Used when a pull request is closed or a newer commit supersedes the one under review, so
+        that abandoned fan-outs do not keep consuming LLM quota (NFR-14).
+      responses:
+        '200':
+          description: Job cancelled, or already in a terminal state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewJob'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /internal/v1/agents/health:
+    get:
+      tags: [Service]
+      operationId: getAgentHealth
+      summary: Report the last known health of each agent service
+      description: >
+        The orchestrator polls the five agents and caches the result. The dashboard uses this to
+        explain why an agent was marked "no result" on a recent review.
+      responses:
+        '200':
+          description: Per-agent health snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents, checkedAt]
+                properties:
+                  checkedAt:
+                    type: string
+                    format: date-time
+                  agents:
+                    type: array
+                    items:
+                      type: object
+                      required: [agent, status]
+                      properties:
+                        agent:
+                          $ref: './common.yaml#/components/schemas/AgentKind'
+                        status:
+                          type: string
+                          enum: [ok, degraded, unavailable]
+                        latencyMs:
+                          type: integer
+                        version:
+                          type: string
+
+  /healthz:
+    get:
+      tags: [Service]
+      operationId: orchestratorHealth
+      summary: Liveness and readiness probe
+      security: []
+      responses:
+        '200':
+          description: Orchestrator is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded, unavailable]
+                  version:
+                    type: string
+
+components:
+
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: Short-lived token issued to the gateway. Internal traffic is TLS 1.2+ (NFR-05).
+
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      schema:
+        type: string
+      description: Propagated to every agent call so one review can be followed end to end (NFR-12).
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+      description: >
+        For webhook-triggered reviews the gateway sends the GitHub delivery id. Replaying the same
+        delivery returns the existing job instead of starting a second one.
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+
+    ReviewJobRequest:
+      type: object
+      required: [repositoryId, organizationId, trigger, headSha, files]
+      properties:
+        repositoryId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+          description: Carried on every job so retrieval and storage stay inside one tenant (NFR-13).
+        trigger:
+          type: string
+          enum: [github_pull_request, dashboard_manual]
+        triggeredByUserId:
+          type: string
+          format: uuid
+        pullRequest:
+          type: object
+          description: Present when trigger is github_pull_request.
+          properties:
+            number:
+              type: integer
+            title:
+              type: string
+            headRef:
+              type: string
+            baseRef:
+              type: string
+        headSha:
+          type: string
+        baseSha:
+          type: string
+        files:
+          type: array
+          minItems: 1
+          description: >
+            Files that passed the gateway filter. When every file is filtered out the gateway finishes
+            the review itself with an empty report instead of calling the orchestrator.
+          items:
+            $ref: './common.yaml#/components/schemas/ChangedFile'
+        skippedFiles:
+          type: array
+          description: >
+            Files the gateway dropped before fan-out (binary, generated or vendored, no patch from
+            GitHub). Carried into CombinedReport.skippedFiles so the report shows what was not reviewed.
+          items:
+            $ref: './common.yaml#/components/schemas/SkippedFile'
+        enabledAgents:
+          type: array
+          description: >
+            Resolved by the gateway from repository_agent_config (FR-WEB-02). Omitted means all five.
+          items:
+            $ref: './common.yaml#/components/schemas/AgentKind'
+        confidenceThreshold:
+          $ref: './common.yaml#/components/schemas/Confidence'
+          description: Repository override if set, otherwise the platform default of 0.8 (FR-ORC-06, FR-WEB-03).
+        agentTimeoutMs:
+          type: integer
+          default: 20000
+          minimum: 1000
+          maximum: 120000
+          description: >
+            Per-agent budget. On expiry the orchestrator proceeds with partial results (NFR-02).
+            LLM agents get at least the orchestrator's LLM_AGENT_TIMEOUT_MS (default 45000),
+            because a batch routed to Gemini can take over 20 seconds on the free tier.
+        includeSimilarPastIssues:
+          type: boolean
+          default: true
+          description: Set false to skip the vector database lookup (FR-ORC-05).
+        callbackUrl:
+          type: string
+          format: uri
+          description: Called once with the completed job when the fan-out finishes.
+
+    ReviewJob:
+      type: object
+      required: [jobId, reviewId, status, createdAt]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        reviewId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running, completed, partial, failed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        agentRuns:
+          type: array
+          items:
+            $ref: './common.yaml#/components/schemas/AgentRunSummary'
+        report:
+          $ref: './common.yaml#/components/schemas/CombinedReport'
+          description: Populated once status is completed or partial.
+        error:
+          $ref: './common.yaml#/components/schemas/Error'

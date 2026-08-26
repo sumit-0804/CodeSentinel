@@ -1,0 +1,1345 @@
+openapi: 3.1.0
+info:
+  title: Code-Sentinel API Gateway
+  version: 1.0.0
+  description: >
+    The single entry point for both clients, the GitHub App and the Next.js dashboard (FR-GW-01).
+    Nothing downstream is reachable from outside; the gateway
+    authenticates, rate-limits and forwards to the orchestrator, then relays the answer back
+    (FR-GW-02, FR-GW-04, FR-GW-05).
+
+    Two authentication schemes are in use. GitHub webhook traffic is verified by HMAC-SHA256
+    signature (FR-GW-03) and carries no session. The dashboard calls the gateway from its server
+    with the signed-in user's Supabase access token, an `Authorization: Bearer` token that resolves
+    to a user and, where one applies, an organization.
+    Every organization-owned read is scoped to that organization (NFR-13). A user in several
+    organizations picks one with the `X-Organization-Id` header.
+  contact:
+    name: Team Code-Sentinel
+  license:
+    name: Academic project — DAIICT
+
+servers:
+  - url: https://api.codesentinel.dev
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Webhooks
+    description: Inbound GitHub events. UC-1.
+  - name: Reviews
+    description: Triggering reviews and reading combined reports. UC-1, UC-2, UC-5.
+  - name: Findings
+    description: Accepting or rejecting individual suggested fixes. UC-3.
+  - name: Repositories
+    description: Repository listing and per-repository agent configuration. UC-4.
+  - name: Account
+    description: Identity and organizations.
+  - name: Service
+    description: Health.
+
+paths:
+
+  # -------------------------------------------------------------------------
+  # UC-1 — Automatic pull request review
+  # -------------------------------------------------------------------------
+
+  /webhooks/github:
+    post:
+      tags: [Webhooks]
+      operationId: receiveGithubWebhook
+      summary: Receive a GitHub webhook event
+      description: >
+        Subscribed to pull_request (opened, synchronize, reopened) plus the installation events
+        (FR-GH-01). The HMAC-SHA256 signature is verified before the payload is read at all; an
+        unsigned or badly signed request is rejected and never forwarded (FR-GW-03).
+
+        Returns 202 as soon as the event is queued. GitHub gets its response in well under its
+        delivery timeout, and the review itself runs asynchronously.
+      security: []
+      parameters:
+        - name: X-GitHub-Event
+          in: header
+          required: true
+          schema:
+            type: string
+            example: pull_request
+        - name: X-GitHub-Delivery
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Used as the idempotency key, so a redelivery does not start a second review.
+        - name: X-Hub-Signature-256
+          in: header
+          required: true
+          schema:
+            type: string
+            example: sha256=7d38cdd689735b008b3c702edd92eea23791c5f6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw GitHub webhook payload. Read only after signature verification.
+              additionalProperties: true
+      responses:
+        '202':
+          description: Event accepted. A review job was started, or the event needed no action.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted]
+                properties:
+                  accepted:
+                    type: boolean
+                  reviewId:
+                    type: string
+                    format: uuid
+                    description: Absent when the event did not warrant a review.
+                  action:
+                    type: string
+                    enum: [review_started, duplicate_ignored, event_ignored, repository_disabled, installation_synced, branch_ignored]
+                    description: >
+                      branch_ignored: the pull request merges into a branch the repository's
+                      review branches don't match, so no review runs.
+        '400':
+          description: >
+            Correctly signed, but X-GitHub-Event or X-GitHub-Delivery is missing (missing_header), or
+            the body is not JSON or not a valid pull_request payload (invalid_payload).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '401':
+          description: Signature verification failed.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+        '502':
+          description: >
+            The orchestrator could not be reached or rejected the job (orchestrator_unavailable).
+            GitHub marks the delivery failed; redelivering it is safe because the delivery id is the
+            idempotency key.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  # -------------------------------------------------------------------------
+  # UC-2 — On-demand review from the dashboard
+  # -------------------------------------------------------------------------
+
+  /v1/reviews:
+    post:
+      tags: [Reviews]
+      operationId: createReview
+      summary: Re-run the review of an open pull request
+      description: >
+        Backs the dashboard's "Re-run review". The gateway reads the open pull request from GitHub
+        and reviews its head commit with trigger `dashboard_manual`, as any member of the
+        organization. An older review of that pull request still running is cancelled and its
+        Check Run ends "Superseded by a newer commit".
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullRequestReviewRequest'
+      responses:
+        '202':
+          description: Review accepted and running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewAccepted'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: >
+            `repository_not_found` (unknown, or another organization's) or `pull_request_not_found`
+            (not open on GitHub).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '409':
+          description: >
+            `review_in_progress` (a review of this pull request started less than 30 s ago),
+            `branch_ignored` (its base branch isn't reviewed) or `repository_disabled` (reviews off,
+            or every agent off).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '422':
+          description: >
+            `no_reviewable_files`: every changed file is skipped. A neutral "Nothing to review" Check
+            Run is posted on the pull request.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+        '502':
+          description: '`github_unavailable` or `orchestrator_unavailable`.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+    get:
+      tags: [Reviews]
+      operationId: listReviews
+      summary: List review history
+      description: >
+        Every review across every repository the caller's organization has CodeSentinel installed
+        on (FR-WEB-01), filterable by repository, status, severity and date (UC-5, AC-09). An empty
+        list is a normal result and drives the dashboard's empty state. A review in another
+        organization is never listed.
+
+        Implemented so far (A4b-2): repositoryId, status, latest, limit and offset. minSeverity,
+        trigger, from and to are not applied yet. A bad filter is 400 invalid_query.
+      parameters:
+        - name: repositoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: latest
+          in: query
+          description: >
+            true keeps only each pull request's newest review (one row per pull request), for the
+            dashboard's pull request lists. Other triggers are left out.
+          schema:
+            type: boolean
+            default: false
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [queued, running, completed, partial, failed]
+          style: form
+          explode: false
+        - name: minSeverity
+          in: query
+          description: Return only reviews containing at least one finding at this severity or above.
+          schema:
+            $ref: './common.yaml#/components/schemas/Severity'
+        - name: trigger
+          in: query
+          schema:
+            type: string
+            enum: [github_pull_request, dashboard_manual]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Matching reviews, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, pageInfo]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReviewListItem'
+                  pageInfo:
+                    $ref: './common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /v1/reviews/{reviewId}:
+    parameters:
+      - $ref: '#/components/parameters/ReviewId'
+    get:
+      tags: [Reviews]
+      operationId: getReview
+      summary: Get the combined review report
+      description: >
+        The full de-duplicated, severity-ranked report for one review (FR-WEB-04, FR-ORC-03,
+        FR-ORC-04). The dashboard's report detail page shows this payload, and the GitHub comments
+        are built from the same findings, so the two surfaces cannot disagree (NFR-08).
+
+        While the review is still running the response carries the agents that have already
+        answered, so a client can render progress without a second endpoint. Until the report
+        exists it is empty: no findings, no agent runs and zero counts.
+
+        The body is a CombinedReport plus where it came from (ReviewDetail), so a client that reads
+        a CombinedReport still can. A review in another organization, or a malformed id, is 404
+        review_not_found. The agent filter is not applied yet.
+      parameters:
+        - name: agent
+          in: query
+          description: Return findings from these agents only. The dashboard's per-agent filter.
+          schema:
+            type: array
+            items:
+              $ref: './common.yaml#/components/schemas/AgentKind'
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Combined report, with where it came from.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDetail'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/reviews/{reviewId}/events:
+    parameters:
+      - $ref: '#/components/parameters/ReviewId'
+    get:
+      tags: [Reviews]
+      operationId: streamReviewEvents
+      summary: Stream review progress (SSE)
+      description: >
+        Server-sent events emitted as each agent returns, so the dashboard can fill in results as they arrive instead of polling. Closes when the review reaches a
+        terminal state.
+      responses:
+        '200':
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: agent_completed
+                  data: {"agent":"style","status":"succeeded","findingsCount":8,"latencyMs":1420}
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  # -------------------------------------------------------------------------
+  # UC-3 — Apply or reject an AI-suggested fix
+  # -------------------------------------------------------------------------
+
+  /v1/findings/{findingId}/suggestion/accept:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    post:
+      tags: [Findings]
+      operationId: acceptSuggestion
+      summary: Accept a suggested fix
+      description: >
+        Commits the suggested fix to the pull request branch as the GitHub App, then records the
+        decision. This endpoint is the only path by which Code Sentinel writes to a branch, and it
+        runs only on an explicit action (FR-GH-04). Any member of the finding's organization may
+        accept, with a signed-in session and a TOTP step-up from the last `MFA_STEP_UP_MINUTES`
+        (403 mfa_required), since it writes code.
+
+        The commit replaces lines `lineStart..lineEnd` of the file at the pull request's head with
+        `suggestedSnippet`, only if those lines still equal `originalSnippet` and the head is still
+        the reviewed commit. If an inline comment was posted for the fix, it gets an "Applied in"
+        reply. The commit is a push, so the pull request is reviewed again.
+      responses:
+        '200':
+          description: Committed and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuggestionDecision'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: '`finding_not_found`: unknown, another organization''s, or a finding without a fix.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '409':
+          description: >
+            `suggestion_decided` (already accepted, rejected or superseded), `pull_request_closed`,
+            `head_moved` (newer commits since the review; re-run it), `fork_not_supported` (the App
+            can't push to a fork), `file_changed` (the lines no longer match), or
+            `github_permission_missing` (the App needs Contents: Read and write).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '502':
+          description: '`github_unavailable`.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/findings/{findingId}/suggestion/reject:
+    parameters:
+      - $ref: '#/components/parameters/FindingId'
+    post:
+      tags: [Findings]
+      operationId: rejectSuggestion
+      summary: Reject a suggested fix
+      description: >
+        The finding stays visible in the report but no code changes (UC-3 alternate flow, AC-04).
+        Any member of the finding's organization may reject, with a signed-in session; no step-up,
+        since nothing is written to the repository. The optional reason and comment are stored for
+        rule tuning.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  $ref: './common.yaml#/components/schemas/RejectionReason'
+                comment:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Decision recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuggestionDecision'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: '`finding_not_found`: unknown, another organization''s, or a finding without a fix.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '409':
+          description: '`suggestion_decided`: already accepted, rejected or superseded.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  # -------------------------------------------------------------------------
+  # UC-4 — Configure repository and agent settings
+  # -------------------------------------------------------------------------
+
+  /v1/repositories:
+    get:
+      tags: [Repositories]
+      operationId: listRepositories
+      summary: List repositories CodeSentinel is installed on
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - name: enabledOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Repositories visible to the caller's organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Repository'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+      description: >
+        Active repositories of the caller's organization (`X-Organization-Id`, or the signed-in
+        user's only membership). Repositories removed from the installation are left out.
+        403 `organization_required` when a user in several organizations sends no header.
+
+  /v1/github/link:
+    post:
+      tags: [Account]
+      operationId: linkGithub
+      summary: Link GitHub and sync installations
+      description: >
+        Called by the dashboard's server with the `code` GitHub sent to its callback after the user
+        installed the App or authorized it (A6). The gateway exchanges the code for a GitHub App user
+        token, records the GitHub account on the user (one GitHub account per Code Sentinel user),
+        stores the token sealed (AES-256-GCM), then syncs every installation the user can reach:
+        organizations, installations, repositories and the user's role (admin for their own account
+        and for organizations where GitHub says admin; member otherwise). Signed-in sessions only,
+        with a TOTP step-up from the last `MFA_STEP_UP_MINUTES` (403 mfa_required, checked before the
+        code is used).
+      security:
+        - supabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GithubLinkRequest'
+      responses:
+        '200':
+          description: GitHub linked and installations synced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GithubLinkResult'
+        '400':
+          description: No `code` (`invalid_body`), or GitHub refused it as used or expired (`github_code_invalid`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '409':
+          description: The GitHub account is linked to another user (`github_account_taken`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '502':
+          description: GitHub did not answer (`github_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '503':
+          description: Linking is not configured on this server (`github_link_unconfigured`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/installations:
+    get:
+      tags: [Account]
+      operationId: listInstallations
+      summary: List the user's installations
+      description: The installations of every organization the signed-in user belongs to. Signed-in sessions only.
+      security:
+        - supabaseBearer: []
+      responses:
+        '200':
+          description: Installations, by account name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Installation'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /v1/installations/sync:
+    post:
+      tags: [Account]
+      operationId: syncInstallations
+      summary: Sync installations again
+      description: >
+        Re-runs the sync of `/v1/github/link` with the stored GitHub token, refreshing it first when it
+        is about to expire. Use it to pick up organizations the App was installed on since. Needs the
+        same TOTP step-up (403 mfa_required).
+      security:
+        - supabaseBearer: []
+      responses:
+        '200':
+          description: Installations synced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GithubLinkResult'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '409':
+          description: GitHub is not linked, or the stored token can no longer be refreshed (`github_not_linked`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '502':
+          description: GitHub did not answer (`github_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '503':
+          description: Linking is not configured on this server (`github_link_unconfigured`).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/repositories/{repositoryId}/pulls:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Repositories]
+      operationId: listRepositoryPullRequests
+      summary: List a repository's open pull requests
+      description: >
+        Open pull requests read from GitHub with the App's installation token, most recently updated
+        first (up to 50), each joined with its newest Code Sentinel review. GitHub's answer is cached
+        for 30 s per repository. Open to any member; another organization's repository
+        answers 404.
+      responses:
+        '200':
+          description: Open pull requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullRequestListResponse'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '502':
+          description: '`github_unavailable`: GitHub did not answer.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/repositories/{repositoryId}/config:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Repositories]
+      operationId: getRepositoryConfig
+      summary: Read agent configuration for a repository
+      description: >
+        Returns the effective configuration and where each value came from, so the Agents tab can
+        show "inherited from the organization" rather than an unexplained mode or 80%. A repository
+        in another organization answers 404, like an unknown one.
+
+        Agent modes and review branches come from the organization's review defaults while
+        useOrgDefaults is true, and from the repository's own settings otherwise; either way, an
+        agent with nothing set uses the platform default (block for Security, comment for the rest).
+      responses:
+        '200':
+          description: Effective configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryConfig'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+    put:
+      tags: [Repositories]
+      operationId: updateRepositoryConfig
+      summary: Update agent configuration for a repository
+      description: >
+        Sets each agent to off, comment or block (FR-WEB-02), the branches to review, whether the
+        repository follows the organization's defaults, reviews on or off, and optionally a
+        confidence threshold override (FR-WEB-03). A partial update: omitted fields keep their
+        value. Needs the admin role
+        in the owning organization (403 admin_required), then a TOTP step-up: the token must be
+        `aal2` with an authenticator code from the last `MFA_STEP_UP_MINUTES` (10), otherwise 403
+        mfa_required.
+
+        Turning every agent off is rejected with 400 no_agents_enabled, because a repository with
+        no agents would produce empty reports rather than an obvious error (UC-4 exception flow);
+        switch reviewEnabled off instead. Sending null for confidenceThresholdOverride restores
+        inheritance from the organization default (FR-ORC-06).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepositoryConfigUpdate'
+      responses:
+        '200':
+          description: Configuration saved. Applies from the next review job onwards (AC-07).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepositoryConfig'
+        '400':
+          description: Validation failed, for example every agent disabled.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+              example:
+                code: no_agents_enabled
+                message: At least one agent must stay on; switch reviews off instead
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  /v1/organizations/{organizationId}/review-defaults:
+    parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Repositories]
+      operationId: getReviewDefaults
+      summary: Read an organization's review defaults
+      description: >
+        Agent modes, confidence threshold and review branches for the organization's repositories
+        that follow the defaults. Open to any member.
+        Another organization answers 404.
+      responses:
+        '200':
+          description: The organization's review defaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDefaults'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    put:
+      tags: [Repositories]
+      operationId: updateReviewDefaults
+      summary: Update an organization's review defaults
+      description: >
+        A partial update. Needs a signed-in session, the organization's admin role and a TOTP
+        step-up (403 mfa_required), like the repository configuration. Turning every agent off is
+        rejected with 400 no_agents_enabled.
+        Applies from the next review of every repository that follows the defaults.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDefaultsUpdate'
+      responses:
+        '200':
+          description: Defaults saved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDefaults'
+        '400':
+          description: Validation failed, for example every agent off.
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+  # -------------------------------------------------------------------------
+  # Account
+  # -------------------------------------------------------------------------
+
+  /v1/me:
+    get:
+      tags: [Account]
+      operationId: getCurrentUser
+      summary: Identify the caller
+      description: Used by the dashboard on load.
+      responses:
+        '200':
+          description: Caller identity and organization memberships.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+
+  /healthz:
+    get:
+      tags: [Service]
+      operationId: gatewayHealth
+      summary: Liveness and readiness probe
+      security: []
+      responses:
+        '200':
+          description: Gateway is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded, unavailable]
+                  version:
+                    type: string
+                  dependencies:
+                    type: object
+                    additionalProperties:
+                      type: string
+
+security:
+  - supabaseBearer: []
+
+components:
+
+  securitySchemes:
+    supabaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        A Supabase Auth access token (ES256, verified against the project's JWKS; audience
+        `authenticated`). The session it belongs to must still be signed in, so signing out
+        anywhere takes effect at once. Sent by the dashboard's server, never by a browser.
+
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      schema:
+        type: string
+    OrganizationId:
+      name: X-Organization-Id
+      in: header
+      description: >
+        The organization to act in, for a signed-in user who belongs to several. Must be one of the
+        user's memberships (403 `organization_forbidden` otherwise). Without it, the user's only
+        organization is used.
+      schema:
+        type: string
+        format: uuid
+    ReviewId:
+      name: reviewId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    FindingId:
+      name: findingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RepositoryId:
+      name: repositoryId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+
+    PullRequestReviewRequest:
+      type: object
+      description: Review an open pull request's head commit again, from the dashboard (trigger `dashboard_manual`).
+      required: [repositoryId, pullRequestNumber]
+      additionalProperties: false
+      properties:
+        repositoryId:
+          type: string
+          format: uuid
+        pullRequestNumber:
+          type: integer
+          minimum: 1
+
+    ReviewAccepted:
+      type: object
+      required: [reviewId, status]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, running]
+        pollUrl:
+          type: string
+          format: uri
+        eventsUrl:
+          type: string
+          format: uri
+
+    AgentResult:
+      type: string
+      enum: [critical, warning, info, clean, not_run, running]
+      description: >
+        An agent's worst finding at or above the review's threshold; clean when it ran and found
+        nothing there, not_run when it was off, skipped or gave no result, running before the report.
+
+    ReviewDetail:
+      allOf:
+        - $ref: './common.yaml#/components/schemas/CombinedReport'
+        - type: object
+          required: [repositoryId, repositoryFullName, trigger, agentResults, createdAt]
+          properties:
+            repositoryId:
+              type: string
+              format: uuid
+            agentResults:
+              type: array
+              description: One entry per agent, in contract order, as in ReviewListItem.
+              items:
+                type: object
+                required: [agent, result]
+                properties:
+                  agent:
+                    $ref: './common.yaml#/components/schemas/AgentKind'
+                  result:
+                    $ref: '#/components/schemas/AgentResult'
+            trigger:
+              type: string
+              enum: [github_pull_request, dashboard_manual]
+            pullRequestTitle:
+              type: string
+            headRef:
+              type: string
+            baseRef:
+              type: string
+            checkConclusion:
+              type: string
+              enum: [pass, fail, neutral]
+              description: The GitHub Check Run's result, stored when it completes.
+            createdAt:
+              type: string
+              format: date-time
+
+    ReviewListItem:
+      type: object
+      required: [reviewId, repositoryFullName, status, createdAt, summary]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        repositoryId:
+          type: string
+          format: uuid
+        repositoryFullName:
+          type: string
+        headSha:
+          type: string
+        agentResults:
+          type: array
+          description: One entry per agent, in contract order; drives the dashboard's verdict lanes.
+          items:
+            type: object
+            required: [agent, result]
+            properties:
+              agent:
+                $ref: './common.yaml#/components/schemas/AgentKind'
+              result:
+                $ref: '#/components/schemas/AgentResult'
+        trigger:
+          type: string
+          enum: [github_pull_request, dashboard_manual]
+        pullRequestNumber:
+          type: integer
+        pullRequestTitle:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, partial, failed]
+        checkConclusion:
+          type: string
+          enum: [pass, fail, neutral]
+        summary:
+          $ref: './common.yaml#/components/schemas/ReviewSummary'
+        durationMs:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    SuggestionDecision:
+      type: object
+      required: [findingId, suggestionId, state]
+      properties:
+        findingId:
+          type: string
+          format: uuid
+        suggestionId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [accepted, rejected]
+        commitSha:
+          type: string
+          description: Present when the change was committed to the pull request branch.
+        resolvedAt:
+          type: string
+          format: date-time
+
+    Repository:
+      type: object
+      required: [repositoryId, fullName, reviewEnabled]
+      properties:
+        repositoryId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+          example: code-sentinel/consumer-api
+        defaultBranch:
+          type: string
+        primaryLanguage:
+          type: string
+        isPrivate:
+          type: boolean
+        reviewEnabled:
+          type: boolean
+        lastReviewAt:
+          type: string
+          format: date-time
+
+    PullRequestListItem:
+      type: object
+      description: One open pull request from GitHub, with its newest Code Sentinel review.
+      required: [number, title, headSha, headRef, baseRef, draft, updatedAt, htmlUrl, reviewable, latestReview]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+        author:
+          type: string
+          description: The author's GitHub login.
+        headSha:
+          type: string
+        headRef:
+          type: string
+        baseRef:
+          type: string
+        draft:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        htmlUrl:
+          type: string
+          format: uri
+        reviewable:
+          type: boolean
+          description: Whether the base branch is one of the repository's branches to review.
+        latestReview:
+          description: The pull request's newest review, or null if it has none.
+          oneOf:
+            - $ref: '#/components/schemas/ReviewListItem'
+            - type: 'null'
+
+    PullRequestListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PullRequestListItem'
+
+    Installation:
+      type: object
+      description: A GitHub account (personal or organization) the App is installed on.
+      required: [organizationId, accountLogin, accountType, suspended, repositoryCount]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        accountLogin:
+          type: string
+          example: octo-org
+        accountType:
+          type: string
+          enum: [user, organization]
+        suspended:
+          type: boolean
+        repositoryCount:
+          type: integer
+          minimum: 0
+
+    GithubLinkRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          maxLength: 200
+          description: The `code` GitHub sent to the dashboard's callback; it works once and expires in 10 minutes.
+
+    GithubLinkResult:
+      type: object
+      required: [githubLogin, installations]
+      properties:
+        githubLogin:
+          type: string
+        installations:
+          type: array
+          items:
+            type: object
+            required: [organizationId, accountLogin, accountType, repositoryCount]
+            properties:
+              organizationId:
+                type: string
+                format: uuid
+              accountLogin:
+                type: string
+              accountType:
+                type: string
+                enum: [user, organization]
+              repositoryCount:
+                type: integer
+                minimum: 0
+
+    AgentMode:
+      type: string
+      enum: [off, comment, block]
+      description: >
+        off skips the agent; comment posts its findings; block also fails the Check Run when the
+        agent reports a critical finding above the threshold.
+
+    AgentSetting:
+      type: object
+      required: [agent, mode, source]
+      properties:
+        agent:
+          $ref: './common.yaml#/components/schemas/AgentKind'
+        mode:
+          $ref: '#/components/schemas/AgentMode'
+        source:
+          type: string
+          enum: [repository, organization_default, platform_default]
+          description: >
+            Where the mode came from. The platform default is block for Security and comment for
+            the other agents.
+
+    AgentModeUpdate:
+      type: object
+      required: [agent, mode]
+      properties:
+        agent:
+          $ref: './common.yaml#/components/schemas/AgentKind'
+        mode:
+          $ref: '#/components/schemas/AgentMode'
+
+    AgentModeUpdates:
+      type: array
+      minItems: 1
+      description: Only the listed agents change; each agent may appear once.
+      items:
+        $ref: '#/components/schemas/AgentModeUpdate'
+
+    ReviewBranches:
+      type: array
+      maxItems: 20
+      description: >
+        Base-branch names or globs a pull request must merge into to be reviewed, such as main,
+        release/* or hotfix/**. A * matches one path segment and ** any number; matching is
+        case-sensitive. Empty means the repository's default branch only.
+      items:
+        type: string
+        minLength: 1
+        maxLength: 100
+        pattern: '^\S+$'
+        description: No spaces and no '..'.
+
+    RepositoryConfig:
+      type: object
+      required:
+        - repositoryId
+        - fullName
+        - defaultBranch
+        - reviewEnabled
+        - useOrgDefaults
+        - agents
+        - reviewBranches
+        - effectiveReviewBranches
+        - effectiveConfidenceThreshold
+        - thresholdSource
+      properties:
+        repositoryId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        defaultBranch:
+          type: string
+        reviewEnabled:
+          type: boolean
+        useOrgDefaults:
+          type: boolean
+          description: True when agent modes and branches come from the organization's review defaults.
+        agents:
+          type: array
+          description: Every agent's effective mode, in contract order.
+          items:
+            $ref: '#/components/schemas/AgentSetting'
+        reviewBranches:
+          $ref: '#/components/schemas/ReviewBranches'
+        effectiveReviewBranches:
+          type: array
+          minItems: 1
+          description: The patterns that apply now; the default branch when nothing is set.
+          items:
+            type: string
+        confidenceThresholdOverride:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Confidence'
+            - type: 'null'
+          description: null means no override is set for this repository.
+        effectiveConfidenceThreshold:
+          $ref: './common.yaml#/components/schemas/Confidence'
+        thresholdSource:
+          type: string
+          enum: [repository_override, organization_default, platform_default]
+        agentTimeoutMs:
+          type: integer
+        autoFixStyle:
+          type: boolean
+        postInlineComments:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+
+    RepositoryConfigUpdate:
+      type: object
+      description: A partial update; omitted fields keep their value.
+      properties:
+        reviewEnabled:
+          type: boolean
+        useOrgDefaults:
+          type: boolean
+        agents:
+          $ref: '#/components/schemas/AgentModeUpdates'
+        reviewBranches:
+          $ref: '#/components/schemas/ReviewBranches'
+        confidenceThresholdOverride:
+          oneOf:
+            - $ref: './common.yaml#/components/schemas/Confidence'
+            - type: 'null'
+          description: null restores inheritance from the organization default.
+        agentTimeoutMs:
+          type: integer
+          minimum: 1000
+          maximum: 120000
+        autoFixStyle:
+          type: boolean
+        postInlineComments:
+          type: boolean
+
+    ReviewDefaults:
+      type: object
+      required: [organizationId, agents, confidenceThreshold, reviewBranches]
+      properties:
+        organizationId:
+          type: string
+          format: uuid
+        agents:
+          type: array
+          description: In contract order; source is organization_default or platform_default.
+          items:
+            $ref: '#/components/schemas/AgentSetting'
+        confidenceThreshold:
+          $ref: './common.yaml#/components/schemas/Confidence'
+        reviewBranches:
+          $ref: '#/components/schemas/ReviewBranches'
+
+    ReviewDefaultsUpdate:
+      type: object
+      description: A partial update; omitted fields keep their value.
+      properties:
+        agents:
+          $ref: '#/components/schemas/AgentModeUpdates'
+        confidenceThreshold:
+          $ref: './common.yaml#/components/schemas/Confidence'
+        reviewBranches:
+          $ref: '#/components/schemas/ReviewBranches'
+
+    CurrentUser:
+      type: object
+      required: [userId, organizations]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        githubLogin:
+          type: string
+          description: Absent until the user links a GitHub account (email and Google sign-ins have none).
+        email:
+          type: string
+        name:
+          type: string
+        avatarUrl:
+          type: string
+        providers:
+          type: array
+          description: Sign-in methods linked to the account.
+          items:
+            type: string
+            enum: [email, github, google]
+        organizations:
+          type: array
+          items:
+            type: object
+            required: [organizationId, displayName, role]
+            properties:
+              organizationId:
+                type: string
+                format: uuid
+              displayName:
+                type: string
+              role:
+                type: string
+                enum: [admin, member]
+
