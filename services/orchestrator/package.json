@@ -1,0 +1,23 @@
+{
+  "name": "@code-sentinel/orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LangGraph orchestrator: fan-out to agents, aggregation, de-duplication, severity ranking, context lookup.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

@@ -1,0 +1,2 @@
+# Shared libraries live here (e.g. contract types extracted from services/orchestrator/src/types.ts).
+# Placeholder so the directory is tracked before the first package lands.

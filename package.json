@@ -1,0 +1,30 @@
+{
+  "name": "code-sentinel",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Multi-agent code review platform built on a service-oriented architecture.",
+  "packageManager": "npm@11.6.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sumit-0804/Code-Sentinel.git"
+  },
+  "license": "UNLICENSED",
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
