@@ -16,7 +16,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@code-sentinel/contracts": "*"
+    "@code-sentinel/contracts": "*",
+    "@langchain/core": "^1.2.11",
+    "@langchain/langgraph": "^1.4.15"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
