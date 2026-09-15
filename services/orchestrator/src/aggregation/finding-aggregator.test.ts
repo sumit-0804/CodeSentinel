@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Finding } from "../types.js";
+import type { Finding } from "@code-sentinel/contracts";
 import { FindingAggregator } from "./finding-aggregator.js";
 
 function finding(overrides: Partial<Finding> = {}): Finding {

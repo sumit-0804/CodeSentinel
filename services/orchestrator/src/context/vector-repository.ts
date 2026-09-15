@@ -1,4 +1,4 @@
-import type { Finding, SimilarPastIssue } from "../types.js";
+import type { Finding, SimilarPastIssue } from "@code-sentinel/contracts";
 
 /**
  * Storage-facing side of context-aware review (FR-VDB-01/02).

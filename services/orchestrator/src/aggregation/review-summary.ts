@@ -1,4 +1,4 @@
-import type { Finding, ReviewSummary } from "../types.js";
+import type { Finding, ReviewSummary } from "@code-sentinel/contracts";
 
 /**
  * Rolls a de-duplicated finding list up into the counts shown on the summary strip of every

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { Finding } from "../types.js";
+import type { Finding } from "@code-sentinel/contracts";
 
 /**
  * Collapses findings that describe the same issue reported by more than one agent (FR-ORC-03).

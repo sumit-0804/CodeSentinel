@@ -7,6 +7,9 @@ the findings and attaches similar past issues before returning one combined repo
 
 Contract: [`docs/design/openapi/orchestrator.yaml`](../../docs/design/openapi/orchestrator.yaml).
 Class design: [`docs/design/diagrams/mermaid/class_orchestrator.mmd`](../../docs/design/diagrams/mermaid/class_orchestrator.mmd).
+Shared types and validators: [`@code-sentinel/contracts`](../../packages/contracts/README.md). The
+orchestrator no longer defines `Finding`, `CombinedReport` and friends itself; import them from
+there.
 
 ## What's scaffolded so far
 
@@ -31,7 +34,8 @@ Class design: [`docs/design/diagrams/mermaid/class_orchestrator.mmd`](../../docs
 ## Develop
 
 ```bash
-npm install          # from the repo root
-npm run test  -w @code-sentinel/orchestrator
+npm install                                  # from the repo root
+npm run test                                 # Turborepo builds contracts first, then runs every test
+npm run test  -w @code-sentinel/orchestrator # needs a prior `npm run build -w @code-sentinel/contracts`
 npm run build -w @code-sentinel/orchestrator
 ```

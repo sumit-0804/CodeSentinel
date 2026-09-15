@@ -65,7 +65,8 @@ GitHub PR files
       documents `llm_quota_exhausted`.
 - [x] `AgentReviewRequest.options.deadlineMs`, `Capabilities.maxFileTokens`, provider example `gemini`.
 - [x] `ReviewJobRequest.skippedFiles`.
-- [ ] Mirror all of the above in `packages/contracts` (zod) when it is created.
+- [x] Mirror all of the above in `packages/contracts` (zod). Done 15-Sep, see
+      `packages/contracts/README.md`.
 
 ## Work
 

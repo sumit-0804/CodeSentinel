@@ -16,7 +16,8 @@ database schema.
 ```
 services/        Deployable services (one per SOA component)
   orchestrator/  LangGraph orchestrator — fan-out, aggregation, severity ranking, context
-packages/        Shared libraries (added as the build progresses)
+packages/        Shared libraries
+  contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
 docs/            Course deliverables and design artifacts
 ```
 

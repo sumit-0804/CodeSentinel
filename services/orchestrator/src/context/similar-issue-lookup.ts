@@ -1,4 +1,4 @@
-import type { Finding } from "../types.js";
+import type { Finding } from "@code-sentinel/contracts";
 import type { VectorRepository } from "./vector-repository.js";
 
 /**

@@ -1,4 +1,4 @@
-import type { AgentRunSummary, CombinedReport, Finding, ReviewStatus } from "../types.js";
+import type { AgentRunSummary, CombinedReport, Finding, ReviewStatus } from "@code-sentinel/contracts";
 import { FindingAggregator } from "./finding-aggregator.js";
 import { SeverityRanker } from "./severity-ranker.js";
 import { buildReviewSummary } from "./review-summary.js";

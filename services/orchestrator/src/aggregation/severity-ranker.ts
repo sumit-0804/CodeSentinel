@@ -1,4 +1,4 @@
-import type { Finding, Severity } from "../types.js";
+import type { Finding, Severity } from "@code-sentinel/contracts";
 
 const SEVERITY_WEIGHT: Record<Severity, number> = {
   critical: 3,

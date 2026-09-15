@@ -4,9 +4,11 @@
  * Public surface of the orchestrator service. The HTTP layer (`ReviewJobController` and the
  * LangGraph `ReviewGraph` per `docs/design/openapi/orchestrator.yaml`) is added on top of these
  * building blocks as the Orchestration & Data Layer work package progresses.
+ *
+ * Shared shapes (`Finding`, `CombinedReport`, ...) are not re-exported; import them from
+ * `@code-sentinel/contracts`.
  */
 
-export * from "./types.js";
 export {
   aggregate,
   buildReviewSummary,
