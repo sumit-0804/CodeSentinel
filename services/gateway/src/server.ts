@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
 import { createJsonLogger } from "./logging/logger.js";
+import { InMemoryStores } from "./persistence/in-memory.js";
 
 function packageVersion(): string {
   try {
@@ -26,7 +27,7 @@ function main(): void {
     return;
   }
 
-  const app = createApp({ config, logger, version: packageVersion() });
+  const app = createApp({ config, logger, stores: new InMemoryStores(), version: packageVersion() });
   const server = app.listen(config.port, () => {
     logger.info("gateway listening", { port: config.port, seed: config.seed });
   });

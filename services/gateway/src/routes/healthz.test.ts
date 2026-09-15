@@ -3,12 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { noopLogger } from "../logging/logger.js";
+import { InMemoryStores } from "../persistence/in-memory.js";
 import { testConfig } from "../test-support/fixtures.js";
 import { withServer } from "../test-support/with-server.js";
 
 describe("GET /healthz", () => {
   it("answers 200 ok with the version", async () => {
-    const app = createApp({ config: testConfig(), logger: noopLogger, version: "1.2.3" });
+    const app = createApp({ config: testConfig(), logger: noopLogger, stores: new InMemoryStores(), version: "1.2.3" });
 
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/healthz`);
