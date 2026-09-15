@@ -17,13 +17,14 @@ database schema.
 
 ```
 services/        Deployable services (one per SOA component)
+  gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
   orchestrator/  LangGraph orchestrator — fan-out, aggregation, severity ranking, context
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
 docs/            Course deliverables and design artifacts
 ```
 
-The gateway, agent services and clients land here as their work packages start (see
+The agent services and clients land here as their work packages start (see
 `docs/CodeSentinel_Project_Plan.pdf`).
 
 ## Getting started
@@ -32,6 +33,7 @@ Requires Node.js 20+.
 
 ```bash
 npm install
+npm run lint
 npm run build
 npm run test
 npm run typecheck
