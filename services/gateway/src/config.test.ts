@@ -67,6 +67,12 @@ describe("loadGatewayConfig", () => {
     expect(error.message).toContain("PORT");
   });
 
+  it("refuses the dev seed when NODE_ENV is production", () => {
+    const error = configError({ ...FULL_ENV, NODE_ENV: "production", GATEWAY_SEED: "dev" });
+
+    expect(error.message).toContain("GATEWAY_SEED must be none when NODE_ENV is production");
+  });
+
   it("names every problem in one error", () => {
     const error = configError({ ...FULL_ENV, SERVICE_TOKEN: "", JWT_SECRET: "short", PORT: "70000" });
 

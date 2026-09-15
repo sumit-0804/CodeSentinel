@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
+import { loadEnvFile } from "./env-file.js";
 import { createJsonLogger } from "./logging/logger.js";
 import { StubGitHubClient } from "./github/stub-github-client.js";
 import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
@@ -20,9 +22,12 @@ function packageVersion(): string {
 function main(): void {
   const logger = createJsonLogger();
 
+  // The service directory holds `.env` / `.env.production`; `NODE_ENV=production` picks the latter.
+  const { env, file } = loadEnvFile(fileURLToPath(new URL("..", import.meta.url)));
+
   let config: GatewayConfig;
   try {
-    config = loadGatewayConfig(process.env);
+    config = loadGatewayConfig(env);
   } catch (error) {
     const problems = error instanceof GatewayConfigError ? error.problems : [String(error)];
     createJsonLogger(process.stderr).error("invalid gateway configuration", { problems });
@@ -46,7 +51,7 @@ function main(): void {
     version: packageVersion(),
   });
   const server = app.listen(config.port, () => {
-    logger.info("gateway listening", { port: config.port, seed: config.seed });
+    logger.info("gateway listening", { port: config.port, seed: config.seed, nodeEnv: env.NODE_ENV, envFile: file });
   });
 
   const shutdown = (signal: string) => {

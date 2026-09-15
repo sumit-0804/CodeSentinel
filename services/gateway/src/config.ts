@@ -64,6 +64,11 @@ const EnvSchema = z.object({
   JWT_SECRET: secret(32),
   GITHUB_WEBHOOK_SECRET: secret(16),
   GATEWAY_SEED: z.preprocess(blankAsUndefined, z.enum(["none", "dev"]).default("none")),
+  NODE_ENV: z.string().optional(),
+}).refine((values) => !(values.NODE_ENV === "production" && values.GATEWAY_SEED === "dev"), {
+  // The dev seed contains a published API key, so it must never load in production.
+  message: "must be none when NODE_ENV is production",
+  path: ["GATEWAY_SEED"],
 });
 
 /**

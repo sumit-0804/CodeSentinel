@@ -16,7 +16,7 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | --- | --- | --- |
 | Request id (NFR-12) + request log (morgan, redacted JSON lines, NFR-05) | `http/request-id.ts`, `http/request-logger.ts`, `logging/logger.ts` | working |
 | Security headers | `app.ts` (helmet) | working |
-| Config from env, validated at startup | `config.ts` | working |
+| Config from env, validated at startup | `config.ts`, `env-file.ts` | working |
 | Error handling (`ApiError` bodies with `requestId`) | `http/errors.ts`, `http/error-handler.ts` | working |
 | `GET /healthz` | `routes/healthz.ts` | working |
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
@@ -100,6 +100,17 @@ and the keys are high-entropy random strings, not passwords.
 Read by `loadGatewayConfig()` at startup; every invalid variable is reported in one error, then the
 process exits with code 1. See [`.env.example`](.env.example).
 
+`server.ts` first loads an env file from `services/gateway/`, chosen by `NODE_ENV`:
+
+| `NODE_ENV` | File |
+| --- | --- |
+| `production` | `.env.production` |
+| anything else or unset | `.env` |
+
+Both files are gitignored; copy `.env.example` to create them. Variables already set in the
+process environment override the file, so a host's secret settings always win, and a missing file
+is not an error. The `gateway listening` log line names the file it loaded.
+
 | Variable | Default | Meaning | Validation |
 | --- | --- | --- | --- |
 | `PORT` | `3000` | Listen port | integer 1..65535 |
@@ -108,7 +119,7 @@ process exits with code 1. See [`.env.example`](.env.example).
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `JWT_SECRET` | required | HS256 key for the `cs_session` JWT | at least 32 characters |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
-| `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev` |
+| `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` |
 
 An empty value (`PORT=`) means "use the default". Until PostgreSQL and the Octokit client land,
 `GATEWAY_SEED=none` starts with empty stores and a GitHub stub that returns no files.
@@ -144,7 +155,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-93 tests in 16 files. They run the real app on an ephemeral port (`withServer` in
+98 tests in 17 files. They run the real app on an ephemeral port (`withServer` in
 `src/test-support/`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
 secret, port 3000 or the network.
 
@@ -152,7 +163,7 @@ secret, port 3000 or the network.
 
 1. Start a fake orchestrator on port 8080 that prints each request and answers `202` with a
    `ReviewJob` (and `200 {"status":"ok"}` on `/healthz`).
-2. Start the gateway:
+2. Start the gateway. These variables override `.env`, so the signing secret below is known:
    ```bash
    PORT=3000 ORCHESTRATOR_URL=http://127.0.0.1:8080 SERVICE_TOKEN=local-service-token \
    JWT_SECRET=0123456789abcdef0123456789abcdef GITHUB_WEBHOOK_SECRET=local-webhook-secret \
