@@ -6,7 +6,8 @@ Written 15-Sep-2026.
 
 - **Large diffs are skipped, never split.** A file is reviewed whole if it fits the limits;
   otherwise it is listed as skipped in the report.
-- **Gemini is the only LLM provider**, for review calls (Gemini 3.5 Flash Lite) and embeddings.
+- **Gemini is the only LLM provider**, for review calls (Gemini 3.5 Flash Lite) and embeddings
+  (`gemini-embedding-2`, chosen 15-Sep over `gemini-embedding-001`).
   No OpenRouter, Groq or Ollama.
 - **Separate `GEMINI_API_KEY` for development and production.** Each key has its own quota, so each
   environment sets its own `GEMINI_RPM/TPM/RPD`. CI and unit tests stub `fetch` and never use a key.
@@ -30,8 +31,8 @@ Gemini 3.5 Flash Lite free tier (AI Studio): 15 RPM, 250K TPM, 500 RPD. We use 8
 | `LLM_REVIEW_MAX_TOKENS` | 24000 | Diff tokens per LLM agent per review; the rest ⇒ `over_budget` |
 | `LLM_PROMPT_RESERVE_TOKENS` | 1000 | System prompt per call |
 | `LLM_MAX_OUTPUT_TOKENS` | 2000 | Sent as `maxOutputTokens`; counts against TPM |
-| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | 768 dims, L2-normalised (`embedding-config.ts`) |
-| `GEMINI_EMBED_RPM` / `TPM` / `RPD` | placeholders | **Copy the real values from the AI Studio quota page** |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Sent with `outputDimensionality: 768`; vectors come back L2-normalised (`embedding-config.ts`) |
+| `GEMINI_EMBED_RPM` / `TPM` / `RPD` | from the key's quota page | Set in each environment's `.env` from the AI Studio quota page |
 
 Tokens are estimated as `ceil(bytes / 3)` (pessimistic, no tokenizer); reservations are settled with
 Gemini's `usageMetadata`.
@@ -39,7 +40,11 @@ Gemini's `usageMetadata`.
 Typical review (under 500 changed lines): 4 LLM agents × 1 call × ≈ 15K tokens = **4 requests,
 ≈ 60K tokens**. RPM and TPM both allow ≈ 3 such reviews per minute; RPD allows ≈ 100 per day. The
 worst case (every agent needs 2 batches) is 8 requests, still under 12 RPM. Embeddings add one
-batch request per review.
+request per embedded finding: `gemini-embedding-2` has no `batchEmbedContents`, only per-item
+`embedContent` and the asynchronous batch job, which is too slow for an in-review lookup.
+
+Checked against the API on 15-Sep: `gemini-embedding-2` returns 3072 dimensions by default and 768
+with `outputDimensionality: 768`, both unit-length; a one-line finding costs ≈ 15 tokens.
 
 ## Flow
 
@@ -74,7 +79,7 @@ GitHub PR files
 - [ ] `src/budget/`: `loadLlmLimits`, `estimateTokens`, `planLlmReview`, `QuotaBudget` (+ tests).
 - [ ] `aggregate()` accepts `skippedFiles` + `files`; `mergeSkippedFiles`, `buildCoverage`;
       `llm_quota_exhausted` ⇒ `partial` (+ tests).
-- [ ] `embedding-config.ts` pins `gemini-embedding-001`, 768 dims.
+- [ ] `embedding-config.ts` pins `gemini-embedding-2`, `outputDimensionality` 768.
 - [ ] Fan-out: plan per LLM agent, reserve, queue until deadline, send batches with `deadlineMs`,
       settle with returned token counts, release on cancel.
 - [ ] One `QuotaBudget` for generation and one for embeddings, created at startup from `loadLlmLimits`.
@@ -83,7 +88,8 @@ GitHub PR files
 - [ ] `GeminiProvider` via `fetch` (no SDK): `maxOutputTokens`, returns `usageMetadata`.
 - [ ] `InputTooLargeError` before any `fetch` when the prompt exceeds the batch budget.
 - [ ] On 429: read the retry delay, retry once only if it fits the deadline, else a typed quota error.
-- [ ] `GeminiEmbedder.embedMany()` via `batchEmbedContents`, `outputDimensionality` 768, normalised.
+- [ ] `GeminiEmbedder.embedMany()` via one `embedContent` per text, `outputDimensionality` 768, each
+      request reserved against the embedding `QuotaBudget`.
 
 ### Agent kit
 - [ ] Skip files over `maxFileTokens` as `too_large`; advertise it in `/v1/capabilities`.
@@ -118,3 +124,6 @@ GitHub PR files
   provider fallback chain" task.
 - [ ] BRD, Proposal and first status report still mention the old chain; they are submitted
       deliverables, so note the change in the next report instead.
+- [ ] System Design Document (§4.3) still names `gemini-embedding-001`; the model is now
+      `gemini-embedding-2` at the same 768 dimensions. Update the `.docx` and re-export the PDF with
+      the next revision, or note it in the next status report.
