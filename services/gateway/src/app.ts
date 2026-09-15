@@ -11,6 +11,7 @@ import type { OrchestratorClientLike } from "./orchestrator/orchestrator-client.
 import type { Stores } from "./persistence/stores.js";
 import { createHealthzRouter } from "./routes/healthz.js";
 import { createMeRouter } from "./routes/me.js";
+import { createGithubWebhookRouter } from "./webhooks/github-webhook.js";
 
 export const DEFAULT_VERSION = "0.0.0";
 
@@ -40,6 +41,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(helmet());
 
   app.use(createHealthzRouter({ orchestrator, version }));
+  app.use(createGithubWebhookRouter({ secret: config.githubWebhookSecret }));
 
   const v1 = express.Router();
   v1.use(express.json({ limit: "1mb" }));

@@ -1,6 +1,8 @@
 import type { ReviewJob } from "@code-sentinel/contracts";
 import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID, EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
 
+import { createHmac } from "node:crypto";
+
 import { sha256Hex } from "../auth/hash.js";
 import { signSessionToken } from "../auth/session-token.js";
 import type { AppDeps } from "../app.js";
@@ -24,7 +26,7 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
     orchestratorTimeoutMs: 1000,
     serviceToken: "test-service-token",
     jwtSecret: TEST_JWT_SECRET,
-    githubWebhookSecret: "test-webhook-secret",
+    githubWebhookSecret: TEST_WEBHOOK_SECRET,
     seed: "none",
     ...overrides,
   };
@@ -135,5 +137,44 @@ export function testAppDeps(overrides: Partial<AppDeps> = {}): AppDeps {
     orchestrator: fakeOrchestrator(),
     stores: new InMemoryStores(),
     ...overrides,
+  };
+}
+
+export const TEST_WEBHOOK_SECRET = "test-webhook-secret";
+export const TEST_DELIVERY_ID = "11111111-2222-4333-8444-555555555555";
+
+/** A minimal `pull_request.opened` delivery for the seeded repository. */
+export function pullRequestEventPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    action: "opened",
+    number: 42,
+    pull_request: {
+      title: "Retry failed payments",
+      head: { sha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", ref: "fix/retry" },
+      base: { sha: "0123456789abcdef0123456789abcdef01234567", ref: "main" },
+    },
+    repository: {
+      id: TEST_GITHUB_REPO_ID,
+      full_name: "code-sentinel/consumer-api",
+      name: "consumer-api",
+      owner: { login: "code-sentinel" },
+    },
+    installation: { id: 42 },
+    sender: { login: "external-contributor" },
+    ...overrides,
+  };
+}
+
+/** Headers GitHub sends with a delivery, signed over exactly `body`. */
+export function signedWebhookHeaders(
+  body: string,
+  secret: string = TEST_WEBHOOK_SECRET,
+  { event = "pull_request", delivery = TEST_DELIVERY_ID }: { event?: string; delivery?: string } = {},
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-GitHub-Event": event,
+    "X-GitHub-Delivery": delivery,
+    "X-Hub-Signature-256": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`,
   };
 }
