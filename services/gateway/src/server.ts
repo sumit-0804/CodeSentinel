@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
 import { createJsonLogger } from "./logging/logger.js";
+import { StubGitHubClient } from "./github/stub-github-client.js";
 import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
-import { InMemoryStores } from "./persistence/in-memory.js";
+import { devSeed } from "./persistence/dev-seed.js";
+import { emptySeed, InMemoryStores } from "./persistence/in-memory.js";
 
 function packageVersion(): string {
   try {
@@ -33,7 +35,16 @@ function main(): void {
     serviceToken: config.serviceToken,
     timeoutMs: config.orchestratorTimeoutMs,
   });
-  const app = createApp({ config, logger, orchestrator, stores: new InMemoryStores(), version: packageVersion() });
+  // Until PostgreSQL and Octokit land, `none` starts with empty stores and a GitHub stub with no files.
+  const { seed, pullRequestFiles } = config.seed === "dev" ? devSeed() : { seed: emptySeed(), pullRequestFiles: [] };
+  const app = createApp({
+    config,
+    logger,
+    orchestrator,
+    github: new StubGitHubClient(pullRequestFiles),
+    stores: new InMemoryStores(seed),
+    version: packageVersion(),
+  });
   const server = app.listen(config.port, () => {
     logger.info("gateway listening", { port: config.port, seed: config.seed });
   });

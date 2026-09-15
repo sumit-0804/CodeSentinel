@@ -1,7 +1,7 @@
 import { EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
 import { describe, expect, it } from "vitest";
 
-import { baseSeed, seededStores, TEST_GITHUB_REPO_ID } from "../test-support/fixtures.js";
+import { baseSeed, seededStores, TEST_API_KEY_ID, TEST_GITHUB_REPO_ID } from "../test-support/fixtures.js";
 import { InMemoryStores, type StoreSeed } from "./in-memory.js";
 
 const NOW = new Date();
@@ -76,7 +76,7 @@ describe("InMemoryStores", () => {
   it("never returns expired or revoked sessions or revoked API keys", async () => {
     const { stores: active, seed } = await seededStores();
     const session = seed.sessions[0]!;
-    const key = seed.apiKeys[0]!;
+    const key = seed.apiKeys.find((k) => k.keyId === TEST_API_KEY_ID)!;
     await expect(active.sessions.findActiveByTokenHash(session.tokenHash, NOW)).resolves.toBeDefined();
     await expect(active.apiKeys.findActiveByKeyHash(key.keyHash)).resolves.toBeDefined();
 
@@ -85,7 +85,7 @@ describe("InMemoryStores", () => {
     });
     const revoked = await seededStores((s) => {
       s.sessions[0]!.revokedAt = new Date(NOW.getTime() - 1000);
-      s.apiKeys[0]!.revokedAt = new Date(NOW.getTime() - 1000);
+      s.apiKeys.find((k) => k.keyId === TEST_API_KEY_ID)!.revokedAt = new Date(NOW.getTime() - 1000);
     });
 
     await expect(expired.stores.sessions.findActiveByTokenHash(expired.seed.sessions[0]!.tokenHash, NOW)).resolves.toBeUndefined();

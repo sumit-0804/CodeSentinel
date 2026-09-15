@@ -65,7 +65,7 @@ describe("createAuthMiddleware", () => {
 
     expect(status).toBe(200);
     expect(body).toEqual({ userId: TEST_USER_ID, organizationId: seeded.seed.organizations[0]!.organizationId, method: "api_key" });
-    const key = await seeded.stores.apiKeys.findActiveByKeyHash(seeded.seed.apiKeys[0]!.keyHash);
+    const key = await seeded.stores.apiKeys.findActiveByKeyHash(seeded.seed.apiKeys.find((k) => k.keyId === TEST_API_KEY_ID)!.keyHash);
     expect(key?.lastUsedAt).toEqual(NOW);
   });
 

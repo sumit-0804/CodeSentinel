@@ -94,9 +94,12 @@ GitHub PR files
 - [ ] `MOCK_MAX_FILE_TOKENS` skip path (+ tests).
 
 ### Gateway
-- [ ] File filter module (binary, missing `patch`, generated/vendored globs, deleted, pure rename).
-- [ ] Paginate PR files; send gateway skips in `ReviewJobRequest.skippedFiles`.
-- [ ] Every file filtered ⇒ finish the review with an empty report, no orchestrator call.
+- [x] File filter module (binary, missing `patch`, generated/vendored globs, deleted, pure rename).
+      `services/gateway/src/webhooks/file-filter.ts`.
+- [x] Send gateway skips in `ReviewJobRequest.skippedFiles`.
+- [ ] Paginate PR files (Octokit client).
+- [ ] Every file filtered ⇒ finish the review with an empty report, no orchestrator call
+      (gateway already skips the orchestrator call; the empty report needs the review store).
 
 ### GitHub, dashboard, VS Code
 - [ ] Check Run summary: coverage line + skipped-files list; "LLM analysis deferred" for quota skips.
