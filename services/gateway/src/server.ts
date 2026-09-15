@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
 import { createJsonLogger } from "./logging/logger.js";
+import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
 import { InMemoryStores } from "./persistence/in-memory.js";
 
 function packageVersion(): string {
@@ -27,7 +28,12 @@ function main(): void {
     return;
   }
 
-  const app = createApp({ config, logger, stores: new InMemoryStores(), version: packageVersion() });
+  const orchestrator = new OrchestratorClient({
+    baseUrl: config.orchestratorUrl,
+    serviceToken: config.serviceToken,
+    timeoutMs: config.orchestratorTimeoutMs,
+  });
+  const app = createApp({ config, logger, orchestrator, stores: new InMemoryStores(), version: packageVersion() });
   const server = app.listen(config.port, () => {
     logger.info("gateway listening", { port: config.port, seed: config.seed });
   });

@@ -7,11 +7,7 @@ export const REQUEST_ID_HEADER = "X-Request-Id";
 /** 1..128 visible ASCII characters; anything else is replaced rather than echoed into logs. */
 const VALID_REQUEST_ID = /^[\x21-\x7e]{1,128}$/;
 
-/**
- * Reuses a well-formed inbound `X-Request-Id` or generates a UUID, stores it on
- * `res.locals.requestId` and sets it on the response, so one request can be followed from the
- * client through the orchestrator to every agent (NFR-12).
- */
+/** Reuses a well-formed inbound `X-Request-Id` or generates a UUID; sets it on `res.locals` and the response (NFR-12). */
 export function requestIdMiddleware(): GatewayHandler {
   return (req, res, next) => {
     const inbound = req.get(REQUEST_ID_HEADER);

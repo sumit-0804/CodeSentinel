@@ -9,11 +9,8 @@ type LoggedRequest = IncomingMessage & { originalUrl?: string };
 type LoggedResponse = ServerResponse & { locals?: Partial<GatewayLocals> };
 
 /**
- * morgan, writing one JSON line per request through the gateway logger once the response is sent
- * (NFR-12): method, path without the query string, status, duration, request id, plus
- * `res.locals.logFields`. The format is built field by field instead of from morgan's presets,
- * which include the query string and headers; nothing sensitive or body-derived is logged, and
- * the logger still redacts by key (NFR-05).
+ * morgan writing one JSON line per request through the redacting logger (NFR-12, NFR-05).
+ * Custom format: no query string, headers or bodies, unlike morgan's presets.
  */
 export function requestLoggerMiddleware(logger: Logger) {
   return morgan<LoggedRequest, LoggedResponse>(

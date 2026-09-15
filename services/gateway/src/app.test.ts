@@ -2,12 +2,10 @@ import { ApiErrorSchema } from "@code-sentinel/contracts";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
-import { noopLogger } from "./logging/logger.js";
-import { InMemoryStores } from "./persistence/in-memory.js";
-import { testConfig } from "./test-support/fixtures.js";
+import { testAppDeps } from "./test-support/fixtures.js";
 import { withServer } from "./test-support/with-server.js";
 
-const app = () => createApp({ config: testConfig(), logger: noopLogger, stores: new InMemoryStores() });
+const app = () => createApp(testAppDeps());
 
 describe("createApp", () => {
   it("sets X-Request-Id and security headers on every response", async () => {

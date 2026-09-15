@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from "./http/error-handler.js";
 import { requestIdMiddleware } from "./http/request-id.js";
 import { requestLoggerMiddleware } from "./http/request-logger.js";
 import type { Logger } from "./logging/logger.js";
+import type { OrchestratorClientLike } from "./orchestrator/orchestrator-client.js";
 import type { Stores } from "./persistence/stores.js";
 import { createHealthzRouter } from "./routes/healthz.js";
 import { createMeRouter } from "./routes/me.js";
@@ -17,6 +18,7 @@ export const DEFAULT_VERSION = "0.0.0";
 export interface AppDeps {
   config: GatewayConfig;
   logger: Logger;
+  orchestrator: OrchestratorClientLike;
   stores: Stores;
   /** Reported by `/healthz`. */
   version?: string;
@@ -29,7 +31,7 @@ export interface AppDeps {
  * globally, so the webhook route receives the exact bytes GitHub signed (FR-GW-03).
  */
 export function createApp(deps: AppDeps): Express {
-  const { config, logger, stores, version = DEFAULT_VERSION, now } = deps;
+  const { config, logger, orchestrator, stores, version = DEFAULT_VERSION, now } = deps;
   const app = express();
 
   app.disable("x-powered-by");
@@ -37,7 +39,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
 
-  app.use(createHealthzRouter({ version }));
+  app.use(createHealthzRouter({ orchestrator, version }));
 
   const v1 = express.Router();
   v1.use(express.json({ limit: "1mb" }));

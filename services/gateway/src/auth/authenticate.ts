@@ -20,15 +20,8 @@ export interface AuthMiddlewareDeps {
 const invalidCredentials = () => unauthorized("invalid_credentials", "The supplied credentials are not valid");
 
 /**
- * Resolves the caller on `/v1` routes (FR-GW-02) and sets `res.locals.principal`.
- *
- * - `Authorization: Bearer cs_live_…` (VS Code): the key's SHA-256 must match an active API key.
- * - `cs_session` cookie (dashboard): an HS256 JWT whose signature and expiry are checked, then its
- *   SHA-256 must match an active session with the same ids, so revoking a session takes effect
- *   before the JWT expires.
- *
- * No credential is 401 `unauthenticated`; anything present but wrong is 401 `invalid_credentials`.
- * An `Authorization` header is decisive: a bad one is rejected even if a valid cookie is also sent.
+ * Resolves `res.locals.principal` from a `cs_live_` bearer key or the `cs_session` JWT cookie (FR-GW-02).
+ * No credential is 401 `unauthenticated`; a wrong one is 401 `invalid_credentials`.
  */
 export function createAuthMiddleware({ jwtSecret, sessions, apiKeys, now = () => new Date() }: AuthMiddlewareDeps) {
   return async (req: Request, res: GatewayResponse, next: NextFunction): Promise<void> => {
@@ -60,6 +53,7 @@ async function apiKeyPrincipal(authorization: string, apiKeys: ApiKeyStore, now:
 }
 
 async function sessionPrincipal(token: string, jwtSecret: string, sessions: SessionStore, now: Date): Promise<Principal> {
+  // The JWT must also match an active session row, so revocation takes effect before `exp`.
   let claims: SessionClaims;
   try {
     claims = await verifySessionToken(token, jwtSecret, { now });

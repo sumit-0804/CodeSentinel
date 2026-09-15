@@ -2,13 +2,12 @@ import { CurrentUserSchema } from "@code-sentinel/contracts";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
-import { noopLogger } from "../logging/logger.js";
-import { seededStores, testConfig, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
+import { seededStores, testAppDeps, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
 import { withServer } from "../test-support/with-server.js";
 
 async function getMe(seeded: SeededStores, headers: Record<string, string> = {}) {
   let result!: { status: number; body: Record<string, unknown> };
-  await withServer(createApp({ config: testConfig(), logger: noopLogger, stores: seeded.stores }), async (baseUrl) => {
+  await withServer(createApp(testAppDeps({ stores: seeded.stores })), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/me`, { headers });
     result = { status: response.status, body: (await response.json()) as Record<string, unknown> };
   });

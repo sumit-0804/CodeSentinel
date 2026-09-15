@@ -1,9 +1,12 @@
-import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
+import type { ReviewJob } from "@code-sentinel/contracts";
+import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID, EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
 
 import { sha256Hex } from "../auth/hash.js";
 import { signSessionToken } from "../auth/session-token.js";
+import type { AppDeps } from "../app.js";
 import type { GatewayConfig } from "../config.js";
-import { createJsonLogger, type Logger } from "../logging/logger.js";
+import { createJsonLogger, noopLogger, type Logger } from "../logging/logger.js";
+import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import { InMemoryStores, type StoreSeed } from "../persistence/in-memory.js";
 
 export const TEST_JWT_SECRET = "test-jwt-secret-0123456789abcdef-0123";
@@ -101,4 +104,36 @@ export async function seededStores(edit: (seed: StoreSeed) => void = () => {}): 
   });
   edit(seed);
   return { stores: new InMemoryStores(seed), seed, apiKey: TEST_API_KEY, sessionToken };
+}
+
+export const TEST_JOB_ID = "0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b";
+
+/** A `ReviewJob` body as the orchestrator returns it with 202 (new) or 200 (existing). */
+export function reviewJobResponse(status: 200 | 202): ReviewJob {
+  return {
+    jobId: TEST_JOB_ID,
+    reviewId: EXAMPLE_REVIEW_ID,
+    status: status === 202 ? "queued" : "running",
+    createdAt: "2026-09-15T10:29:40Z",
+  };
+}
+
+/** An orchestrator fake that reports healthy and would start a new job. */
+export function fakeOrchestrator(overrides: Partial<OrchestratorClientLike> = {}): OrchestratorClientLike {
+  return {
+    health: async () => ({ status: "ok", version: "test" }),
+    createReviewJob: async () => ({ job: reviewJobResponse(202), created: true }),
+    ...overrides,
+  };
+}
+
+/** Complete `AppDeps` for route tests: test config, silent logger, fake orchestrator, empty stores. */
+export function testAppDeps(overrides: Partial<AppDeps> = {}): AppDeps {
+  return {
+    config: testConfig(),
+    logger: noopLogger,
+    orchestrator: fakeOrchestrator(),
+    stores: new InMemoryStores(),
+    ...overrides,
+  };
 }
