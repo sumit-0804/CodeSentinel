@@ -15,6 +15,9 @@ coverage/
 .env.*
 !.env.example
 
+# Local AI session plans (hand-off notes, not deliverables)
+.claude/plans/
+
 # Editor / OS
 .DS_Store
 Thumbs.db
