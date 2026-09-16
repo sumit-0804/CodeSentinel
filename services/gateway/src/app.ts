@@ -1,13 +1,16 @@
+import {
+  errorHandler,
+  notFoundHandler,
+  requestIdMiddleware,
+  requestLoggerMiddleware,
+  type Logger,
+} from "@code-sentinel/service-kit";
 import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { createAuthMiddleware } from "./auth/authenticate.js";
 import type { GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
-import { errorHandler, notFoundHandler } from "./http/error-handler.js";
-import { requestIdMiddleware } from "./http/request-id.js";
-import { requestLoggerMiddleware } from "./http/request-logger.js";
-import type { Logger } from "./logging/logger.js";
 import type { OrchestratorClientLike } from "./orchestrator/orchestrator-client.js";
 import type { Stores } from "./persistence/stores.js";
 import { createHealthzRouter } from "./routes/healthz.js";

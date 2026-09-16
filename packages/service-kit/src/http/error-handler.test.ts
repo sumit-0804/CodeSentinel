@@ -3,8 +3,8 @@ import express from "express";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { captureLogger } from "../test-support/fixtures.js";
-import { withServer } from "../test-support/with-server.js";
+import { captureLogger } from "../testing/capture-logger.js";
+import { withServer } from "../testing/with-server.js";
 import { errorHandler, notFoundHandler } from "./error-handler.js";
 import { HttpError } from "./errors.js";
 import { requestIdMiddleware } from "./request-id.js";

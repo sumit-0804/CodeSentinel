@@ -2,11 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import morgan from "morgan";
 
-import type { GatewayLocals } from "../auth/principal.js";
+import type { ServiceLocals } from "../locals.js";
 import type { LogFields, Logger } from "../logging/logger.js";
 
 type LoggedRequest = IncomingMessage & { originalUrl?: string };
-type LoggedResponse = ServerResponse & { locals?: Partial<GatewayLocals> };
+type LoggedResponse = ServerResponse & { locals?: Partial<ServiceLocals> };
 
 /**
  * morgan writing one JSON line per request through the redacting logger (NFR-12, NFR-05).

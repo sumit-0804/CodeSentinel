@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { unauthorized } from "@code-sentinel/service-kit";
+
 import type { GatewayHandler } from "../auth/principal.js";
-import { unauthorized } from "../http/errors.js";
 
 export const SIGNATURE_HEADER = "X-Hub-Signature-256";
 const PREFIX = "sha256=";

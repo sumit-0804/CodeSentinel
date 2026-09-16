@@ -1,9 +1,8 @@
+import { errorHandler, noopLogger, requestIdMiddleware } from "@code-sentinel/service-kit";
+import { withServer } from "@code-sentinel/service-kit/testing";
 import express from "express";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { errorHandler } from "../http/error-handler.js";
-import { requestIdMiddleware } from "../http/request-id.js";
-import { noopLogger } from "../logging/logger.js";
 import {
   seededStores,
   TEST_API_KEY_ID,
@@ -12,7 +11,6 @@ import {
   TEST_USER_ID,
   type SeededStores,
 } from "../test-support/fixtures.js";
-import { withServer } from "../test-support/with-server.js";
 import { createAuthMiddleware } from "./authenticate.js";
 import type { GatewayResponse } from "./principal.js";
 import type * as SessionTokenModule from "./session-token.js";

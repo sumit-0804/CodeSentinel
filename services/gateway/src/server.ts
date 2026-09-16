@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
+
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
-import { loadEnvFile } from "./env-file.js";
-import { createJsonLogger } from "./logging/logger.js";
 import { StubGitHubClient } from "./github/stub-github-client.js";
 import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
 import { devSeed } from "./persistence/dev-seed.js";

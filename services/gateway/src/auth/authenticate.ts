@@ -1,7 +1,7 @@
+import { unauthorized } from "@code-sentinel/service-kit";
 import type { NextFunction, Request } from "express";
 
 import { readCookie } from "../http/cookies.js";
-import { unauthorized } from "../http/errors.js";
 import type { ApiKeyStore, SessionStore } from "../persistence/stores.js";
 import { sha256Hex } from "./hash.js";
 import type { GatewayResponse, Principal } from "./principal.js";

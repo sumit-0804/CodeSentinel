@@ -9,7 +9,7 @@ import { loadEnvFile } from "./env-file.js";
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "gateway-env-"));
+  dir = mkdtempSync(join(tmpdir(), "service-env-"));
   writeFileSync(join(dir, ".env"), "PORT=3001\nGATEWAY_SEED=dev\n");
   writeFileSync(join(dir, ".env.production"), "PORT=8443\nGATEWAY_SEED=none\n");
 });

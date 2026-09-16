@@ -2,7 +2,7 @@ import type { ApiError } from "@code-sentinel/contracts";
 import type { NextFunction, Request } from "express";
 import { ZodError } from "zod";
 
-import type { GatewayHandler, GatewayResponse } from "../auth/principal.js";
+import type { ServiceHandler, ServiceResponse } from "../locals.js";
 import type { Logger } from "../logging/logger.js";
 import { HttpError } from "./errors.js";
 
@@ -32,7 +32,7 @@ function isBodyParserError(error: unknown): error is BodyParserError {
 }
 
 /** Answers every unmatched route with 404 `not_found`. Mount after all routers. */
-export function notFoundHandler(): GatewayHandler {
+export function notFoundHandler(): ServiceHandler {
   return (req, _res, next) => {
     next(new HttpError(404, "not_found", `No route for ${req.method} ${req.path}`));
   };
@@ -43,7 +43,7 @@ export function notFoundHandler(): GatewayHandler {
  * Unknown errors become a 500 with a fixed message; their detail goes to the log only.
  */
 export function errorHandler(logger: Logger) {
-  return (error: unknown, _req: Request, res: GatewayResponse, next: NextFunction) => {
+  return (error: unknown, _req: Request, res: ServiceResponse, next: NextFunction) => {
     if (res.headersSent) {
       next(error);
       return;

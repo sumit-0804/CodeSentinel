@@ -1,5 +1,6 @@
 import { ApiErrorSchema, ReviewJobRequestSchema, WebhookAcceptedSchema } from "@code-sentinel/contracts";
 import { EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
+import { captureLogger, withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../app.js";
@@ -10,7 +11,6 @@ import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client
 import { devSeed } from "../persistence/dev-seed.js";
 import type { StoreSeed } from "../persistence/in-memory.js";
 import {
-  captureLogger,
   pullRequestEventPayload,
   reviewJobResponse,
   seededStores,
@@ -18,7 +18,6 @@ import {
   testAppDeps,
   TEST_DELIVERY_ID,
 } from "../test-support/fixtures.js";
-import { withServer } from "../test-support/with-server.js";
 
 interface WebhookAppOptions {
   edit?: (seed: StoreSeed) => void;

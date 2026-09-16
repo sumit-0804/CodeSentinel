@@ -1,9 +1,9 @@
 import { ApiErrorSchema } from "@code-sentinel/contracts";
+import { withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "./app.js";
 import { testAppDeps } from "./test-support/fixtures.js";
-import { withServer } from "./test-support/with-server.js";
 
 const app = () => createApp(testAppDeps());
 

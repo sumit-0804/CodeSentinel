@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { captureLogger } from "../test-support/fixtures.js";
+import { captureLogger } from "../testing/capture-logger.js";
 
 describe("createJsonLogger", () => {
   it("writes one JSON line with level, message, time and the fields", () => {

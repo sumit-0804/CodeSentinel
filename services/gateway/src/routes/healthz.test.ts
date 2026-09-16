@@ -1,11 +1,11 @@
 import { GatewayHealthSchema } from "@code-sentinel/contracts";
+import { withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import { fakeOrchestrator, testAppDeps } from "../test-support/fixtures.js";
-import { withServer } from "../test-support/with-server.js";
 
 async function healthz(health: OrchestratorClientLike["health"]) {
   const app = createApp(testAppDeps({ orchestrator: fakeOrchestrator({ health }), version: "1.2.3" }));

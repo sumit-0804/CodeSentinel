@@ -1,8 +1,8 @@
 import type { CurrentUser } from "@code-sentinel/contracts";
+import { unauthorized } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
 import type { GatewayResponse } from "../auth/principal.js";
-import { unauthorized } from "../http/errors.js";
 import type { UserStore } from "../persistence/stores.js";
 
 export interface MeRouterDeps {

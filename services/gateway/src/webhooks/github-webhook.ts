@@ -1,10 +1,9 @@
 import type { WebhookAccepted, WebhookAction } from "@code-sentinel/contracts";
+import { badGateway, badRequest, type Logger } from "@code-sentinel/service-kit";
 import express, { Router, type Request } from "express";
 
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubClient } from "../github/github-client.js";
-import { badGateway, badRequest } from "../http/errors.js";
-import type { Logger } from "../logging/logger.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { Stores } from "../persistence/stores.js";

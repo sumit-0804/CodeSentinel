@@ -1,7 +1,7 @@
 import express from "express";
 import { describe, expect, it } from "vitest";
 
-import { withServer } from "../test-support/with-server.js";
+import { withServer } from "../testing/with-server.js";
 import { requestIdMiddleware } from "./request-id.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

@@ -2,8 +2,6 @@
 
 export { createApp, type AppDeps } from "./app.js";
 export { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
-export { createJsonLogger, noopLogger, type Logger } from "./logging/logger.js";
-export { HttpError } from "./http/errors.js";
 export { OrchestratorCallError } from "./orchestrator/orchestrator-call-error.js";
 export { OrchestratorClient, type OrchestratorClientLike } from "./orchestrator/orchestrator-client.js";
 export { signSessionToken } from "./auth/session-token.js";

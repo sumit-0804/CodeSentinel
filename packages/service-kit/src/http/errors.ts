@@ -21,5 +21,10 @@ export const badRequest = (code: string, message: string, details?: Record<strin
 
 export const unauthorized = (code: string, message: string) => new HttpError(401, code, message);
 
-export const badGateway = (code: string, message: string, details?: Record<string, unknown>) =>
+export const notFound = (code: string, message: string) => new HttpError(404, code, message);
+
+export const unprocessable = (code: string, message: string, details?: Record<string, unknown>) =>
+  new HttpError(422, code, message, details);
+
+export const badGateway =(code: string, message: string, details?: Record<string, unknown>) =>
   new HttpError(502, code, message, details);

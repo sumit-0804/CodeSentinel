@@ -1,9 +1,9 @@
 import { CurrentUserSchema } from "@code-sentinel/contracts";
+import { withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { seededStores, testAppDeps, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
-import { withServer } from "../test-support/with-server.js";
 
 async function getMe(seeded: SeededStores, headers: Record<string, string> = {}) {
   let result!: { status: number; body: Record<string, unknown> };

@@ -1,5 +1,6 @@
 import type { ReviewJob } from "@code-sentinel/contracts";
 import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
+import { noopLogger } from "@code-sentinel/service-kit";
 
 import { createHmac } from "node:crypto";
 
@@ -8,7 +9,6 @@ import { signSessionToken } from "../auth/session-token.js";
 import type { AppDeps } from "../app.js";
 import type { GatewayConfig } from "../config.js";
 import { StubGitHubClient } from "../github/stub-github-client.js";
-import { createJsonLogger, noopLogger, type Logger } from "../logging/logger.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import { DEV_GITHUB_REPO_ID, DEV_USER_ID, devSeed } from "../persistence/dev-seed.js";
 import { InMemoryStores, type StoreSeed } from "../persistence/in-memory.js";
@@ -32,15 +32,6 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
     seed: "none",
     ...overrides,
   };
-}
-
-/** A real JSON logger whose lines are captured and parsed, for tests that assert on logging. */
-export function captureLogger(): { logger: Logger; lines: Record<string, unknown>[] } {
-  const lines: Record<string, unknown>[] = [];
-  const logger = createJsonLogger({
-    write: (chunk: string) => lines.push(JSON.parse(chunk) as Record<string, unknown>),
-  });
-  return { logger, lines };
 }
 
 /** The dev seed: one organization, one repository with every agent enabled, one user. */

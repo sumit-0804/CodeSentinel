@@ -14,10 +14,10 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 
 | Area | Module | Status |
 | --- | --- | --- |
-| Request id (NFR-12) + request log (morgan, redacted JSON lines, NFR-05) | `http/request-id.ts`, `http/request-logger.ts`, `logging/logger.ts` | working |
+| Request id (NFR-12) + request log (morgan, redacted JSON lines, NFR-05) | [`@code-sentinel/service-kit`](../../packages/service-kit/README.md) | working |
 | Security headers | `app.ts` (helmet) | working |
-| Config from env, validated at startup | `config.ts`, `env-file.ts` | working |
-| Error handling (`ApiError` bodies with `requestId`) | `http/errors.ts`, `http/error-handler.ts` | working |
+| Config from env, validated at startup | `config.ts`, `loadEnvFile` from `@code-sentinel/service-kit` | working |
+| Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
 | `GET /healthz` | `routes/healthz.ts` | working |
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
 | Session token (HS256 JWT) | `auth/session-token.ts` | working; nothing mints it outside tests until OAuth login lands |
@@ -149,14 +149,14 @@ stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-
 
 ```bash
 npm install                             # from the repo root
-npm run test                            # Turborepo builds contracts first, then runs every test
-npm run test  -w @code-sentinel/gateway # needs a prior `npm run build -w @code-sentinel/contracts`
+npm run test                            # Turborepo builds contracts and service-kit first, then runs every test
+npm run test  -w @code-sentinel/gateway # needs a prior build of contracts and service-kit
 npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-98 tests in 17 files. They run the real app on an ephemeral port (`withServer` in
-`src/test-support/`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
+84 tests in 13 files. They run the real app on an ephemeral port (`withServer` from
+`@code-sentinel/service-kit/testing`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
 secret, port 3000 or the network.
 
 **Manual check** (Git Bash, from `services/gateway/` after `npm run build` at the root):
