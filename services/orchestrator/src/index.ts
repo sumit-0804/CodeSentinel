@@ -1,15 +1,24 @@
 /**
  * @code-sentinel/orchestrator
  *
- * Public surface of the orchestrator service: the LangGraph `ReviewGraph` that fans a review out
- * to the agent services and returns one `CombinedReport`, the `AgentClient` it calls them with,
- * and the aggregation and context building blocks the graph's nodes use. The HTTP layer
- * (`ReviewJobController` per `docs/design/openapi/orchestrator.yaml`) is added on top of these.
+ * Public surface of the orchestrator service: the HTTP app and `ReviewJobController`
+ * (`docs/design/openapi/orchestrator.yaml`), the LangGraph `ReviewGraph` that fans a review out to
+ * the agent services and returns one `CombinedReport`, the `AgentClient` it calls them with, and
+ * the aggregation and context building blocks the graph's nodes use.
  *
  * Shared shapes (`Finding`, `CombinedReport`, ...) are not re-exported; import them from
  * `@code-sentinel/contracts`.
  */
 
+export { createApp, DEFAULT_VERSION, type AppDeps } from "./app.js";
+export { loadOrchestratorConfig, OrchestratorConfigError, type OrchestratorConfig } from "./config.js";
+export { InMemoryJobStore, isTerminal, type JobStore } from "./jobs/job-store.js";
+export {
+  ReviewJobController,
+  type CreatedJob,
+  type CreateJobOptions,
+  type RunReview,
+} from "./jobs/review-job-controller.js";
 export {
   aggregate,
   buildReviewSummary,
@@ -47,9 +56,11 @@ export {
   toInitialState,
 } from "./graph/index.js";
 export type {
+  NodeRunConfig,
   ReviewClient,
   ReviewClients,
   ReviewGraphDeps,
   ReviewRunInput,
+  ReviewRunOptions,
   ReviewState,
 } from "./graph/index.js";
