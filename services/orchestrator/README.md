@@ -16,6 +16,11 @@ there.
 
 | Area | Module | Status |
 | --- | --- | --- |
+| HTTP server (`orchestrator.yaml`) | `app.ts`, `server.ts`, `routes/` | working |
+| Service-token auth on `/internal/*` | `http/service-auth.ts` | working |
+| `ReviewJobController` (create, poll, cancel, idempotency) | `jobs/review-job-controller.ts` | working |
+| Job store | `jobs/job-store.ts` | in-memory, finished jobs dropped after `JOB_RETENTION_MS` |
+| Config from env, validated at startup | `config.ts`, `agents/agent-config.ts` | working |
 | Review graph (`ReviewGraph`, `ReviewState`) | `graph/review-graph.ts`, `graph/review-state.ts` | working |
 | Parallel fan-out + timeout (FR-ORC-01/02, NFR-02/04) | `graph/fan-out-node.ts` | working |
 | Agent HTTP client (NFR-12 request id) | `agents/agent-client.ts`, `agents/agent-call-error.ts` | working |
@@ -31,6 +36,26 @@ there.
 | `ThresholdNode` (FR-ORC-06) | `graph/threshold-node.ts` | wired, thin: records `confidenceThreshold` on the report only |
 | Vector store (FR-VDB-01/02) | `context/vector-repository.ts` | interface + Chroma stub |
 
+## HTTP API
+
+Only the gateway calls the orchestrator. Every `/internal/v1` route needs
+`Authorization: Bearer <SERVICE_TOKEN>`. Logging, request ids and `ApiError` bodies come from
+[`@code-sentinel/service-kit`](../../packages/service-kit/README.md).
+
+| Route | Answer |
+| --- | --- |
+| `POST /internal/v1/review-jobs` | 202 + `ReviewJob` (`queued`), and the review runs in the background. 200 + the existing job when `Idempotency-Key` was seen before. 400 `invalid_body` / `invalid_header`, 422 `no_agents_enabled` when `enabledAgents` is empty |
+| `GET /internal/v1/review-jobs/{jobId}` | 200 + `ReviewJob`: `running`, then `completed` / `partial` / `failed` with `report` and `agentRuns`. 404 `not_found` |
+| `POST /internal/v1/review-jobs/{jobId}/cancel` | 200 + `cancelled` job; aborts every agent call in flight. A finished job is returned unchanged. 404 `not_found` |
+| `GET /internal/v1/agents/health` | Each agent's `/healthz`, polled on demand (2 s per agent) and cached 30 s. An agent with no URL or no answer is `unavailable` |
+| `GET /healthz` | `{ status: "ok", version }`, no token needed |
+| missing or wrong token | 401 `unauthenticated` / `invalid_credentials` |
+
+A job's status follows the report's (see the status rules below). A run that throws is `failed` with
+`error.code: internal_error`, and the error is logged. A cancel always wins: a run that finishes
+after its job was cancelled does not overwrite it. `X-Request-Id` from the gateway is forwarded to
+every agent call, and the request log line carries `jobId`, `reviewId` and `created`.
+
 ## Graph
 
 ```text
@@ -38,7 +63,7 @@ START → fanOut → aggregate → context → threshold → END
 ```
 
 `buildReviewGraph({ clients, similarIssueLookup? })` compiles the graph and returns `{ graph, run }`.
-`run({ reviewId, requestId?, request })` takes a `ReviewJobRequest`, builds the initial state with
+`run({ reviewId, requestId?, request }, { signal? })` takes a `ReviewJobRequest`, builds the initial state with
 `toInitialState()` (all five agents and a 0.8 threshold when the job omits them) and resolves to
 the `CombinedReport`.
 
@@ -51,7 +76,8 @@ the `CombinedReport`.
 
 `fanOut` calls every enabled agent at once with `Promise.allSettled`. Each call gets
 `options.deadlineMs = agentTimeoutMs − 2000` so the agent can return what it has before the
-orchestrator abandons it. Responses are validated against `AgentReviewResponseSchema`, and the
+orchestrator abandons it. The run's abort `signal` is passed to every call, so cancelling a job
+stops its agents. Responses are validated against `AgentReviewResponseSchema`, and the
 orchestrator-owned finding fields (`id`, `similarPastIssues`, `duplicateCount`) are stripped.
 
 `threshold` does not filter findings: `CombinedReport` has no per-finding "postable" flag, so the
@@ -81,28 +107,33 @@ agent skips listing every agent that skipped that file for that reason.
 
 ## Configuration
 
-Read by `loadAgentConfig()`; `createAgentClients()` builds one `AgentClient` per agent with a URL.
-See [`.env.example`](.env.example).
+`server.ts` loads `.env` (or `.env.production` when `NODE_ENV=production`) from
+`services/orchestrator/`; variables already set in the process win. `loadOrchestratorConfig()` reads
+the HTTP settings and reports every invalid one at once. `loadAgentConfig()` reads the agents, and
+`createAgentClients()` builds one `AgentClient` per agent with a URL. Either failing exits with code
+1. See [`.env.example`](.env.example).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `PORT` | `8080` | Listen port, integer 1..65535 |
+| `JOB_RETENTION_MS` | `3600000` | How long a finished job stays readable, integer 60000..86400000 |
 | `AGENT_SECURITY_URL` | unset | Security agent base URL |
 | `AGENT_STYLE_URL` | unset | Style agent base URL |
 | `AGENT_PERFORMANCE_URL` | unset | Performance agent base URL |
 | `AGENT_LOGIC_URL` | unset | Logic agent base URL |
 | `AGENT_DOCUMENTATION_URL` | unset | Documentation agent base URL |
-| `SERVICE_TOKEN` | unset | Sent as `Authorization: Bearer <token>`; omitted when unset |
+| `SERVICE_TOKEN` | required | Expected from the gateway on `/internal/*` and sent to every agent as `Authorization: Bearer <token>`. Same value as the gateway's |
 | `AGENT_TIMEOUT_MS` | `20000` | Client default timeout, integer in 1000..120000; anything else throws at startup. A job's `agentTimeoutMs` overrides it per review |
 
 An unset agent URL is not an error: that agent is recorded as `skipped` when a job enables it.
 
 ## Not started yet
 
-- `ReviewJobController` + HTTP server (`/internal/v1/review-jobs`), in-memory job store,
-  idempotency, and cancel (the client already accepts an abort `signal`)
+- `callbackUrl`: accepted but not called yet (a warning is logged); the gateway polls instead
+- `agentRuns` while a job is running: they appear only once the job finishes
 - `src/budget/` Gemini quota planning and batching (see [`plans/large-diffs.md`](../../plans/large-diffs.md))
 - `coverage` on the combined report (needs changed-line counting from the budget step)
-- `ReviewRepository` (PostgreSQL persistence)
+- `ReviewRepository` (PostgreSQL persistence), replacing the in-memory job store
 - Chroma `VectorRepository` implementation
 - `packages/llm` Gemini client
 
@@ -110,9 +141,24 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 
 ```bash
 npm install                                  # from the repo root
-npm run test                                 # Turborepo builds contracts first, then runs every test
-npm run test  -w @code-sentinel/orchestrator # needs a prior `npm run build -w @code-sentinel/contracts`
+npm run test                                 # Turborepo builds contracts and service-kit first, then runs every test
+npm run test  -w @code-sentinel/orchestrator # needs a prior build of contracts and service-kit
 npm run build -w @code-sentinel/orchestrator
+npm run start -w @code-sentinel/orchestrator # after a build; reads services/orchestrator/.env
 ```
 
-Tests stub `fetch` through the `AgentClient` constructor, so no agent service needs to be running.
+Tests stub `fetch` through the `AgentClient` constructor and run the HTTP app on an ephemeral port
+(`withServer`), so no agent service needs to be running.
+
+**Manual check** (Git Bash, from `services/orchestrator/` after `npm run build` at the root):
+
+1. Start with no agents: `PORT=8080 SERVICE_TOKEN=local-service-token AGENT_SECURITY_URL= AGENT_STYLE_URL= AGENT_PERFORMANCE_URL= AGENT_LOGIC_URL= AGENT_DOCUMENTATION_URL= node dist/server.js`.
+2. `POST /internal/v1/review-jobs` with the bearer token, `Idempotency-Key: smoke-1` and
+   `exampleReviewJobRequest` from `@code-sentinel/contracts/examples` as the body: 202 `queued`.
+3. `GET /internal/v1/review-jobs/{jobId}`: `failed`, every enabled agent `skipped` with
+   `agent_not_configured` (expected with no agents). Repeat step 2: 200, same `jobId`.
+4. Without the token: 401 `unauthenticated`.
+5. End to end: start the gateway with `ORCHESTRATOR_URL=http://127.0.0.1:8080`, the same
+   `SERVICE_TOKEN` and `GATEWAY_SEED=dev`, then send the signed webhook from the gateway README's
+   manual check. The first delivery is `review_started`, and a redelivery is `duplicate_ignored`
+   with the same `reviewId`.

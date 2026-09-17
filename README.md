@@ -18,7 +18,7 @@ database schema.
 ```
 services/        Deployable services (one per SOA component)
   gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
-  orchestrator/  LangGraph orchestrator — fan-out, aggregation, severity ranking, context
+  orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
@@ -41,6 +41,20 @@ npm run typecheck
 ```
 
 The monorepo uses npm workspaces with [Turborepo](https://turbo.build/) for task running.
+
+To run the pipeline locally, copy each service's `.env.example` to `.env`, give both the same
+`SERVICE_TOKEN`, point the gateway's `ORCHESTRATOR_URL` at the orchestrator, then after
+`npm run build`:
+
+```bash
+npm run start -w @code-sentinel/orchestrator
+```
+
+```bash
+npm run start -w @code-sentinel/gateway
+```
+
+Each service README has a step-by-step manual check.
 
 ## Continuous integration
 

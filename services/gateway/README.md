@@ -161,8 +161,9 @@ secret, port 3000 or the network.
 
 **Manual check** (Git Bash, from `services/gateway/` after `npm run build` at the root):
 
-1. Start a fake orchestrator on port 8080 that prints each request and answers `202` with a
-   `ReviewJob` (and `200 {"status":"ok"}` on `/healthz`).
+1. Start the real orchestrator on port 8080 with `SERVICE_TOKEN=local-service-token` (see the
+   orchestrator README's manual check), or any fake that answers `202` with a `ReviewJob` and
+   `200 {"status":"ok"}` on `/healthz`.
 2. Start the gateway. These variables override `.env`, so the signing secret below is known:
    ```bash
    PORT=3000 ORCHESTRATOR_URL=http://127.0.0.1:8080 SERVICE_TOKEN=local-service-token \
@@ -172,8 +173,8 @@ secret, port 3000 or the network.
 3. Write a `pull_request.opened` payload for repository id 123456789 to a file, sign it with
    `sha256=` + HMAC-SHA256(`local-webhook-secret`, file bytes), and `curl --data-binary @file`
    with `X-GitHub-Event: pull_request`, `X-GitHub-Delivery` and `X-Hub-Signature-256`. Expect 202
-   `review_started`, and a job on the fake orchestrator with one file and two skipped files.
+   `review_started`, and a job on the orchestrator with one file and two skipped files.
 4. Send the same body signed with a wrong secret, with no signature, and `{not json` unsigned:
-   each is 401 `invalid_signature` and the fake orchestrator receives nothing.
+   each is 401 `invalid_signature` and the orchestrator receives nothing.
 5. `curl /v1/me` is 401 `unauthenticated`; with `Authorization: Bearer cs_live_dev_00000000` it is
-   200. `curl /healthz` is `ok`, and `degraded` / `unavailable` once the fake orchestrator stops.
+   200. `curl /healthz` is `ok`, and `degraded` / `unavailable` once the orchestrator stops.
