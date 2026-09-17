@@ -145,6 +145,28 @@ describe("buildReviewGraph", () => {
       { path: "src/big.py", reason: "too_large", agents: ["security", "logic"] },
     ]);
   });
+
+  it("aborts agent calls in flight and rejects when the run's signal fires", async () => {
+    const controller = new AbortController();
+    let agentSignal: AbortSignal | undefined;
+    const hanging: ReviewClient = {
+      review: (_request, opts) =>
+        new Promise((_resolve, reject) => {
+          agentSignal = opts?.signal;
+          opts?.signal?.addEventListener("abort", () => reject(opts.signal?.reason));
+          controller.abort(new Error("job cancelled"));
+        }),
+    };
+    const { run: runReview } = buildReviewGraph({ clients: { security: hanging } });
+
+    await expect(
+      runReview(
+        { reviewId: EXAMPLE_REVIEW_ID, request: request({ enabledAgents: ["security"] }) },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+    expect(agentSignal?.aborted).toBe(true);
+  });
 });
 
 describe("toInitialState", () => {

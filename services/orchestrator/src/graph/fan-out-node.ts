@@ -16,6 +16,11 @@ import type { ReviewState } from "./review-state.js";
 export type ReviewClient = Pick<AgentClient, "review">;
 export type ReviewClients = Partial<Record<AgentKind, ReviewClient>>;
 
+/** The slice of the LangGraph node config the fan-out reads: the run's abort signal. */
+export interface NodeRunConfig {
+  signal?: AbortSignal;
+}
+
 interface AgentSuccess {
   response: AgentReviewResponse;
   latencyMs: number;
@@ -27,7 +32,7 @@ interface AgentSuccess {
  * of failing the review (FR-ORC-02, NFR-04). Runs are reported in `enabledAgents` order.
  */
 export function createFanOutNode(clients: ReviewClients) {
-  return async function fanOut(state: ReviewState): Promise<Partial<ReviewState>> {
+  return async function fanOut(state: ReviewState, config?: NodeRunConfig): Promise<Partial<ReviewState>> {
     const request: AgentReviewRequest = {
       reviewId: state.reviewId,
       files: state.files,
@@ -37,6 +42,8 @@ export function createFanOutNode(clients: ReviewClients) {
     const callOptions = {
       timeoutMs: state.agentTimeoutMs,
       ...(state.requestId ? { requestId: state.requestId } : {}),
+      // A cancelled job aborts the run, which aborts every agent call still in flight.
+      ...(config?.signal ? { signal: config.signal } : {}),
     };
 
     // An async wrapper per agent, so even a client that throws synchronously settles as rejected.

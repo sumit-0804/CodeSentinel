@@ -23,6 +23,11 @@ export interface ReviewRunInput {
   request: ReviewJobRequest;
 }
 
+export interface ReviewRunOptions {
+  /** Aborting it stops the run and every agent call in flight (cancelled job, NFR-14). */
+  signal?: AbortSignal;
+}
+
 /** The `ReviewState` a run starts from, with job defaults applied. */
 export function toInitialState(input: ReviewRunInput): ReviewState {
   const { request } = input;
@@ -60,8 +65,8 @@ export function buildReviewGraph(deps: ReviewGraphDeps) {
     .addEdge("threshold", END)
     .compile();
 
-  async function run(input: ReviewRunInput): Promise<CombinedReport> {
-    const state = await graph.invoke(toInitialState(input));
+  async function run(input: ReviewRunInput, options: ReviewRunOptions = {}): Promise<CombinedReport> {
+    const state = await graph.invoke(toInitialState(input), options.signal ? { signal: options.signal } : {});
     if (!state.report) throw new Error(`Review ${input.reviewId} finished without a report`);
     return state.report;
   }

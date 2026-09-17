@@ -119,6 +119,15 @@ describe("createFanOutNode", () => {
     );
   });
 
+  it("forwards the run's abort signal to every agent call", async () => {
+    const security = respondingClient("security");
+    const controller = new AbortController();
+
+    await createFanOutNode({ security })(state({ enabledAgents: ["security"] }), { signal: controller.signal });
+
+    expect(security.review.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
   it("collects agent skips under the agent that reported them", async () => {
     const fanOut = createFanOutNode({
       security: respondingClient("security", { skippedFiles: [{ path: "src/big.py", reason: "too_large" }] }),

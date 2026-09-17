@@ -14,14 +14,20 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@code-sentinel/contracts": "*",
+    "@code-sentinel/service-kit": "*",
     "@langchain/core": "^1.2.11",
-    "@langchain/langgraph": "^1.4.15"
+    "@langchain/langgraph": "^1.4.15",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.14.0",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
