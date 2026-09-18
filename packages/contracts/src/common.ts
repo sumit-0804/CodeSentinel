@@ -134,9 +134,9 @@ export const AgentRunSummarySchema = z.object({
   status: AgentRunStatusSchema,
   findingsCount: z.number().int().min(0).optional(),
   latencyMs: z.number().int().min(0).optional(),
-  /** Always gemini; there is no provider fallback (NFR-11, NFR-14). */
+  /** groq, or gemini when Groq's quota could not take the call or a Groq call failed (NFR-11, NFR-14). */
   llmProvider: z.string().optional(),
-  /** llm_quota_exhausted when the agent could not fit into the Gemini quota before the deadline. */
+  /** llm_quota_exhausted when the agent could not fit into the Groq or Gemini quota before the deadline. */
   errorCode: z.string().optional(),
 });
 export type AgentRunSummary = z.infer<typeof AgentRunSummarySchema>;

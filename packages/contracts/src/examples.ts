@@ -53,8 +53,8 @@ export const exampleAgentReviewResponse: AgentReviewResponse = {
   analyzedFileCount: 1,
   skippedFiles: [],
   llm: {
-    provider: "gemini",
-    model: "gemini-3.5-flash-lite",
+    provider: "groq",
+    model: "openai/gpt-oss-120b",
     fallbackDepth: 0,
     promptTokens: 1420,
     completionTokens: 310,
@@ -93,7 +93,7 @@ export const exampleCombinedReport: CombinedReport = {
   },
   findings: [{ ...exampleFinding, duplicateCount: 2 }],
   agentRuns: [
-    { agent: "security", status: "succeeded", findingsCount: 1, latencyMs: 2350, llmProvider: "gemini" },
+    { agent: "security", status: "succeeded", findingsCount: 1, latencyMs: 2350, llmProvider: "groq" },
     { agent: "style", status: "succeeded", findingsCount: 0, latencyMs: 1420 },
     { agent: "logic", status: "timed_out", latencyMs: 20000, llmProvider: "gemini" },
   ],

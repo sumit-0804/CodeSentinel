@@ -60,7 +60,7 @@ describe("createFanOutNode", () => {
     const update = await fanOut(state());
 
     expect(update.agentRuns).toEqual([
-      { agent: "security", status: "succeeded", findingsCount: 1, latencyMs: expect.any(Number), llmProvider: "gemini" },
+      { agent: "security", status: "succeeded", findingsCount: 1, latencyMs: expect.any(Number), llmProvider: "groq" },
       { agent: "logic", status: "timed_out", errorCode: "agent_timeout", latencyMs: 20000 },
       { agent: "documentation", status: "failed", errorCode: "http_503", latencyMs: 12 },
     ]);

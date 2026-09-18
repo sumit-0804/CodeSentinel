@@ -97,7 +97,7 @@ gateway applies the recorded threshold when it posts suggestions.
 | --- | --- | --- |
 | `agent_not_configured` | `skipped` | Agent is enabled but its URL env var is unset |
 | `agent_timeout` | `timed_out` | No answer within `agentTimeoutMs` |
-| `http_<status>` | `failed` | Non-2xx response, e.g. `http_503` when Gemini is unavailable |
+| `http_<status>` | `failed` | Non-2xx response, e.g. `http_503` when no LLM provider could answer |
 | `invalid_response` | `failed` | Body is not JSON, fails the schema, or names another agent |
 | `network_error` | `failed` | Connection refused, DNS failure, reset |
 | `unexpected_error` | `failed` | Anything else thrown while calling the agent |
@@ -135,7 +135,7 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 - `coverage` on the combined report (needs changed-line counting from the budget step)
 - `ReviewRepository` (PostgreSQL persistence), replacing the in-memory job store
 - Chroma `VectorRepository` implementation
-- `packages/llm` Gemini client
+- `packages/llm` Groq (primary) and Gemini (secondary) clients, see [`plans/llm-agents.md`](../../plans/llm-agents.md)
 
 ## Develop
 
