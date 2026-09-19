@@ -21,6 +21,7 @@ services/        Deployable services (one per SOA component)
   orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
+  llm/           Groq (primary) and Gemini (secondary) clients, quota budget, Gemini embeddings
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
 docs/            Course deliverables and design artifacts
 ```

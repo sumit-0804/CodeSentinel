@@ -111,13 +111,13 @@ GitHub PR files
       from `loadLlmLimits`.
 
 ### `packages/llm`
-- [ ] `GroqProvider` via `fetch` (no SDK, OpenAI-compatible): strict `json_schema` output,
+- [x] `GroqProvider` via `fetch` (no SDK, OpenAI-compatible): strict `json_schema` output,
       `max_completion_tokens`, returns `usage`.
-- [ ] `GeminiProvider` via `fetch` (no SDK): `maxOutputTokens`, returns `usageMetadata`.
-- [ ] `InputTooLargeError` before any `fetch` when the prompt exceeds the batch budget.
-- [ ] Groq 429 / 5xx / network / timeout: retry once on Gemini if it fits the deadline
+- [x] `GeminiProvider` via `fetch` (no SDK): `maxOutputTokens`, returns `usageMetadata`.
+- [x] `InputTooLargeError` before any `fetch` when the prompt exceeds the batch budget.
+- [x] Groq 429 / 5xx / network / timeout: retry once on Gemini if it fits the deadline
       (`fallbackDepth: 1`). Gemini 429: a typed quota error.
-- [ ] `GeminiEmbedder.embedMany()` via one `embedContent` per text, `outputDimensionality` 768, each
+- [x] `GeminiEmbedder.embedMany()` via one `embedContent` per text, `outputDimensionality` 768, each
       request reserved against the embedding `QuotaBudget`.
 
 ### Agent kit
@@ -157,7 +157,7 @@ GitHub PR files
       that Groq is back as the primary provider (27-Sep), with Gemini as secondary.
 - [x] 27-Sep: `class_llm.mmd`, `component.mmd`, `agent.yaml`, `common.yaml` and the contracts
       comments updated for Groq primary / Gemini secondary.
-- [ ] System Design Document §2 and §4.3 updated for Groq primary / Gemini secondary and re-exported
+- [x] System Design Document §2 and §4.3 updated for Groq primary / Gemini secondary and re-exported
       to PDF.
 - [ ] System Design Document (§4.3) still names `gemini-embedding-001`; the model is now
       `gemini-embedding-2` at the same 768 dimensions. Update the `.docx` and re-export the PDF with
