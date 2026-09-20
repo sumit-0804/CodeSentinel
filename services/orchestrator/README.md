@@ -35,6 +35,9 @@ there.
 | `ContextNode` (FR-ORC-05) | `graph/context-node.ts`, `context/similar-issue-lookup.ts` | wired, thin: no-op until a `VectorRepository` is supplied |
 | `ThresholdNode` (FR-ORC-06) | `graph/threshold-node.ts` | wired, thin: records `confidenceThreshold` on the report only |
 | Vector store (FR-VDB-01/02) | `context/vector-repository.ts` | interface + Chroma stub |
+| LLM batch planning (`planLlmReview`) | `budget/plan.ts` | working |
+| Groq → Gemini quota routing (one `QuotaBudget` per provider) | `budget/llm-routing.ts` | working |
+| Review coverage | `aggregation/coverage.ts` → `buildCoverage()` | working |
 
 ## HTTP API
 
@@ -70,13 +73,14 @@ the `CombinedReport`.
 | Node | Reads from `ReviewState` | Writes |
 | --- | --- | --- |
 | `fanOut` | `reviewId`, `files`, `enabledAgents`, `confidenceThreshold`, `agentTimeoutMs`, `requestId` | appends `rawFindings`, `agentRuns`, `agentSkippedFiles` |
-| `aggregate` | `rawFindings`, `agentRuns`, `gatewaySkippedFiles`, `agentSkippedFiles` | `report` (deduped, ranked, status, `skippedFiles`) |
+| `aggregate` | `rawFindings`, `agentRuns`, `files`, `gatewaySkippedFiles`, `agentSkippedFiles` | `report` (deduped, ranked, status, `skippedFiles`, `coverage`) |
 | `context` | `report`, `organizationId`, `includeSimilarPastIssues` | `report.findings[].similarPastIssues` |
 | `threshold` | `report`, `confidenceThreshold` | `report.confidenceThreshold` |
 
-`fanOut` calls every enabled agent at once with `Promise.allSettled`. Each call gets
-`options.deadlineMs = agentTimeoutMs − 2000` so the agent can return what it has before the
-orchestrator abandons it. The run's abort `signal` is passed to every call, so cancelling a job
+`fanOut` calls every enabled agent at once; a failing agent never fails the review. Each call gets
+`options.deadlineMs = timeout − 2000` so the agent can return what it has before the orchestrator
+abandons it. How an agent is called depends on whether it uses an LLM (see **LLM routing** below):
+the Style Agent, and every agent when no LLM key is configured, get one request with all files. The run's abort `signal` is passed to every call, so cancelling a job
 stops its agents. Responses are validated against `AgentReviewResponseSchema`, and the
 orchestrator-owned finding fields (`id`, `similarPastIssues`, `duplicateCount`) are stripped.
 
@@ -88,7 +92,7 @@ gateway applies the recorded threshold when it posts suggestions.
 | Agent runs | `report.status` |
 | --- | --- |
 | every run `succeeded` (runs `skipped` for a missing URL are ignored) | `completed` |
-| at least one `succeeded`, at least one `timed_out` or `failed` | `partial` |
+| at least one `succeeded`, at least one `timed_out`, `failed` or `llm_quota_exhausted` | `partial` |
 | no run `succeeded` (including no runs at all) | `failed` |
 
 **Run-summary `errorCode` values:**
@@ -96,6 +100,8 @@ gateway applies the recorded threshold when it posts suggestions.
 | `errorCode` | `status` | Cause |
 | --- | --- | --- |
 | `agent_not_configured` | `skipped` | Agent is enabled but its URL env var is unset |
+| `llm_quota_exhausted` | `skipped`, or `succeeded` when some batches were sent | Neither Groq nor Gemini had quota before the deadline; the unsent files are `over_budget` |
+| `no_reviewable_files` | `skipped` | Every file was `too_large` or `over_budget` for the LLM agent |
 | `agent_timeout` | `timed_out` | No answer within `agentTimeoutMs` |
 | `http_<status>` | `failed` | Non-2xx response, e.g. `http_503` when no LLM provider could answer |
 | `invalid_response` | `failed` | Body is not JSON, fails the schema, or names another agent |
@@ -104,6 +110,40 @@ gateway applies the recorded threshold when it posts suggestions.
 
 `report.skippedFiles` has one entry per path and reason: gateway skips first (no `agents`), then
 agent skips listing every agent that skipped that file for that reason.
+
+`report.coverage` counts a file as reviewed when at least one agent that succeeded did not skip it.
+Changed lines are the `+` / `-` lines of each patch; gateway-dropped files count toward
+`filesTotal` but have no patch, so they add no lines.
+
+## LLM routing
+
+Groq is the primary provider and Gemini the secondary ([`plans/large-diffs.md`](../../plans/large-diffs.md)).
+The orchestrator never calls an LLM itself; it decides which provider's quota each agent request
+may use, so production never receives a 429. At startup `loadLlmLimits()` reads the keys and
+limits and `createLlmRouting()` builds one `QuotaBudget` per configured provider, shared by every
+review in the process.
+
+For each LLM agent (security, performance, logic, documentation):
+
+1. **Timeout** is `max(job.agentTimeoutMs, LLM_AGENT_TIMEOUT_MS)`: 45 s by default, because a
+   Gemini call took 22 s on the free tier on 27-Sep.
+2. **Plan** (`planLlmReview`): source files first, then smallest first; a file over
+   `LLM_MAX_FILE_TOKENS` is `too_large`, anything past `LLM_REVIEW_MAX_TOKENS` is `over_budget`,
+   and the rest is packed into batches of up to `LLM_MAX_BATCH_TOKENS`.
+3. **Reserve** each batch (`reserveBatch`), costing diff tokens + prompt reserve + max output: on
+   Groq when the batch fits one Groq call (about 3.4K diff tokens at 8K TPM) and Groq has room now,
+   otherwise on Gemini, otherwise wait for the first to free up. If nothing frees up at least 5 s
+   before the deadline, the rest of the agent's files are `over_budget` and the run carries
+   `llm_quota_exhausted`.
+4. **Send** each reserved batch at once with `options.llmProvider`, then **settle**
+   (`settleCall`) with the agent's reported token counts: a call that made no LLM request gives its
+   reservation back, and a Groq call Gemini answered is charged to Gemini. A failed call keeps its
+   estimate.
+5. **Merge** the batches into one run. `llmProvider` is `groq`, `gemini` or `groq,gemini`. If any
+   batch failed, the run takes that failure's status but keeps the other batches' findings.
+
+Without any LLM key the orchestrator logs a warning and LLM agents get one request with no
+`llmProvider`, so they run their rule-based checks only.
 
 ## Configuration
 
@@ -117,6 +157,8 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | --- | --- | --- |
 | `PORT` | `8080` | Listen port, integer 1..65535 |
 | `JOB_RETENTION_MS` | `3600000` | How long a finished job stays readable, integer 60000..86400000 |
+| `LLM_AGENT_TIMEOUT_MS` | `45000` | Minimum timeout for LLM agents, integer 1000..120000 |
+| `GROQ_*`, `GEMINI_*`, `LLM_*` | see [`packages/llm`](../../packages/llm/README.md) | Provider keys and limits of **this environment's** keys, and the batch sizes |
 | `AGENT_SECURITY_URL` | unset | Security agent base URL |
 | `AGENT_STYLE_URL` | unset | Style agent base URL |
 | `AGENT_PERFORMANCE_URL` | unset | Performance agent base URL |
@@ -131,18 +173,16 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 
 - `callbackUrl`: accepted but not called yet (a warning is logged); the gateway polls instead
 - `agentRuns` while a job is running: they appear only once the job finishes
-- `src/budget/` Gemini quota planning and batching (see [`plans/large-diffs.md`](../../plans/large-diffs.md))
-- `coverage` on the combined report (needs changed-line counting from the budget step)
 - `ReviewRepository` (PostgreSQL persistence), replacing the in-memory job store
 - Chroma `VectorRepository` implementation
-- `packages/llm` Groq (primary) and Gemini (secondary) clients, see [`plans/llm-agents.md`](../../plans/llm-agents.md)
+- Gemini embeddings into the vector store (`GeminiEmbedder` exists in `packages/llm`)
 
 ## Develop
 
 ```bash
 npm install                                  # from the repo root
 npm run test                                 # Turborepo builds contracts and service-kit first, then runs every test
-npm run test  -w @code-sentinel/orchestrator # needs a prior build of contracts and service-kit
+npm run test  -w @code-sentinel/orchestrator # needs a prior build of contracts, service-kit and llm
 npm run build -w @code-sentinel/orchestrator
 npm run start -w @code-sentinel/orchestrator # after a build; reads services/orchestrator/.env
 ```

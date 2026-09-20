@@ -96,6 +96,12 @@ export class QuotaBudget {
     if (entry) entry.tokens = Math.max(0, actualTokens);
   }
 
+  /** Records usage that happened without a reservation, e.g. Gemini answering a failed Groq call. */
+  charge(cost: QuotaCost): void {
+    this.prune(this.now().getTime());
+    this.entries.push({ id: this.nextId++, at: this.now().getTime(), ...cost });
+  }
+
   /** Gives back a reservation whose call was never made (cancelled, or sent elsewhere). */
   release(reservation: Reservation): void {
     this.entries = this.entries.filter((entry) => entry.id !== reservation.id);

@@ -134,7 +134,7 @@ export const AgentRunSummarySchema = z.object({
   status: AgentRunStatusSchema,
   findingsCount: z.number().int().min(0).optional(),
   latencyMs: z.number().int().min(0).optional(),
-  /** groq, or gemini when Groq's quota could not take the call or a Groq call failed (NFR-11, NFR-14). */
+  /** groq, gemini, or "groq,gemini" when an agent's batches used both (NFR-11, NFR-14). */
   llmProvider: z.string().optional(),
   /** llm_quota_exhausted when the agent could not fit into the Groq or Gemini quota before the deadline. */
   errorCode: z.string().optional(),

@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { LlmConfigError, loadLlmLimits, type LlmLimits } from "@code-sentinel/llm";
 import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
 
 import { createAgentClients, loadAgentConfig, type AgentConfig } from "./agents/agent-config.js";
 import { createApp, DEFAULT_VERSION } from "./app.js";
+import { createLlmRouting } from "./budget/llm-routing.js";
 import { loadOrchestratorConfig, OrchestratorConfigError, type OrchestratorConfig } from "./config.js";
 import { buildReviewGraph } from "./graph/review-graph.js";
 import { InMemoryJobStore } from "./jobs/job-store.js";
@@ -27,18 +29,24 @@ function main(): void {
 
   let config: OrchestratorConfig;
   let agentConfig: AgentConfig;
+  let llmLimits: LlmLimits;
   try {
     config = loadOrchestratorConfig(env);
     agentConfig = loadAgentConfig(env);
+    llmLimits = loadLlmLimits(env);
   } catch (error) {
-    const problems = error instanceof OrchestratorConfigError ? error.problems : [String(error)];
+    const problems =
+      error instanceof OrchestratorConfigError || error instanceof LlmConfigError ? error.problems : [String(error)];
     createJsonLogger(process.stderr).error("invalid orchestrator configuration", { problems });
     process.exitCode = 1;
     return;
   }
 
   const clients = createAgentClients(agentConfig);
-  const { run } = buildReviewGraph({ clients });
+  // One quota budget per provider for the whole process, shared by every review.
+  const llmRouting = createLlmRouting(llmLimits, config.llmAgentTimeoutMs);
+  if (!llmRouting) logger.warn("no LLM provider configured; LLM agents run their rule-based checks only");
+  const { run } = buildReviewGraph({ clients, ...(llmRouting ? { llmRouting } : {}) });
   const controller = new ReviewJobController({
     run,
     logger,
@@ -56,6 +64,7 @@ function main(): void {
     logger.info("orchestrator listening", {
       port: config.port,
       agents: Object.keys(clients),
+      llmProviders: Object.keys(llmRouting?.budgets ?? {}),
       nodeEnv: env.NODE_ENV,
       envFile: file,
     });

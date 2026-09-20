@@ -20,8 +20,19 @@ export {
   type RunReview,
 } from "./jobs/review-job-controller.js";
 export {
+  createLlmRouting,
+  LLM_AGENTS,
+  reserveBatch,
+  settleCall,
+  type LlmRouting,
+  type ReservedCall,
+} from "./budget/llm-routing.js";
+export { planLlmReview, type LlmBatch, type LlmReviewPlan, type PlanLimits } from "./budget/plan.js";
+export {
   aggregate,
+  buildCoverage,
   buildReviewSummary,
+  countChangedLines,
   deriveStatus,
   FindingAggregator,
   mergeSkippedFiles,

@@ -3,6 +3,7 @@ import type {
   CombinedReport,
   Finding,
   ReportSkippedFile,
+  ReviewCoverage,
   ReviewStatus,
 } from "@code-sentinel/contracts";
 import { FindingAggregator } from "./finding-aggregator.js";
@@ -12,6 +13,7 @@ import { buildReviewSummary } from "./review-summary.js";
 export { FindingAggregator } from "./finding-aggregator.js";
 export { SeverityRanker } from "./severity-ranker.js";
 export { buildReviewSummary } from "./review-summary.js";
+export { buildCoverage, countChangedLines } from "./coverage.js";
 export { mergeSkippedFiles, type AgentSkippedFiles } from "./skipped-files.js";
 
 export interface AggregateInput {
@@ -22,19 +24,22 @@ export interface AggregateInput {
   status?: ReviewStatus;
   /** Included on the report only when non-empty. */
   skippedFiles?: ReportSkippedFile[];
+  coverage?: ReviewCoverage;
 }
 
 /**
  * The review status implied by the agent runs (`state_review.mmd`, FR-ORC-02, AC-12):
  * `completed` when every agent that ran succeeded, `partial` when at least one succeeded and
- * another timed out or failed, `failed` when none succeeded. `skipped` runs (agent not
- * configured) do not by themselves make a review partial.
+ * another timed out, failed or was cut short by the LLM quota (`llm_quota_exhausted`), `failed`
+ * when none succeeded. Other `skipped` runs (agent not configured) do not make a review partial.
  */
 export function deriveStatus(agentRuns: AgentRunSummary[]): ReviewStatus {
   const succeeded = agentRuns.some((run) => run.status === "succeeded");
   if (!succeeded) return "failed";
 
-  const missing = agentRuns.some((run) => run.status === "timed_out" || run.status === "failed");
+  const missing = agentRuns.some(
+    (run) => run.status === "timed_out" || run.status === "failed" || run.errorCode === "llm_quota_exhausted",
+  );
   return missing ? "partial" : "completed";
 }
 
@@ -58,5 +63,6 @@ export function aggregate(input: AggregateInput): CombinedReport {
     agentRuns: input.agentRuns,
   };
   if (input.skippedFiles?.length) report.skippedFiles = input.skippedFiles;
+  if (input.coverage) report.coverage = input.coverage;
   return report;
 }

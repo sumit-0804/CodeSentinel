@@ -54,6 +54,14 @@ describe("QuotaBudget", () => {
     expect(budget.tryReserve({ requests: 1, tokens: 1 })).toEqual({ ok: false, retryAt: new Date(T0 + 86_400_001) });
   });
 
+  it("counts charged usage even past the limit", () => {
+    const budget = new QuotaBudget(GROQ, { headroom: 0.8, now: clock().now });
+
+    budget.charge({ requests: 1, tokens: 7000 });
+
+    expect(budget.tryReserve({ requests: 1, tokens: 1 })).toMatchObject({ ok: false });
+  });
+
   it("settles to the reported tokens and releases unused reservations", () => {
     const { now } = clock();
     const budget = new QuotaBudget(GROQ, { headroom: 0.8, now });

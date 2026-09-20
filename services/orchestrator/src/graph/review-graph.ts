@@ -7,6 +7,7 @@ import { createContextNode } from "./context-node.js";
 import { ALL_AGENTS, DEFAULT_CONFIDENCE_THRESHOLD } from "./defaults.js";
 import { createFanOutNode, type ReviewClients } from "./fan-out-node.js";
 import { ReviewStateAnnotation, type ReviewState } from "./review-state.js";
+import type { LlmRouting } from "../budget/llm-routing.js";
 import { thresholdNode } from "./threshold-node.js";
 
 export interface ReviewGraphDeps {
@@ -14,6 +15,8 @@ export interface ReviewGraphDeps {
   clients: ReviewClients;
   /** Omit until a vector store is wired; the context node is then a no-op. */
   similarIssueLookup?: SimilarIssueLookup;
+  /** Quota routing for LLM agents; without it every agent gets one request and no LLM provider. */
+  llmRouting?: LlmRouting;
 }
 
 export interface ReviewRunInput {
@@ -54,7 +57,7 @@ export function toInitialState(input: ReviewRunInput): ReviewState {
  */
 export function buildReviewGraph(deps: ReviewGraphDeps) {
   const graph = new StateGraph(ReviewStateAnnotation)
-    .addNode("fanOut", createFanOutNode(deps.clients))
+    .addNode("fanOut", createFanOutNode(deps.clients, deps.llmRouting))
     .addNode("aggregate", aggregateNode)
     .addNode("context", createContextNode(deps.similarIssueLookup))
     .addNode("threshold", thresholdNode)

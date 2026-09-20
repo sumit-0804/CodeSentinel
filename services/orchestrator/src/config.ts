@@ -6,6 +6,8 @@ export interface OrchestratorConfig {
   serviceToken: string;
   /** How long a finished job stays readable before it is dropped from memory. */
   jobRetentionMs: number;
+  /** Minimum per-agent timeout for LLM agents; a Gemini call can take over 20 s on the free tier. */
+  llmAgentTimeoutMs: number;
 }
 
 /** Thrown by `loadOrchestratorConfig` with every invalid variable listed at once. */
@@ -38,11 +40,12 @@ const EnvSchema = z.object({
   PORT: integer(1, 65535, 8080),
   SERVICE_TOKEN: z.preprocess(blankAsUndefined, z.string().min(1, "must not be empty")),
   JOB_RETENTION_MS: integer(60_000, 86_400_000, 3_600_000),
+  LLM_AGENT_TIMEOUT_MS: integer(1_000, 120_000, 45_000),
 });
 
 /**
- * Reads and validates the orchestrator's HTTP settings (see `.env.example`). Agent URLs and the
- * agent timeout are read separately by `loadAgentConfig()`.
+ * Reads and validates the orchestrator's own settings (see `.env.example`). Agent URLs are read by
+ * `loadAgentConfig()`, LLM keys and limits by `loadLlmLimits()` from `@code-sentinel/llm`.
  */
 export function loadOrchestratorConfig(env: Record<string, string | undefined> = process.env): OrchestratorConfig {
   const parsed = EnvSchema.safeParse(env);
@@ -57,5 +60,10 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
   }
 
   const values = parsed.data;
-  return { port: values.PORT, serviceToken: values.SERVICE_TOKEN, jobRetentionMs: values.JOB_RETENTION_MS };
+  return {
+    port: values.PORT,
+    serviceToken: values.SERVICE_TOKEN,
+    jobRetentionMs: values.JOB_RETENTION_MS,
+    llmAgentTimeoutMs: values.LLM_AGENT_TIMEOUT_MS,
+  };
 }

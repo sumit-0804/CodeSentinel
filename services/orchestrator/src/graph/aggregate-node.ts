@@ -1,9 +1,9 @@
-import { aggregate, deriveStatus, mergeSkippedFiles } from "../aggregation/index.js";
+import { aggregate, buildCoverage, deriveStatus, mergeSkippedFiles } from "../aggregation/index.js";
 import type { ReviewState } from "./review-state.js";
 
 /**
  * `AggregateNode`: de-duplicates and ranks the fan-out's raw findings (FR-ORC-03, FR-ORC-04),
- * derives the review status from the agent runs, and merges gateway and agent skips.
+ * derives the review status from the agent runs, merges gateway and agent skips, and adds coverage.
  */
 export function aggregateNode(state: ReviewState): Partial<ReviewState> {
   const report = aggregate({
@@ -12,6 +12,7 @@ export function aggregateNode(state: ReviewState): Partial<ReviewState> {
     agentRuns: state.agentRuns,
     status: deriveStatus(state.agentRuns),
     skippedFiles: mergeSkippedFiles(state.gatewaySkippedFiles, state.agentSkippedFiles),
+    coverage: buildCoverage(state.files, state.gatewaySkippedFiles, state.agentRuns, state.agentSkippedFiles),
   });
   return { report };
 }

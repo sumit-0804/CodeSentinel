@@ -94,21 +94,23 @@ GitHub PR files
 - [x] `ReviewJobRequest.skippedFiles`.
 - [x] Mirror all of the above in `packages/contracts` (zod). Done 15-Sep, see
       `packages/contracts/README.md`.
-- [ ] `AgentReviewRequest.options.llmProvider` (`groq | gemini`) so the orchestrator tells the agent
+- [x] `AgentReviewRequest.options.llmProvider` (`groq | gemini`) so the orchestrator tells the agent
       which quota it reserved (PR 2 of `llm-agents.md`).
 
 ## Work
 
 ### Orchestrator
-- [ ] `src/budget/`: `planLlmReview` with a per-provider batch cap (+ tests). `loadLlmLimits`,
+- [x] `src/budget/`: `planLlmReview` with a per-provider batch cap (+ tests). `loadLlmLimits`,
       `estimateTokens` and `QuotaBudget` live in `packages/llm`.
-- [ ] `aggregate()` accepts `skippedFiles` + `files`; `mergeSkippedFiles`, `buildCoverage`;
+- [x] `aggregate()` accepts `skippedFiles` + `files`; `mergeSkippedFiles`, `buildCoverage`;
       `llm_quota_exhausted` ⇒ `partial` (+ tests).
 - [ ] `embedding-config.ts` pins `gemini-embedding-2`, `outputDimensionality` 768.
-- [ ] Fan-out: plan per LLM agent, reserve, queue until deadline, send batches with `deadlineMs`,
-      settle with returned token counts, release on cancel.
-- [ ] One `QuotaBudget` each for Groq, Gemini generation and Gemini embeddings, created at startup
-      from `loadLlmLimits`.
+- [x] Fan-out: plan per LLM agent, reserve, queue until deadline, send batches with `deadlineMs`,
+      settle with returned token counts. A batch is reserved just before it is sent, so a cancelled
+      job holds no unsent reservation; calls aborted in flight keep their estimate.
+- [x] One `QuotaBudget` each for Groq and Gemini generation, created at startup from `loadLlmLimits`
+      (`createLlmRouting`).
+- [ ] The Gemini embeddings budget, created with the vector-store work.
 
 ### `packages/llm`
 - [x] `GroqProvider` via `fetch` (no SDK, OpenAI-compatible): strict `json_schema` output,

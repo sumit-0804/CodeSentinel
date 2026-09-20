@@ -8,7 +8,9 @@ import {
   exampleChangedFile,
   exampleFinding,
 } from "@code-sentinel/contracts/examples";
+import { QuotaBudget } from "@code-sentinel/llm";
 import { AgentCallError } from "../agents/agent-call-error.js";
+import type { LlmRouting } from "../budget/llm-routing.js";
 import { createFanOutNode, type ReviewClient } from "./fan-out-node.js";
 import type { ReviewState } from "./review-state.js";
 
@@ -162,5 +164,101 @@ describe("createFanOutNode", () => {
     await fanOut(state());
 
     expect(maxInFlight).toBe(3);
+  });
+});
+
+/** Real budgets on a fake clock; `sleep` advances the clock. Groq takes one ~3K batch a minute. */
+function routing({ gemini = true } = {}): LlmRouting {
+  let now = Date.parse("2026-09-27T10:00:00.000Z");
+  const clock = () => new Date(now);
+  return {
+    budgets: {
+      groq: new QuotaBudget({ requestsPerMinute: 30, tokensPerMinute: 8000, requestsPerDay: 1000, tokensPerDay: 200000 }, { headroom: 0.8, now: clock }),
+      ...(gemini ? { gemini: new QuotaBudget({ requestsPerMinute: 15, tokensPerMinute: 250000, requestsPerDay: 500 }, { headroom: 0.8, now: clock }) } : {}),
+    },
+    plan: { maxFileTokens: 6000, maxBatchTokens: 3000, reviewMaxTokens: 24000 },
+    overheadTokens: 3000,
+    groqMaxBatchTokens: 3400,
+    llmAgentTimeoutMs: 45000,
+    now: () => now,
+    sleep: async (ms) => {
+      now += ms;
+    },
+  };
+}
+
+const pyFile = (path: string, tokens: number) => ({ ...exampleChangedFile, path, patch: "x".repeat(tokens * 3) });
+
+describe("createFanOutNode with LLM routing", () => {
+  it("sends each batch with the provider it reserved, Groq first, and merges them into one run", async () => {
+    const security = respondingClient("security");
+    const fanOut = createFanOutNode({ security }, routing());
+
+    const update = await fanOut(state({ enabledAgents: ["security"], files: [pyFile("a.py", 2000), pyFile("b.py", 2500)] }));
+
+    const calls = security.review.mock.calls;
+    expect(calls.map(([request]) => [request.files.map((f) => f.path), request.options?.llmProvider])).toEqual([
+      [["a.py"], "groq"],
+      [["b.py"], "gemini"],
+    ]);
+    expect(calls[0]?.[1]).toMatchObject({ timeoutMs: 45000 });
+    expect(calls[0]?.[0].options?.deadlineMs).toBe(43000);
+    expect(update.agentRuns).toEqual([
+      { agent: "security", status: "succeeded", findingsCount: 2, latencyMs: 0, llmProvider: "groq" },
+    ]);
+    expect(update.rawFindings).toHaveLength(2);
+  });
+
+  it("gives the Style Agent one request with no llmProvider and the job's own timeout", async () => {
+    const style = respondingClient("style", { llm: undefined });
+
+    await createFanOutNode({ style }, routing())(state({ enabledAgents: ["style"], agentTimeoutMs: 20000 }));
+
+    expect(style.review).toHaveBeenCalledTimes(1);
+    expect(style.review.mock.calls[0]?.[0].options).toEqual({ deadlineMs: 18000 });
+    expect(style.review.mock.calls[0]?.[1]).toMatchObject({ timeoutMs: 20000 });
+  });
+
+  it("marks the agent llm_quota_exhausted and its files over_budget when no quota frees up in time", async () => {
+    const r = routing({ gemini: false });
+    r.budgets.groq!.charge({ requests: 1, tokens: 6400 });
+    const security = respondingClient("security");
+
+    const update = await createFanOutNode({ security }, r)(state({ enabledAgents: ["security"], files: [pyFile("a.py", 100)] }));
+
+    expect(security.review).not.toHaveBeenCalled();
+    expect(update.agentRuns).toEqual([{ agent: "security", status: "skipped", errorCode: "llm_quota_exhausted" }]);
+    expect(update.agentSkippedFiles).toEqual([{ agent: "security", files: [{ path: "a.py", reason: "over_budget" }] }]);
+  });
+
+  it("keeps the batches that answered when a later batch cannot be reserved", async () => {
+    const security = respondingClient("security");
+
+    const update = await createFanOutNode({ security }, routing({ gemini: false }))(
+      state({ enabledAgents: ["security"], agentTimeoutMs: 1000, files: [pyFile("a.py", 2000), pyFile("b.py", 2500)] }),
+    );
+
+    expect(security.review).toHaveBeenCalledTimes(1);
+    expect(update.agentRuns?.[0]).toMatchObject({ status: "succeeded", errorCode: "llm_quota_exhausted", findingsCount: 1 });
+    expect(update.agentSkippedFiles).toEqual([{ agent: "security", files: [{ path: "b.py", reason: "over_budget" }] }]);
+  });
+
+  it("reports planner skips and a failed batch without losing the other batch's findings", async () => {
+    let call = 0;
+    const security: ReviewClient = {
+      review: async (request) => {
+        call++;
+        if (call === 2) throw new AgentCallError("slow", { agent: "security", kind: "timed_out", latencyMs: 45000 });
+        return { ...exampleAgentReviewResponse, findings: [{ ...exampleFinding, location: { ...exampleFinding.location, filePath: request.files[0]!.path } }] };
+      },
+    };
+
+    const update = await createFanOutNode({ security }, routing())(
+      state({ enabledAgents: ["security"], files: [pyFile("a.py", 2000), pyFile("b.py", 2500), pyFile("huge.py", 7000)] }),
+    );
+
+    expect(update.agentRuns?.[0]).toMatchObject({ status: "timed_out", errorCode: "agent_timeout", findingsCount: 1 });
+    expect(update.rawFindings).toHaveLength(1);
+    expect(update.agentSkippedFiles).toEqual([{ agent: "security", files: [{ path: "huge.py", reason: "too_large" }] }]);
   });
 });

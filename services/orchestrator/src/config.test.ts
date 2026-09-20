@@ -8,6 +8,7 @@ describe("loadOrchestratorConfig", () => {
       port: 8080,
       serviceToken: "token",
       jobRetentionMs: 3_600_000,
+      llmAgentTimeoutMs: 45_000,
     });
   });
 

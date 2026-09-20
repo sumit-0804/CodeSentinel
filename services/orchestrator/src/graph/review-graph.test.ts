@@ -71,6 +71,8 @@ describe("buildReviewGraph", () => {
     expect(report.summary.criticalCount).toBe(1);
     expect(report.agentRuns.map((r) => r.status)).toEqual(["succeeded", "succeeded"]);
     expect(report).not.toHaveProperty("skippedFiles");
+    expect(report.coverage).toMatchObject({ filesTotal: 1, filesReviewed: 1 });
+    expect(report.coverage?.changedLinesReviewed).toBe(report.coverage?.changedLinesTotal);
   });
 
   it("returns a partial report when the documentation agent times out", async () => {

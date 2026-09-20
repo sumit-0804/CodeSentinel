@@ -49,7 +49,7 @@ export const ReviewJobRequestSchema = z.object({
   enabledAgents: z.array(AgentKindSchema).optional(),
   /** Repository override if set, otherwise the platform default of 0.8 (FR-ORC-06, FR-WEB-03). */
   confidenceThreshold: ConfidenceSchema.optional(),
-  /** Per-agent budget. On expiry the orchestrator proceeds with partial results (NFR-02). */
+  /** Per-agent budget (NFR-02). LLM agents get at least the orchestrator's LLM_AGENT_TIMEOUT_MS. */
   agentTimeoutMs: z.number().int().min(1000).max(120000).default(20000),
   /** Set false to skip the vector database lookup (FR-ORC-05). */
   includeSimilarPastIssues: z.boolean().default(true),

@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@code-sentinel/contracts": "*",
+    "@code-sentinel/llm": "*",
     "@code-sentinel/service-kit": "*",
     "@langchain/core": "^1.2.11",
     "@langchain/langgraph": "^1.4.15",

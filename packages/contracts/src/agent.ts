@@ -22,6 +22,8 @@ export const AgentReviewOptionsSchema = z
      * starting new files and returns what it has, listing the rest as over_budget skips.
      */
     deadlineMs: z.number().int().min(0).optional(),
+    /** The provider whose quota the orchestrator reserved; absent means no LLM call. */
+    llmProvider: z.enum(["groq", "gemini"]).optional(),
   })
   // Agent-specific switches (autoFix, includeDocstringDrafts, ...) pass through untouched.
   .passthrough();
