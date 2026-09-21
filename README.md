@@ -22,6 +22,7 @@ services/        Deployable services (one per SOA component)
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
   llm/           Groq (primary) and Gemini (secondary) clients, quota budget, Gemini embeddings
+  agent-kit/     Shared base of the agent services — agent.yaml routes, per-file skips, deadline, diff parsing
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
 docs/            Course deliverables and design artifacts
 ```

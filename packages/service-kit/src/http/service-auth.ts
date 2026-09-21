@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { unauthorized, type ServiceHandler } from "@code-sentinel/service-kit";
+import type { ServiceHandler } from "../locals.js";
+import { unauthorized } from "./errors.js";
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
 
-/** Requires `Authorization: Bearer <SERVICE_TOKEN>`; only the gateway calls `/internal/*`. */
+/** Requires `Authorization: Bearer <SERVICE_TOKEN>` on internal routes (orchestrator, agents). */
 export function serviceAuthMiddleware(serviceToken: string): ServiceHandler {
   // Comparing fixed-length digests keeps the check constant-time whatever the token length.
   const expected = digest(serviceToken);

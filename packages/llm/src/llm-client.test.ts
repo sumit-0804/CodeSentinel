@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { InputTooLargeError, LlmProviderError, LlmQuotaError, LlmUnavailableError } from "./errors.js";
-import { LlmClient } from "./llm-client.js";
+import { loadLlmLimits } from "./limits.js";
+import { createLlmClient, LlmClient } from "./llm-client.js";
 import type { LlmProvider, LlmProviderName, LlmRequest, ProviderResponse } from "./types.js";
 
 const REQUEST: LlmRequest = { systemPrompt: "sys", prompt: "diff", schemaName: "s", responseSchema: {} };
@@ -88,5 +89,15 @@ describe("LlmClient", () => {
     controller.abort();
 
     expect(signal?.aborted).toBe(true);
+  });
+});
+
+describe("createLlmClient", () => {
+  it("wires the configured providers and is undefined without keys", () => {
+    const client = createLlmClient(loadLlmLimits({ GROQ_API_KEY: "gk" }));
+
+    expect(client?.has("groq")).toBe(true);
+    expect(client?.has("gemini")).toBe(false);
+    expect(createLlmClient(loadLlmLimits({}))).toBeUndefined();
   });
 });

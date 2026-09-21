@@ -14,7 +14,7 @@ export { GeminiEmbedder, type GeminiEmbedderOptions } from "./gemini-embedder.js
 export { GEMINI_BASE_URL, GeminiProvider, type GeminiProviderOptions } from "./gemini-provider.js";
 export { GROQ_BASE_URL, GroqProvider, type GroqProviderOptions } from "./groq-provider.js";
 export { LlmConfigError, loadLlmLimits, type LlmLimits, type ProviderSettings } from "./limits.js";
-export { LlmClient, type CompleteOptions, type LlmClientOptions } from "./llm-client.js";
+export { createLlmClient, LlmClient, type CompleteOptions, type LlmClientOptions } from "./llm-client.js";
 export {
   QuotaBudget,
   type QuotaBudgetOptions,

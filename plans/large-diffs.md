@@ -123,9 +123,11 @@ GitHub PR files
       request reserved against the embedding `QuotaBudget`.
 
 ### Agent kit
-- [ ] Skip files over `maxFileTokens` as `too_large`; advertise it in `/v1/capabilities`.
-- [ ] Respect `options.deadlineMs`; return partial results with the rest `over_budget`.
-- [ ] One LLM call per request on `options.llmProvider`; map `InputTooLargeError` to `too_large`.
+- [x] Skip files over `maxFileTokens` as `too_large`; advertise it in `/v1/capabilities` (`packages/agent-kit`).
+- [x] Respect `options.deadlineMs`; return partial results with the rest `over_budget` (`ctx.signal`,
+      `analyzePerFile`).
+- [ ] One LLM call per request on `options.llmProvider`; map `InputTooLargeError` to `too_large`
+      (in each LLM agent, starting with the Security Agent).
 
 ### Mock agent
 - [ ] `MOCK_MAX_FILE_TOKENS` skip path (+ tests).

@@ -8,6 +8,7 @@ export { errorHandler, notFoundHandler } from "./http/error-handler.js";
 export { badGateway, badRequest, HttpError, notFound, unauthorized, unprocessable } from "./http/errors.js";
 export { REQUEST_ID_HEADER, requestIdMiddleware } from "./http/request-id.js";
 export { requestLoggerMiddleware } from "./http/request-logger.js";
+export { serviceAuthMiddleware } from "./http/service-auth.js";
 export type { ServiceHandler, ServiceLocals, ServiceResponse } from "./locals.js";
 export {
   createJsonLogger,

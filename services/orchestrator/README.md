@@ -17,7 +17,7 @@ there.
 | Area | Module | Status |
 | --- | --- | --- |
 | HTTP server (`orchestrator.yaml`) | `app.ts`, `server.ts`, `routes/` | working |
-| Service-token auth on `/internal/*` | `http/service-auth.ts` | working |
+| Service-token auth on `/internal/*` | `serviceAuthMiddleware` from `@code-sentinel/service-kit` | working |
 | `ReviewJobController` (create, poll, cancel, idempotency) | `jobs/review-job-controller.ts` | working |
 | Job store | `jobs/job-store.ts` | in-memory, finished jobs dropped after `JOB_RETENTION_MS` |
 | Config from env, validated at startup | `config.ts`, `agents/agent-config.ts` | working |

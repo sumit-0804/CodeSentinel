@@ -3,12 +3,12 @@ import {
   notFoundHandler,
   requestIdMiddleware,
   requestLoggerMiddleware,
+  serviceAuthMiddleware,
   type Logger,
 } from "@code-sentinel/service-kit";
 import express, { type Express } from "express";
 import helmet from "helmet";
 
-import { serviceAuthMiddleware } from "./http/service-auth.js";
 import { createAgentsHealthRouter, type AgentsHealthRouterDeps } from "./routes/agents-health.js";
 import { createHealthzRouter } from "./routes/healthz.js";
 import { createReviewJobsRouter, type ReviewJobsRouterDeps } from "./routes/review-jobs.js";

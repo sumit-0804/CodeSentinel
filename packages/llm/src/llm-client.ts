@@ -1,6 +1,9 @@
 import { InputTooLargeError, LlmProviderError, LlmUnavailableError } from "./errors.js";
+import { GeminiProvider } from "./gemini-provider.js";
+import { GroqProvider } from "./groq-provider.js";
+import type { LlmLimits } from "./limits.js";
 import { estimateTokens } from "./tokens.js";
-import type { LlmProvider, LlmProviderName, LlmRequest, LlmResponse } from "./types.js";
+import type { FetchLike, LlmProvider, LlmProviderName, LlmRequest, LlmResponse } from "./types.js";
 
 export interface LlmClientOptions {
   groq?: LlmProvider;
@@ -95,4 +98,19 @@ function shouldFallBack(error: unknown): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * The client an agent uses, built from `loadLlmLimits()`; undefined when no provider has a key.
+ * A call carries at most one batch plus the system prompt.
+ */
+export function createLlmClient(limits: LlmLimits, options: { fetch?: FetchLike } = {}): LlmClient | undefined {
+  if (!limits.groq && !limits.gemini) return undefined;
+  const fetchOption = options.fetch ? { fetch: options.fetch } : {};
+  return new LlmClient({
+    ...(limits.groq ? { groq: new GroqProvider({ ...limits.groq, ...fetchOption }) } : {}),
+    ...(limits.gemini ? { gemini: new GeminiProvider({ ...limits.gemini, ...fetchOption }) } : {}),
+    maxInputTokens: limits.maxBatchTokens + limits.promptReserveTokens,
+    maxOutputTokens: limits.maxOutputTokens,
+  });
 }
