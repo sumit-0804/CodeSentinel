@@ -126,8 +126,9 @@ GitHub PR files
 - [x] Skip files over `maxFileTokens` as `too_large`; advertise it in `/v1/capabilities` (`packages/agent-kit`).
 - [x] Respect `options.deadlineMs`; return partial results with the rest `over_budget` (`ctx.signal`,
       `analyzePerFile`).
-- [ ] One LLM call per request on `options.llmProvider`; map `InputTooLargeError` to `too_large`
-      (in each LLM agent, starting with the Security Agent).
+- [x] One LLM call per request on `options.llmProvider` (Security Agent). An LLM failure, including
+      `InputTooLargeError`, is logged and the rule findings are still returned; the orchestrator's
+      planner keeps batches under the input limit, so `too_large` is decided there.
 
 ### Mock agent
 - [ ] `MOCK_MAX_FILE_TOKENS` skip path (+ tests).
