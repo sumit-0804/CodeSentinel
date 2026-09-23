@@ -1,0 +1,32 @@
+{
+  "name": "@code-sentinel/style-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Style Agent: ESLint/Prettier and Ruff/Black on changed hunks inside a per-request Docker sandbox, with deterministic fixes and no LLM.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/server.js",
+    "sandbox:build": "docker build -t code-sentinel/style-sandbox:1 sandbox"
+  },
+  "dependencies": {
+    "@code-sentinel/agent-kit": "*",
+    "@code-sentinel/contracts": "*",
+    "@code-sentinel/service-kit": "*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

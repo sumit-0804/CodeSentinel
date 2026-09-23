@@ -20,6 +20,7 @@ services/        Deployable services (one per SOA component)
   gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
   orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
   security-agent/ Security Agent — SAST and secret rules on added lines, plus an LLM pass
+  style-agent/   Style Agent — ESLint/Prettier and Ruff/Black in a per-request Docker sandbox, no LLM
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
   llm/           Groq (primary) and Gemini (secondary) clients, quota budget, Gemini embeddings
