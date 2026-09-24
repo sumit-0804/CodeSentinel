@@ -12,8 +12,10 @@ export interface LlmClientOptions {
   maxInputTokens: number;
   /** Default output cap when a request sets none (`LLM_MAX_OUTPUT_TOKENS`). */
   maxOutputTokens: number;
-  /** Per-call cap, further shortened by the caller's deadline. */
-  callTimeoutMs?: number;
+  /** Cap on a Groq call, so a slow Groq leaves time to fall back to Gemini. */
+  groqTimeoutMs?: number;
+  /** Cap on a Gemini call when the caller gives no deadline; with one, Gemini may use all of it. */
+  maxCallMs?: number;
   now?: () => number;
 }
 
@@ -25,7 +27,9 @@ export interface CompleteOptions {
   deadlineAt?: number;
 }
 
-const DEFAULT_CALL_TIMEOUT_MS = 15_000;
+const DEFAULT_GROQ_TIMEOUT_MS = 15_000;
+/** Gemini's free tier took 15–22 s per call on 27-Sep, so it is not held to Groq's cap. */
+const DEFAULT_MAX_CALL_MS = 60_000;
 /** A Gemini retry is only attempted with at least this much time left. */
 const MIN_FALLBACK_MS = 2_000;
 
@@ -37,7 +41,8 @@ export class LlmClient {
   private readonly providers: Partial<Record<LlmProviderName, LlmProvider>>;
   private readonly maxInputTokens: number;
   private readonly maxOutputTokens: number;
-  private readonly callTimeoutMs: number;
+  private readonly groqTimeoutMs: number;
+  private readonly maxCallMs: number;
   private readonly now: () => number;
 
   constructor(options: LlmClientOptions) {
@@ -47,7 +52,8 @@ export class LlmClient {
     };
     this.maxInputTokens = options.maxInputTokens;
     this.maxOutputTokens = options.maxOutputTokens;
-    this.callTimeoutMs = options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+    this.groqTimeoutMs = options.groqTimeoutMs ?? DEFAULT_GROQ_TIMEOUT_MS;
+    this.maxCallMs = options.maxCallMs ?? DEFAULT_MAX_CALL_MS;
     this.now = options.now ?? Date.now;
   }
 
@@ -64,19 +70,20 @@ export class LlmClient {
     const resolved = { ...request, maxOutputTokens: request.maxOutputTokens ?? this.maxOutputTokens };
 
     try {
-      return { ...(await primary.complete(resolved, { signal: this.callSignal(options) })), fallbackDepth: 0 };
+      return { ...(await primary.complete(resolved, { signal: this.callSignal(options, primary.name) })), fallbackDepth: 0 };
     } catch (error) {
       const fallback = this.providers.gemini;
       if (options.provider !== "groq" || !fallback || !shouldFallBack(error) || !this.hasTimeForFallback(options)) {
         throw error;
       }
-      return { ...(await fallback.complete(resolved, { signal: this.callSignal(options) })), fallbackDepth: 1 };
+      return { ...(await fallback.complete(resolved, { signal: this.callSignal(options, fallback.name) })), fallbackDepth: 1 };
     }
   }
 
-  private callSignal(options: CompleteOptions): AbortSignal {
-    const remaining = options.deadlineAt === undefined ? Infinity : options.deadlineAt - this.now();
-    const timeout = AbortSignal.timeout(Math.max(1, Math.min(this.callTimeoutMs, remaining)));
+  private callSignal(options: CompleteOptions, provider: LlmProviderName): AbortSignal {
+    const remaining = options.deadlineAt === undefined ? this.maxCallMs : options.deadlineAt - this.now();
+    const cap = provider === "groq" ? Math.min(this.groqTimeoutMs, remaining) : remaining;
+    const timeout = AbortSignal.timeout(Math.max(1, cap));
     return options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   }
 

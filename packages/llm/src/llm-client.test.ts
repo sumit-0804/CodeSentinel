@@ -80,6 +80,29 @@ describe("LlmClient", () => {
     expect(groq.complete).not.toHaveBeenCalled();
   });
 
+  it("cuts a slow Groq call at its cap but lets Gemini use the time left before the deadline", async () => {
+    const hangs: LlmProvider = {
+      name: "groq",
+      model: "g",
+      complete: (_request, options) =>
+        new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(new LlmProviderError("slow", { provider: "groq", kind: "timed_out" })))),
+    };
+    const slowGemini: LlmProvider = {
+      name: "gemini",
+      model: "m",
+      complete: async (_request, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (options?.signal?.aborted) throw new Error("gemini was cut at Groq's cap");
+        return answer("gemini");
+      },
+    };
+    const llm = new LlmClient({ groq: hangs, gemini: slowGemini, maxInputTokens: 100, maxOutputTokens: 10, groqTimeoutMs: 20 });
+
+    const result = await llm.complete(REQUEST, { provider: "groq", deadlineAt: Date.now() + 5_000 });
+
+    expect(result).toMatchObject({ provider: "gemini", fallbackDepth: 1 });
+  });
+
   it("passes an abort signal that fires with the caller's", async () => {
     const groq = provider("groq", answer("groq"));
     const controller = new AbortController();

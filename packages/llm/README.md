@@ -7,7 +7,7 @@ and [`plans/llm-agents.md`](../../plans/llm-agents.md).
 
 | Export | What it does |
 | --- | --- |
-| `LlmClient` | `complete(request, { provider, signal?, deadlineAt? })` calls the provider whose quota the orchestrator reserved. When that is Groq and the call fails on a 429, a 5xx, the network or a timeout, it retries once on Gemini (`fallbackDepth: 1`) if at least 2 s remain. A prompt over `maxInputTokens` throws `InputTooLargeError` before any request |
+| `LlmClient` | `complete(request, { provider, signal?, deadlineAt? })` calls the provider whose quota the orchestrator reserved. When that is Groq and the call fails on a 429, a 5xx, the network or a timeout, it retries once on Gemini (`fallbackDepth: 1`) if at least 2 s remain. A Groq call is cut at `groqTimeoutMs` (15 s) to leave room for that; a Gemini call may use all the time left before `deadlineAt` (60 s without one), because the free tier took 15–22 s per call in the 27-Sep live check. A prompt over `maxInputTokens` throws `InputTooLargeError` before any request |
 | `createLlmClient(limits)` | The client an agent uses, from `loadLlmLimits()`: whichever of Groq and Gemini has a key, `maxInputTokens` = batch + prompt reserve. Undefined when neither key is set |
 | `GroqProvider` | `POST https://api.groq.com/openai/v1/chat/completions` with `response_format: json_schema` (`strict: true`), `max_completion_tokens`, `reasoning_effort: "low"`. Reads `usage` |
 | `GeminiProvider` | `POST …/v1beta/models/{model}:generateContent` with `responseMimeType: application/json` + `responseJsonSchema`, `maxOutputTokens`. Reads `usageMetadata` (thinking tokens count as output) |
