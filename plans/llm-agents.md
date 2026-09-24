@@ -1,5 +1,31 @@
 # Plan — LLM layer (Groq → Gemini), agent kit, Security, Style, GitHub test repo
 
+## Status (27-Sep)
+
+| Step | State |
+| --- | --- |
+| CP0 docs for the provider change | done |
+| PR 1 `packages/llm` | merged (#9) |
+| PR 2 orchestrator budget and routing | merged (#10) |
+| PR 3 `packages/agent-kit` | merged (#11) |
+| PR 4 Security Agent | merged (#12) |
+| PR 5 Style Agent + sandbox | merged (#13) |
+| M5 live check (verification 5) | passed after two fixes, see below |
+| PR 6 real GitHub client + test repo | not started; needs the GitHub App set up first |
+
+**M5 live check.** Gateway, orchestrator, Security and Style ran locally with the dev Groq and
+Gemini keys; signed webhooks went through the gateway.
+
+- One review: `completed` in 1.6 s; Security answered via Groq (0.9 s).
+- First burst of 5: no 429, routing went Groq → Gemini as Groq's minute filled, but two Gemini
+  calls were cut at the client's 15 s per-call cap (those reviews fell back to rules only), and
+  Gemini reported the SQL injection 2 lines early, which showed as a second finding.
+- Fixes: a Gemini call may now use the time left before the deadline (only Groq keeps the 15 s cap,
+  so a fallback still has time), and an LLM finding within 3 lines of a rule finding with the same
+  CWE counts as a duplicate.
+- Second burst of 5: all `completed` in 2.1 s total, Groq 2 / Gemini 3, no 429, no failed LLM
+  pass, no duplicate findings.
+
 ## Context
 
 M5, the core pipeline (gateway + orchestrator + 2 agents), is due 9-Oct, and the mid-sem demo is in the week of 12-Oct. The gateway and the orchestrator HTTP layer are merged (PR #8). No agent service exists yet. The orchestrator records every agent as `skipped: agent_not_configured`.
