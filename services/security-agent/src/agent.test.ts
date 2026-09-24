@@ -69,6 +69,8 @@ describe("security agent", () => {
         findings: [
           finding({}),
           finding({ ruleId: "sql-injection-again", lineStart: 129, lineEnd: 129, cweId: "CWE-89" }),
+          // Same issue, but the model put it on the line before (seen live with Gemini).
+          finding({ ruleId: "sql-injection-drifted", lineStart: 130, lineEnd: 130, cweId: "CWE-89" }),
           finding({ ruleId: "security/old-code", lineStart: 128, lineEnd: 128 }),
           finding({ ruleId: "security/elsewhere", filePath: "other.py" }),
           finding({ ruleId: "raw-id", lineStart: 131, lineEnd: 999, confidence: 3, cweId: "not-a-cwe" }),

@@ -5,8 +5,18 @@ import { capabilityRules } from "./rules.js";
 import { scanFile, type SecurityFinding } from "./scan.js";
 import { SECRET_RULES } from "./secrets.js";
 
-/** Same key as the rule and the location, so a rule and the LLM never report one issue twice. */
-const key = (finding: SecurityFinding) => `${finding.location.filePath}:${finding.location.lineStart}:${finding.cweId ?? finding.ruleId}`;
+/** An LLM's line numbers can drift a little (seen live: off by 2), so nearby counts as the same issue. */
+const DUPLICATE_LINES = 3;
+
+/** True when a rule already reported this issue: same file, same CWE (or rule id), within a few lines. */
+function isDuplicate(finding: SecurityFinding, rules: SecurityFinding[]): boolean {
+  return rules.some(
+    (rule) =>
+      rule.location.filePath === finding.location.filePath &&
+      (rule.cweId ?? rule.ruleId) === (finding.cweId ?? finding.ruleId) &&
+      Math.abs(rule.location.lineStart - finding.location.lineStart) <= DUPLICATE_LINES,
+  );
+}
 
 /**
  * The Security Agent (FR-SEC-01..04): deterministic SAST and secret rules on every request, plus
@@ -28,8 +38,7 @@ export const securityAgent: ReviewAgent = {
     const reached = files.filter((file) => !rules.skipped.some((skip) => skip.path === file.path));
     const llm = reached.length ? await runLlmPass(reached, context) : { findings: [] };
 
-    const seen = new Set(rules.results.map(key));
-    const extra = llm.findings.filter((finding) => !seen.has(key(finding)));
+    const extra = llm.findings.filter((finding) => !isDuplicate(finding, rules.results));
     return {
       findings: [...rules.results, ...extra],
       skipped: rules.skipped,

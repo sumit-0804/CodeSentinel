@@ -13,7 +13,9 @@ XSS, insecure deserialization, path traversal, SSRF, broken authentication or au
 insecure randomness for secrets, sensitive data exposure, and unsafe file or network handling.
 Do not report style, performance or general bugs. Do not report issues you are unsure about.
 Secrets in the input are already masked as "****"; do not report masked values.
-For each issue give the file path and the new-side line numbers exactly as shown, a severity
+Each line starts with its line number. lineStart must be the number printed on the line that contains the
+vulnerable code itself (for example the query call, not the connection set up before it).
+For each issue give the file path and those line numbers, a severity
 (critical, warning or info), a confidence between 0 and 1, and a CWE id such as "CWE-89" (empty string if none).
 Use a ruleId of the form "security/<kebab-case-name>". Return {"findings": []} when there is nothing to report.`;
 

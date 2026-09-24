@@ -16,7 +16,8 @@ request, asks Groq (or Gemini) for what single-line rules cannot see. Built on
    The model sees each hunk with new-side line numbers, `+` for added lines, and **secrets already
    masked**. Its answer must match a strict JSON schema, is validated again with zod, and a
    finding is kept only if it starts on an added line of a file in the request. A finding with the
-   same file, line and CWE as a rule finding is dropped as a duplicate.
+   same file and CWE as a rule finding within 3 lines of it is dropped as a duplicate: model line
+   numbers can drift (Gemini put a rule's SQL injection 2 lines early in the 27-Sep live check).
 3. If the LLM call fails or answers junk, the rule findings are still returned and the reason is
    logged; the review does not fail. Token usage is reported whenever a call was made.
 
