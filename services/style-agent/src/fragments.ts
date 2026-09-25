@@ -9,8 +9,15 @@ export interface Fragment {
   hunk: Hunk;
   /** Common leading whitespace removed so an indented hunk parses as top-level code. */
   indent: string;
+  /** Wrapper lines added before the hunk so its unmatched `}` lines parse (JS/TS). */
+  prefixLines: number;
+  /** Closing `}` lines added after the hunk for its unclosed `{`. */
+  suffixLines: number;
   sandboxFile: SandboxFile;
 }
+
+/** The line that opens a wrapper around a hunk that starts inside a block. */
+export const WRAPPER_OPEN = "function __cs_wrap__() {";
 
 const DEFAULT_EXTENSION: Partial<Record<Language, string>> = { python: "py", javascript: "js", typescript: "ts" };
 const KNOWN_EXTENSION = /\.(py|js|jsx|mjs|cjs|ts|tsx|mts|cts)$/i;
@@ -28,8 +35,18 @@ export function buildFragments(files: ChangedFile[]): Fragment[] {
     parsePatch(file.patch).hunks.forEach((hunk, hunkIndex) => {
       if (!hunk.lines.some((line) => line.added)) return;
       const indent = commonIndent(hunk.lines.map((line) => line.text));
-      const content = hunk.lines.map((line) => line.text.slice(indent.length)).join("\n") + "\n";
-      fragments.push({ file, hunk, indent, sandboxFile: { name: `f${fileIndex}_h${hunkIndex}.${extension}`, content } });
+      const body = hunk.lines.map((line) => line.text.slice(indent.length));
+      // A real hunk usually starts inside a function: wrap it so its braces balance and it parses.
+      const { unmatchedClose, unclosed } = extension === "py" ? { unmatchedClose: 0, unclosed: 0 } : braceBalance(body.join("\n"));
+      const lines = [...Array<string>(unmatchedClose).fill(WRAPPER_OPEN), ...body, ...Array<string>(unclosed).fill("}")];
+      fragments.push({
+        file,
+        hunk,
+        indent,
+        prefixLines: unmatchedClose,
+        suffixLines: unclosed,
+        sandboxFile: { name: `f${fileIndex}_h${hunkIndex}.${extension}`, content: lines.join("\n") + "\n" },
+      });
     });
   });
   return fragments;
@@ -38,6 +55,39 @@ export function buildFragments(files: ChangedFile[]): Fragment[] {
 /** The fragment's original new-side text, indentation included. */
 export function originalText(fragment: Fragment): string {
   return hunkText(fragment.hunk);
+}
+
+/**
+ * Unmatched `}` (a hunk that starts inside a block) and unclosed `{` (one that ends inside one),
+ * ignoring braces in strings, template literals and comments.
+ */
+export function braceBalance(code: string): { unmatchedClose: number; unclosed: number } {
+  let depth = 0;
+  let lowest = 0;
+  for (let i = 0; i < code.length; i++) {
+    const char = code[i]!;
+    const next = code[i + 1];
+    if (char === "/" && next === "/") {
+      i = code.indexOf("\n", i);
+      if (i === -1) break;
+    } else if (char === "/" && next === "*") {
+      i = code.indexOf("*/", i + 2);
+      if (i === -1) break;
+      i++;
+    } else if (char === '"' || char === "'" || char === "`") {
+      for (i++; i < code.length && code[i] !== char; i++) {
+        if (code[i] === "\\") i++;
+        // A plain string ends at the line; a template literal may span lines.
+        else if (code[i] === "\n" && char !== "`") break;
+      }
+    } else if (char === "{") {
+      depth++;
+    } else if (char === "}") {
+      depth--;
+      lowest = Math.min(lowest, depth);
+    }
+  }
+  return { unmatchedClose: Math.abs(lowest), unclosed: depth - lowest };
 }
 
 function commonIndent(lines: string[]): string {

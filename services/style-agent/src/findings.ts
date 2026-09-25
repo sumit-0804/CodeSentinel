@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "@code-sentinel/agent-kit";
 import type { Severity } from "@code-sentinel/contracts";
 
-import type { Fragment } from "./fragments.js";
+import { WRAPPER_OPEN, type Fragment } from "./fragments.js";
 import type { SandboxFileResult } from "./sandbox.js";
 
 export type StyleFinding = AnalysisResult["findings"][number];
@@ -23,7 +23,8 @@ function lintFindings(fragment: Fragment, result: SandboxFileResult): StyleFindi
   const findings: StyleFinding[] = [];
   const seen = new Set<string>();
   for (const diagnostic of result.diagnostics) {
-    const line = fragment.hunk.lines[diagnostic.line - 1];
+    // Diagnostics on the wrapper lines map to nothing and are dropped.
+    const line = fragment.hunk.lines[diagnostic.line - 1 - fragment.prefixLines];
     if (!line?.added || seen.has(`${diagnostic.ruleId}:${line.line}`)) continue;
     seen.add(`${diagnostic.ruleId}:${line.line}`);
     const severity: Severity = WARNING_RULE.test(diagnostic.ruleId) ? "warning" : "info";
@@ -43,10 +44,9 @@ function formatFindings(fragment: Fragment, result: SandboxFileResult): StyleFin
   if (result.formatted === undefined) return [];
   const tool = fragment.file.language === "python" ? "black" : "prettier";
   const before = fragment.hunk.lines;
-  const after = result.formatted
-    .replace(/\n$/, "")
-    .split("\n")
-    .map((line) => (line === "" ? "" : fragment.indent + line));
+  const formatted = stripWrapper(result.formatted.replace(/\n$/, "").split("\n"), fragment);
+  if (!formatted) return [];
+  const after = formatted.map((line) => (line === "" ? "" : fragment.indent + line));
   if (after.length === before.length && after.every((line, i) => line === before[i]!.text)) return [];
 
   const finding = (start: number, end: number, original: string[], suggested: string[] | undefined): StyleFinding => ({
@@ -90,6 +90,18 @@ function formatFindings(fragment: Fragment, result: SandboxFileResult): StyleFin
     findings.push(finding(Math.min(...touchesContext), Math.max(...touchesContext), [], undefined));
   }
   return findings;
+}
+
+/**
+ * Formatter output without the wrapper lines added to balance braces; undefined when the output
+ * does not start and end with them, so no fix is guessed at.
+ */
+function stripWrapper(lines: string[], fragment: Fragment): string[] | undefined {
+  const { prefixLines, suffixLines } = fragment;
+  const head = lines.slice(0, prefixLines);
+  const tail = suffixLines ? lines.slice(-suffixLines) : [];
+  if (!head.every((line) => line.trim() === WRAPPER_OPEN) || !tail.every((line) => line.trim() === "}")) return undefined;
+  return lines.slice(prefixLines, lines.length - suffixLines);
 }
 
 interface Block {

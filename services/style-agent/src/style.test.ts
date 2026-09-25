@@ -6,7 +6,7 @@ import { EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
 import { HttpError, noopLogger } from "@code-sentinel/service-kit";
 import { createStyleAgent } from "./agent.js";
 import { changedBlocks, fragmentFindings } from "./findings.js";
-import { buildFragments } from "./fragments.js";
+import { braceBalance, buildFragments } from "./fragments.js";
 import type { Sandbox, SandboxResult } from "./sandbox.js";
 
 const file = (path: string, patch: string, language: ChangedFile["language"] = "typescript"): ChangedFile => ({
@@ -112,6 +112,72 @@ describe("fragmentFindings", () => {
     ]);
     expect(fragmentFindings(fragment!, { diagnostics: [{ line: 2, column: 1, ruleId: "x", message: "y", fixable: false }], parseError: "bad" })).toEqual([]);
     expect(fragmentFindings(fragment!, { diagnostics: [], formatted: "const a = 1\nvar b =  2\nlet c=3\n" })).toEqual([]);
+  });
+});
+
+describe("brace balancing for hunks that start inside a block", () => {
+  // The web/cart.js hunk GitHub sent in the playground live check: it closes total() and opens a new function.
+  const PATCH = [
+    "@@ -3,5 +3,11 @@ export function total(items) {",
+    "   for (const item of items) {",
+    "     sum += item.price * item.quantity;",
+    "   }",
+    "-  return sum;",
+    "+  var tax  =  0.2",
+    "+  if (sum == null) { }",
+    "+  return sum * (1 + tax);",
+    "+}",
+    "+",
+    "+export function renderNote(el, note) {",
+    "+  el.innerHTML = note;",
+    " }",
+  ].join("\n");
+
+  it("counts unmatched and unclosed braces, ignoring strings and comments", () => {
+    expect(braceBalance("  }\n}\nfunction f() {\n  if (x) {")).toEqual({ unmatchedClose: 2, unclosed: 2 });
+    expect(braceBalance("const s = '}' + \"{\" + `}${x}`; // }\n/* { */ x()")).toEqual({ unmatchedClose: 0, unclosed: 0 });
+  });
+
+  it("wraps the hunk so it parses, and maps diagnostics and fixes past the wrapper", () => {
+    const [fragment] = buildFragments([file("web/cart.js", PATCH, "javascript")]);
+    expect(fragment).toMatchObject({ prefixLines: 1, suffixLines: 0 });
+    expect(fragment!.sandboxFile.content.split("\n")[0]).toBe("function __cs_wrap__() {");
+
+    // What the sandbox returned for this fragment in the live check.
+    const findings = fragmentFindings(fragment!, {
+      diagnostics: [
+        { line: 5, column: 3, ruleId: "eslint/no-var", message: "Unexpected var, use let or const instead.", fixable: true },
+        { line: 6, column: 20, ruleId: "eslint/no-empty", message: "Empty block statement.", fixable: false },
+      ],
+      formatted: [
+        "function __cs_wrap__() {",
+        "  for (const item of items) {",
+        "    sum += item.price * item.quantity;",
+        "  }",
+        "  var tax = 0.2;",
+        "  if (sum == null) {",
+        "  }",
+        "  return sum * (1 + tax);",
+        "}",
+        "",
+        "export function renderNote(el, note) {",
+        "  el.innerHTML = note;",
+        "}",
+        "",
+      ].join("\n"),
+    });
+
+    expect(findings.map((f) => [f.ruleId, f.location.lineStart, f.suggestion?.suggestedSnippet])).toEqual([
+      ["style/eslint/no-var", 6, undefined],
+      ["style/eslint/no-empty", 7, undefined],
+      ["style/prettier", 6, "  var tax = 0.2;\n  if (sum == null) {\n  }"],
+    ]);
+  });
+
+  it("offers no fix when the formatter output does not keep the wrapper", () => {
+    const [fragment] = buildFragments([file("web/cart.js", PATCH, "javascript")]);
+
+    expect(fragmentFindings(fragment!, { diagnostics: [], formatted: "var tax = 0.2;\n" })).toEqual([]);
   });
 });
 

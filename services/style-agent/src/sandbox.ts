@@ -94,7 +94,7 @@ export class DockerSandbox implements Sandbox {
 
   async health(): Promise<HealthStatus> {
     try {
-      await docker(["image", "inspect", "--format", "{{.Id}}", this.options.image], AbortSignal.timeout(5_000));
+      await docker(["image", "inspect", "--format", "{{.Id}}", this.options.image], AbortSignal.timeout(10_000));
       return "ok";
     } catch {
       return "unavailable";

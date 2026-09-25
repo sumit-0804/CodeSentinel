@@ -12,7 +12,13 @@ are safe to apply without review. Built on
 1. **Fragments** (`fragments.ts`): agents never see whole files (NFR-06), so every hunk with added
    lines becomes its own small source file, named `f<file>_h<hunk>.<ext>`; the extension picks the
    tools (FR-STY-01). The hunk's common indentation is removed first, so an indented method body
-   parses as top-level code, and put back on the output.
+   parses as top-level code, and put back on the output. A real hunk usually starts or ends
+   inside a block (GitHub's hunk for `cart.js` in the live check began inside `total()` and
+   closed it), so for JS/TS the braces are counted — outside strings and comments — and the
+   fragment gets one `function __cs_wrap__() {` line per unmatched `}` and one `}` per unclosed
+   `{`. The code then parses at its real nesting; diagnostics are shifted past the wrapper and the
+   wrapper lines are removed from the formatter output (no fix is offered if they do not survive
+   formatting).
 2. **Sandbox** (`sandbox.ts`, FR-STY-02): one `docker run` per request with every fragment
    mounted read-only. `sandbox/run.mjs` inside the image lints with ESLint / Ruff, formats with
    Prettier / Black, and prints one JSON result. The container has:
