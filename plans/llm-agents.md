@@ -11,7 +11,22 @@
 | PR 4 Security Agent | merged (#12) |
 | PR 5 Style Agent + sandbox | merged (#13) |
 | M5 live check (verification 5) | passed after two fixes, see below |
-| PR 6 real GitHub client + test repo | code done, test repo `sumit-0804/code-sentinel-playground` created; the live run waits for the GitHub App setup |
+| PR 6 real GitHub client + test repo | done; live run on `sumit-0804/code-sentinel-playground` passed (below) |
+
+**PR 6 live run** (App `code-sentinel-dev-sumit`, smee, all four services local, dev keys):
+
+- Opening playground PR #1 (`demo/risky-change`): the delivery's signature verified, the gateway
+  fetched the 2 real files through the App, and the review `completed` in 2.2 s. Security (Groq)
+  found the AWS example key (CWE-798), the SQL injection (CWE-89) and `innerHTML` (CWE-79);
+  coverage 2/2 files, 16/16 lines.
+- Style found nothing at first: GitHub's hunk for `cart.js` started inside `total()`, so its extra
+  `}` made the fragment unparseable. Fixed by balancing braces with a wrapper function (JS/TS).
+- Redelivering the first delivery from the App: `duplicate_ignored`, same review, no new job.
+- A new push (`synchronize`): a fresh review, `completed` in 1.7 s, with the three Security findings
+  and, from Style, `no-var`, `no-empty`, `eqeqeq` and two deterministic Prettier fixes limited to
+  added lines.
+- The Style Agent's first `/healthz` took 5 s (cold Docker on Windows) and returned 503 once; the
+  sandbox health timeout is now 10 s.
 
 **M5 live check.** Gateway, orchestrator, Security and Style ran locally with the dev Groq and
 Gemini keys; signed webhooks went through the gateway.
