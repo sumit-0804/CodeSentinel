@@ -15,6 +15,10 @@ export interface GatewayConfig {
   githubWebhookSecret: string;
   /** `dev` loads in-memory demo data; never set in a deployed environment. */
   seed: GatewaySeed;
+  /** Set together; without them PR files come from the stub client (dev and tests only). */
+  githubApp?: { appId: number; privateKeyPath: string };
+  /** Points the dev seed's repository at a real repo, e.g. the test playground. */
+  devRepository?: { fullName: string; githubRepoId: number };
 }
 
 /** Thrown by `loadGatewayConfig` with every invalid variable listed at once. */
@@ -64,12 +68,28 @@ const EnvSchema = z.object({
   JWT_SECRET: secret(32),
   GITHUB_WEBHOOK_SECRET: secret(16),
   GATEWAY_SEED: z.preprocess(blankAsUndefined, z.enum(["none", "dev"]).default("none")),
+  GITHUB_APP_ID: z.preprocess(blankAsUndefined, z.coerce.number({ invalid_type_error: "must be an integer" }).int("must be an integer").positive("must be positive").optional()),
+  GITHUB_PRIVATE_KEY_PATH: z.preprocess(blankAsUndefined, z.string().optional()),
+  GATEWAY_DEV_REPOSITORY: z.preprocess(
+    blankAsUndefined,
+    z.string().regex(/^[\w.-]+\/[\w.-]+:\d+$/, "must look like owner/name:githubRepoId").optional(),
+  ),
   NODE_ENV: z.string().optional(),
-}).refine((values) => !(values.NODE_ENV === "production" && values.GATEWAY_SEED === "dev"), {
-  // The dev seed contains a published API key, so it must never load in production.
-  message: "must be none when NODE_ENV is production",
-  path: ["GATEWAY_SEED"],
-});
+})
+  .refine((values) => !(values.NODE_ENV === "production" && values.GATEWAY_SEED === "dev"), {
+    // The dev seed contains a published API key, so it must never load in production.
+    message: "must be none when NODE_ENV is production",
+    path: ["GATEWAY_SEED"],
+  })
+  .refine((values) => (values.GITHUB_APP_ID === undefined) === (values.GITHUB_PRIVATE_KEY_PATH === undefined), {
+    message: "must be set together with GITHUB_PRIVATE_KEY_PATH",
+    path: ["GITHUB_APP_ID"],
+  })
+  .refine((values) => values.NODE_ENV !== "production" || values.GITHUB_APP_ID !== undefined, {
+    // The stub client returns no files, so a deployed gateway would review nothing.
+    message: "is required when NODE_ENV is production",
+    path: ["GITHUB_APP_ID"],
+  });
 
 /**
  * Reads and validates the gateway environment (see `.env.example`). Every problem is reported in
@@ -88,7 +108,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
   }
 
   const values = parsed.data;
-  return {
+  const config: GatewayConfig = {
     port: values.PORT,
     orchestratorUrl: values.ORCHESTRATOR_URL,
     orchestratorTimeoutMs: values.ORCHESTRATOR_TIMEOUT_MS,
@@ -97,4 +117,12 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     githubWebhookSecret: values.GITHUB_WEBHOOK_SECRET,
     seed: values.GATEWAY_SEED,
   };
+  if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
+    config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };
+  }
+  if (values.GATEWAY_DEV_REPOSITORY) {
+    const [fullName, id] = values.GATEWAY_DEV_REPOSITORY.split(":") as [string, string];
+    config.devRepository = { fullName, githubRepoId: Number(id) };
+  }
+  return config;
 }

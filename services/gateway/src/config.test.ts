@@ -81,4 +81,23 @@ describe("loadGatewayConfig", () => {
     expect(error.message).toContain("JWT_SECRET");
     expect(error.message).toContain("PORT must be between 1 and 65535");
   });
+  it("reads the GitHub App settings and the dev repository override", () => {
+    const config = loadGatewayConfig({
+      ...FULL_ENV,
+      GITHUB_APP_ID: "12345",
+      GITHUB_PRIVATE_KEY_PATH: "github-app.pem",
+      GATEWAY_DEV_REPOSITORY: "sumit-0804/code-sentinel-playground:1390792507",
+    });
+
+    expect(config.githubApp).toEqual({ appId: 12345, privateKeyPath: "github-app.pem" });
+    expect(config.devRepository).toEqual({ fullName: "sumit-0804/code-sentinel-playground", githubRepoId: 1390792507 });
+  });
+
+  it("requires the GitHub App id and key together, and both in production", () => {
+    expect(configError({ ...FULL_ENV, GITHUB_APP_ID: "12345" }).message).toContain("GITHUB_APP_ID must be set together with GITHUB_PRIVATE_KEY_PATH");
+    expect(configError({ ...FULL_ENV, GATEWAY_SEED: "none", NODE_ENV: "production" }).message).toContain(
+      "GITHUB_APP_ID is required when NODE_ENV is production",
+    );
+    expect(configError({ ...FULL_ENV, GATEWAY_DEV_REPOSITORY: "no-id" }).message).toContain("must look like owner/name:githubRepoId");
+  });
 });

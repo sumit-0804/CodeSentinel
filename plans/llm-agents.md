@@ -11,7 +11,7 @@
 | PR 4 Security Agent | merged (#12) |
 | PR 5 Style Agent + sandbox | merged (#13) |
 | M5 live check (verification 5) | passed after two fixes, see below |
-| PR 6 real GitHub client + test repo | not started; needs the GitHub App set up first |
+| PR 6 real GitHub client + test repo | code done, test repo `sumit-0804/code-sentinel-playground` created; the live run waits for the GitHub App setup |
 
 **M5 live check.** Gateway, orchestrator, Security and Style ran locally with the dev Groq and
 Gemini keys; signed webhooks went through the gateway.

@@ -13,8 +13,13 @@ export const DEV_API_KEY = "cs_live_dev_00000000";
 export const DEV_USER_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
 export const DEV_GITHUB_REPO_ID = 123456789;
 
+export interface DevSeedOptions {
+  /** A real repository (`GATEWAY_DEV_REPOSITORY`) in place of the fake `code-sentinel/consumer-api`. */
+  repository?: { fullName: string; githubRepoId: number };
+}
+
 /** Demo data for `GATEWAY_SEED=dev`: one repository with all agents on, one user, and three PR files. */
-export function devSeed(): { seed: StoreSeed; pullRequestFiles: PullRequestFile[] } {
+export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRequestFiles: PullRequestFile[] } {
   const seed: StoreSeed = {
     organizations: [{ organizationId: EXAMPLE_ORGANIZATION_ID }],
     repositories: [
@@ -22,8 +27,8 @@ export function devSeed(): { seed: StoreSeed; pullRequestFiles: PullRequestFile[
         repositoryId: EXAMPLE_REPOSITORY_ID,
         organizationId: EXAMPLE_ORGANIZATION_ID,
         githubInstallationId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
-        githubRepoId: DEV_GITHUB_REPO_ID,
-        fullName: "code-sentinel/consumer-api",
+        githubRepoId: options.repository?.githubRepoId ?? DEV_GITHUB_REPO_ID,
+        fullName: options.repository?.fullName ?? "code-sentinel/consumer-api",
         reviewEnabled: true,
       },
     ],

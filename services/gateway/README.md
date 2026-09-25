@@ -22,7 +22,7 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
 | Session token (HS256 JWT) | `auth/session-token.ts` | working; nothing mints it outside tests until OAuth login lands |
 | Stores | `persistence/stores.ts`, `persistence/in-memory.ts`, `persistence/dev-seed.ts` | interfaces + in-memory |
-| GitHub client | `github/github-client.ts`, `github/stub-github-client.ts` | interface + stub |
+| GitHub client (FR-GH-01) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files), `github/stub-github-client.ts` | working; the stub is used when no App is configured |
 | Orchestrator client (FR-GW-04) | `orchestrator/orchestrator-client.ts` | working, tested against a stubbed `fetch` |
 | Webhook signature (FR-GW-03) | `webhooks/signature.ts` | working |
 | Webhook handler (FR-GH-01) | `webhooks/github-webhook.ts`, `webhooks/github-payload.ts` | working |
@@ -120,9 +120,13 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `JWT_SECRET` | required | HS256 key for the `cs_session` JWT | at least 32 characters |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` |
+| `GITHUB_APP_ID` | unset | The GitHub App's numeric id | positive integer; set together with `GITHUB_PRIVATE_KEY_PATH`; required when `NODE_ENV=production` |
+| `GITHUB_PRIVATE_KEY_PATH` | unset | The App's private key (`.pem`), relative to `services/gateway/` | read at startup; an unreadable file stops the gateway. `*.pem` is gitignored |
+| `GATEWAY_DEV_REPOSITORY` | unset | Points the dev seed's repository at a real repo, e.g. `sumit-0804/code-sentinel-playground:1390792507` | `owner/name:githubRepoId` |
 
-An empty value (`PORT=`) means "use the default". Until PostgreSQL and the Octokit client land,
-`GATEWAY_SEED=none` starts with empty stores and a GitHub stub that returns no files.
+An empty value (`PORT=`) means "use the default". With `GITHUB_APP_ID` and
+`GITHUB_PRIVATE_KEY_PATH` set, PR files come from GitHub through the App; without them, from a stub
+(dev seed files, or none). Until PostgreSQL lands, `GATEWAY_SEED=none` starts with empty stores.
 
 `GATEWAY_SEED=dev` is for the local manual check only. It seeds one organization, the repository
 `code-sentinel/consumer-api` (`githubRepoId` 123456789, all five agents enabled, platform threshold
@@ -138,8 +142,7 @@ stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - GitHub OAuth login that mints the session cookie
-- Octokit `GitHubClient` (installation tokens, paginated PR files), Check Runs and inline
-  suggestions (FR-GH-02/03)
+- Check Runs and inline suggestions (FR-GH-02/03)
 - PostgreSQL stores and migrations from `schema.sql`
 - Installation events (acknowledged and ignored today)
 - An all-filtered pull request finishing the review with an empty report (today: 202
@@ -155,7 +158,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-84 tests in 13 files. They run the real app on an ephemeral port (`withServer` from
+90 tests in 14 files. They run the real app on an ephemeral port (`withServer` from
 `@code-sentinel/service-kit/testing`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
 secret, port 3000 or the network.
 
@@ -178,3 +181,37 @@ secret, port 3000 or the network.
    each is 401 `invalid_signature` and the orchestrator receives nothing.
 5. `curl /v1/me` is 401 `unauthenticated`; with `Authorization: Bearer cs_live_dev_00000000` it is
    200. `curl /healthz` is `ok`, and `degraded` / `unavailable` once the orchestrator stops.
+
+## End to end with a real GitHub repository
+
+A throwaway **private** repo, `sumit-0804/code-sentinel-playground` (id `1390792507`), holds a small
+Python/JS app on `main` and a `demo/risky-change` branch that adds a SQL injection, a hardcoded AWS
+example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and badly formatted JS.
+
+**One-time setup (GitHub web UI):**
+
+1. Create a smee.io channel: open https://smee.io/new and copy its URL.
+2. Settings → Developer settings → GitHub Apps → **New GitHub App**:
+   - Homepage URL: the Code-Sentinel repo URL. Webhook URL: the smee channel URL. Webhook secret:
+     the value of `GITHUB_WEBHOOK_SECRET` in `services/gateway/.env`.
+   - Repository permissions: **Pull requests: Read**, **Contents: Read** (Metadata: Read is
+     automatic); **Checks: Read and write** for the later Check Run step.
+   - Subscribe to events: **Pull request**. Where can it be installed: **Only on this account**.
+3. On the App page: note the **App ID**, then **Generate a private key** and save the `.pem` as
+   `services/gateway/github-app.pem`.
+4. **Install App** → only `code-sentinel-playground`.
+5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`,
+   `GATEWAY_SEED=dev`, `GATEWAY_DEV_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507`.
+
+**Each run:**
+
+```bash
+npx smee-client --url <smee channel URL> --target http://127.0.0.1:3000/webhooks/github
+```
+
+Start the orchestrator, the Security and Style agents, and the gateway (see the root README), then
+open a pull request from `demo/risky-change` to `main` in the playground. The gateway log shows
+`review_started` with the real files, and the orchestrator job ends with Security findings (SQL
+injection, the AWS key, `innerHTML`) and Style findings with Prettier fixes. **Redeliver** from the
+App's *Advanced → Recent Deliveries* page gives `duplicate_ignored`; a new push gives a new job.
+

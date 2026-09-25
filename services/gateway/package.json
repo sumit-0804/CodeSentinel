@@ -20,6 +20,9 @@
   "dependencies": {
     "@code-sentinel/contracts": "*",
     "@code-sentinel/service-kit": "*",
+    "@octokit/auth-app": "^8.3.1",
+    "@octokit/core": "^7.0.8",
+    "@octokit/plugin-paginate-rest": "^15.0.0",
     "cookie": "^1.1.1",
     "express": "^5.2.1",
     "helmet": "^8.3.0",

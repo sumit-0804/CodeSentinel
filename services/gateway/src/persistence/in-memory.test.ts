@@ -2,6 +2,7 @@ import { EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
 import { describe, expect, it } from "vitest";
 
 import { baseSeed, seededStores, TEST_API_KEY_ID, TEST_GITHUB_REPO_ID } from "../test-support/fixtures.js";
+import { devSeed } from "./dev-seed.js";
 import { InMemoryStores, type StoreSeed } from "./in-memory.js";
 
 const NOW = new Date();
@@ -91,5 +92,14 @@ describe("InMemoryStores", () => {
     await expect(expired.stores.sessions.findActiveByTokenHash(expired.seed.sessions[0]!.tokenHash, NOW)).resolves.toBeUndefined();
     await expect(revoked.stores.sessions.findActiveByTokenHash(revoked.seed.sessions[0]!.tokenHash, NOW)).resolves.toBeUndefined();
     await expect(revoked.stores.apiKeys.findActiveByKeyHash(key.keyHash)).resolves.toBeUndefined();
+  });
+});
+
+describe("devSeed", () => {
+  it("points the seeded repository at GATEWAY_DEV_REPOSITORY when given", () => {
+    const { seed } = devSeed({ repository: { fullName: "octo/playground", githubRepoId: 42 } });
+
+    expect(seed.repositories[0]).toMatchObject({ fullName: "octo/playground", githubRepoId: 42 });
+    expect(devSeed().seed.repositories[0]).toMatchObject({ fullName: "code-sentinel/consumer-api", githubRepoId: 123456789 });
   });
 });

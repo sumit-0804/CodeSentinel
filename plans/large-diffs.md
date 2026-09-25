@@ -137,7 +137,7 @@ GitHub PR files
 - [x] File filter module (binary, missing `patch`, generated/vendored globs, deleted, pure rename).
       `services/gateway/src/webhooks/file-filter.ts`.
 - [x] Send gateway skips in `ReviewJobRequest.skippedFiles`.
-- [ ] Paginate PR files (Octokit client).
+- [x] Paginate PR files (Octokit client, `github/octokit-github-client.ts`).
 - [ ] Every file filtered ⇒ finish the review with an empty report, no orchestrator call
       (gateway already skips the orchestrator call; the empty report needs the review store).
 
