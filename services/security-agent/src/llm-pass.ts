@@ -1,4 +1,4 @@
-import type { AgentLlmUsage, ChangedFile } from "@code-sentinel/contracts";
+import type { AgentLlmUsage, ChangedFile, Suggestion } from "@code-sentinel/contracts";
 import { parsePatch, type AgentContext } from "@code-sentinel/agent-kit";
 import { LlmProviderError, type JsonSchema, type LlmRequest } from "@code-sentinel/llm";
 import { z } from "zod";
@@ -17,7 +17,10 @@ Each line starts with its line number. lineStart must be the number printed on t
 vulnerable code itself (for example the query call, not the connection set up before it).
 For each issue give the file path and those line numbers, a severity
 (critical, warning or info), a confidence between 0 and 1, and a CWE id such as "CWE-89" (empty string if none).
-Use a ruleId of the form "security/<kebab-case-name>". Return {"findings": []} when there is nothing to report.`;
+Use a ruleId of the form "security/<kebab-case-name>".
+suggestedCode is the complete replacement for lines lineStart..lineEnd with the vulnerability fixed, keeping the
+original indentation and nothing else changed; use "" when no safe local fix exists (for example a leaked key,
+which must be revoked). Return {"findings": []} when there is nothing to report.`;
 
 /** Groq strict mode: every property required, every object closed. */
 const RESPONSE_SCHEMA: JsonSchema = {
@@ -37,8 +40,9 @@ const RESPONSE_SCHEMA: JsonSchema = {
           severity: { type: "string", enum: ["critical", "warning", "info"] },
           confidence: { type: "number" },
           cweId: { type: "string" },
+          suggestedCode: { type: "string" },
         },
-        required: ["ruleId", "title", "description", "filePath", "lineStart", "lineEnd", "severity", "confidence", "cweId"],
+        required: ["ruleId", "title", "description", "filePath", "lineStart", "lineEnd", "severity", "confidence", "cweId", "suggestedCode"],
         additionalProperties: false,
       },
     },
@@ -60,6 +64,7 @@ const LlmAnswerSchema = z.object({
       severity: z.enum(["critical", "warning", "info"]),
       confidence: z.number(),
       cweId: z.string(),
+      suggestedCode: z.string().max(4000).default(""),
     }),
   ),
 });
@@ -71,6 +76,26 @@ const MAX_SPAN = 20;
 export interface LlmPassResult {
   findings: SecurityFinding[];
   llm?: AgentLlmUsage;
+}
+
+/**
+ * The model's fix as a GitHub "suggested change" (FR-GH-03), kept only when it replaces lines this PR
+ * added (never unchanged code), actually changes them, and carries no masked secret, which would
+ * commit a broken line. The author still has to accept it (FR-GH-04).
+ */
+function aiSuggestion(addedLines: Map<number, string>, lineStart: number, lineEnd: number, code: string): Suggestion | undefined {
+  const replacement = code.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+  if (!replacement.trim() || replacement.includes("****")) return undefined;
+
+  const original: string[] = [];
+  for (let line = lineStart; line <= lineEnd; line++) {
+    const text = addedLines.get(line);
+    if (text === undefined) return undefined;
+    original.push(text);
+  }
+  const originalSnippet = original.join("\n");
+  if (replacement === originalSnippet) return undefined;
+  return { kind: "ai_suggested", originalSnippet, suggestedSnippet: replacement, explanation: "Suggested by the Security Agent's LLM pass; review before committing." };
 }
 
 /** Each file's hunks with new-side line numbers, secrets masked, as the model sees them. */
@@ -127,7 +152,9 @@ export async function runLlmPass(files: ChangedFile[], context: AgentContext): P
     return { findings: [], llm };
   }
 
-  const added = new Map(files.map((file) => [file.path, new Set(parsePatch(file.patch).addedLines.map((line) => line.line))]));
+  const added = new Map(
+    files.map((file) => [file.path, new Map(parsePatch(file.patch).addedLines.map((line) => [line.line, line.text]))]),
+  );
   const findings: SecurityFinding[] = [];
   let dropped = 0;
   for (const item of parsed.findings) {
@@ -136,18 +163,17 @@ export async function runLlmPass(files: ChangedFile[], context: AgentContext): P
       dropped++;
       continue;
     }
+    const lineEnd = Math.min(Math.max(item.lineEnd, item.lineStart), item.lineStart + MAX_SPAN);
+    const suggestion = aiSuggestion(lines, item.lineStart, lineEnd, item.suggestedCode);
     findings.push({
       ruleId: item.ruleId.startsWith("security/") ? item.ruleId : `security/${item.ruleId}`,
       title: item.title,
       description: maskSecrets(item.description),
-      location: {
-        filePath: item.filePath,
-        lineStart: item.lineStart,
-        lineEnd: Math.min(Math.max(item.lineEnd, item.lineStart), item.lineStart + MAX_SPAN),
-      },
+      location: { filePath: item.filePath, lineStart: item.lineStart, lineEnd },
       severity: item.severity,
       confidence: Math.min(1, Math.max(0, item.confidence)),
       ...(CWE.test(item.cweId) ? { cweId: item.cweId } : {}),
+      ...(suggestion ? { suggestion } : {}),
     });
   }
   // A finding must sit on a line this PR added; anything else is a hallucination or old code.

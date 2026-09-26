@@ -87,6 +87,48 @@ describe("security agent", () => {
     expect(response.llm).toEqual({ provider: "groq", model: "openai/gpt-oss-120b", fallbackDepth: 0, promptTokens: 900, completionTokens: 120 });
   });
 
+  it("keeps an AI fix only for added lines it really changes, without masked secrets", async () => {
+    const { client } = llmAnswering(
+      JSON.stringify({
+        findings: [
+          finding({ suggestedCode: "    url = safe_redirect(request.args['next'])" }),
+          finding({ ruleId: "security/ctx", lineStart: 131, lineEnd: 132, cweId: "CWE-20", suggestedCode: "x\ny" }),
+          finding({ ruleId: "security/blank", cweId: "CWE-21", suggestedCode: "   " }),
+          finding({ ruleId: "security/same", cweId: "CWE-22", suggestedCode: "    url = request.args['next']" }),
+          finding({ ruleId: "security/secret", lineStart: 130, lineEnd: 130, cweId: "CWE-23", suggestedCode: "    token = 'AKIA****'" }),
+        ],
+      }),
+    );
+
+    const response = await review(client);
+
+    const byRule = Object.fromEntries(response.findings.map((f) => [f.ruleId, f.suggestion]));
+    expect(byRule["security/open-redirect"]).toEqual({
+      kind: "ai_suggested",
+      originalSnippet: "    url = request.args['next']",
+      suggestedSnippet: "    url = safe_redirect(request.args['next'])",
+      explanation: "Suggested by the Security Agent's LLM pass; review before committing.",
+    });
+    // Line 132 is unchanged context, so that fix would rewrite code this PR did not touch.
+    for (const rule of ["security/ctx", "security/blank", "security/same", "security/secret"]) expect(byRule[rule]).toBeUndefined();
+  });
+
+  it("moves the fix of an LLM duplicate onto the rule finding it duplicates", async () => {
+    const fix = '    cur.execute("SELECT * FROM payments WHERE id = %s", (payment_id,))';
+    const { client } = llmAnswering(
+      JSON.stringify({ findings: [finding({ ruleId: "security/sqli", lineStart: 129, lineEnd: 129, cweId: "CWE-89", suggestedCode: fix })] }),
+    );
+
+    const response = await review(client);
+
+    expect(response.findings).toHaveLength(2);
+    expect(response.findings[0]).toMatchObject({
+      ruleId: "security/sql-injection",
+      location: { lineStart: 129, lineEnd: 129 },
+      suggestion: { kind: "ai_suggested", suggestedSnippet: fix },
+    });
+  });
+
   it("keeps rule findings when the LLM fails or answers junk, and logs why", async () => {
     const { logger, lines } = captureLogger();
 

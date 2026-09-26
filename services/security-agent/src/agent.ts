@@ -19,6 +19,26 @@ function isDuplicate(finding: SecurityFinding, rules: SecurityFinding[]): boolea
 }
 
 /**
+ * An LLM duplicate of a rule finding is dropped, but its fix is worth keeping: the rule finding takes
+ * it, and the fix's line range, when that range covers the rule's line (so the fix is for this issue).
+ */
+function adoptSuggestion(duplicate: SecurityFinding, rules: SecurityFinding[]): void {
+  if (!duplicate.suggestion) return;
+  const { filePath, lineStart, lineEnd } = duplicate.location;
+  const rule = rules.find(
+    (candidate) =>
+      !candidate.suggestion &&
+      candidate.location.filePath === filePath &&
+      candidate.location.lineStart >= lineStart &&
+      candidate.location.lineStart <= lineEnd &&
+      (candidate.cweId ?? candidate.ruleId) === (duplicate.cweId ?? duplicate.ruleId),
+  );
+  if (!rule) return;
+  rule.suggestion = duplicate.suggestion;
+  rule.location = { ...duplicate.location };
+}
+
+/**
  * The Security Agent (FR-SEC-01..04): deterministic SAST and secret rules on every request, plus
  * one LLM call when the orchestrator reserved quota for it. `unknown` files (config, `.env`) are
  * accepted so secrets in them are caught; code rules only apply to their own languages.
@@ -38,9 +58,14 @@ export const securityAgent: ReviewAgent = {
     const reached = files.filter((file) => !rules.skipped.some((skip) => skip.path === file.path));
     const llm = reached.length ? await runLlmPass(reached, context) : { findings: [] };
 
-    const extra = llm.findings.filter((finding) => !isDuplicate(finding, rules.results));
+    const findings = rules.results.map((finding) => ({ ...finding }));
+    const extra: SecurityFinding[] = [];
+    for (const finding of llm.findings) {
+      if (!isDuplicate(finding, findings)) extra.push(finding);
+      else adoptSuggestion(finding, findings);
+    }
     return {
-      findings: [...rules.results, ...extra],
+      findings: [...findings, ...extra],
       skipped: rules.skipped,
       ...(llm.llm ? { llm: llm.llm } : {}),
     };

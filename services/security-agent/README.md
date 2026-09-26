@@ -18,6 +18,12 @@ request, asks Groq (or Gemini) for what single-line rules cannot see. Built on
    finding is kept only if it starts on an added line of a file in the request. A finding with the
    same file and CWE as a rule finding within 3 lines of it is dropped as a duplicate: model line
    numbers can drift (Gemini put a rule's SQL injection 2 lines early in the 27-Sep live check).
+   **AI fixes:** the model also returns `suggestedCode`, the replacement for `lineStart..lineEnd`.
+   It becomes `suggestion { kind: "ai_suggested" }` (a one-click "suggested change" on the PR,
+   FR-GH-03) only if every replaced line was added by this PR, the text actually changes them, and
+   it contains no masked secret (`****`). When a duplicate carries a fix whose range covers the
+   rule's line, the rule finding takes that fix and its range. Nothing is ever committed without
+   the author accepting it (FR-GH-04).
 3. If the LLM call fails or answers junk, the rule findings are still returned and the reason is
    logged; the review does not fail. Token usage is reported whenever a call was made.
 
