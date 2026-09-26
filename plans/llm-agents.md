@@ -12,6 +12,7 @@
 | PR 5 Style Agent + sandbox | merged (#13) |
 | M5 live check (verification 5) | passed after two fixes, see below |
 | PR 6 real GitHub client + test repo | done; live run on `sumit-0804/code-sentinel-playground` passed (below) |
+| Posting the review back to the PR | see [`github-posting.md`](github-posting.md) |
 
 **PR 6 live run** (App `code-sentinel-dev-sumit`, smee, all four services local, dev keys):
 
