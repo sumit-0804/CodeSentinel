@@ -11,6 +11,7 @@ import helmet from "helmet";
 import { createAuthMiddleware } from "./auth/authenticate.js";
 import type { GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
+import type { ReviewPublisher } from "./github/review-publisher.js";
 import type { OrchestratorClientLike } from "./orchestrator/orchestrator-client.js";
 import type { Stores } from "./persistence/stores.js";
 import { createHealthzRouter } from "./routes/healthz.js";
@@ -30,6 +31,8 @@ export interface AppDeps {
   version?: string;
   /** Clock for session and API-key expiry checks. */
   now?: () => Date;
+  /** Posts finished reviews to GitHub; without it reviews run but nothing is posted. */
+  publisher?: Pick<ReviewPublisher, "follow">;
 }
 
 /**
@@ -37,7 +40,7 @@ export interface AppDeps {
  * globally, so the webhook route receives the exact bytes GitHub signed (FR-GW-03).
  */
 export function createApp(deps: AppDeps): Express {
-  const { config, logger, orchestrator, github, stores, version = DEFAULT_VERSION, now } = deps;
+  const { config, logger, orchestrator, github, stores, version = DEFAULT_VERSION, now, publisher } = deps;
   const app = express();
 
   app.disable("x-powered-by");
@@ -46,7 +49,9 @@ export function createApp(deps: AppDeps): Express {
   app.use(helmet());
 
   app.use(createHealthzRouter({ orchestrator, version }));
-  app.use(createGithubWebhookRouter({ secret: config.githubWebhookSecret, stores, github, orchestrator, logger }));
+  app.use(
+    createGithubWebhookRouter({ secret: config.githubWebhookSecret, stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}) }),
+  );
 
   const v1 = express.Router();
   v1.use(express.json({ limit: "1mb" }));

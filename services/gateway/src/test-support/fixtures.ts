@@ -30,6 +30,7 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
     jwtSecret: TEST_JWT_SECRET,
     githubWebhookSecret: TEST_WEBHOOK_SECRET,
     seed: "none",
+    reviewPollTimeoutMs: 300_000,
     ...overrides,
   };
 }
@@ -94,6 +95,7 @@ export function fakeOrchestrator(overrides: Partial<OrchestratorClientLike> = {}
   return {
     health: async () => ({ status: "ok", version: "test" }),
     createReviewJob: async () => ({ job: reviewJobResponse(202), created: true }),
+    getReviewJob: async () => ({ ...reviewJobResponse(202), status: "completed" }),
     ...overrides,
   };
 }

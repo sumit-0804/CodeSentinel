@@ -8,6 +8,7 @@ import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
 import { OctokitGitHubClient } from "./github/octokit-github-client.js";
+import { ReviewPublisher } from "./github/review-publisher.js";
 import { StubGitHubClient } from "./github/stub-github-client.js";
 import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
 import { devSeed } from "./persistence/dev-seed.js";
@@ -64,11 +65,13 @@ function main(): void {
     github = new StubGitHubClient(pullRequestFiles);
   }
 
+  const publisher = new ReviewPublisher({ github, orchestrator, logger, timeoutMs: config.reviewPollTimeoutMs });
   const app = createApp({
     config,
     logger,
     orchestrator,
     github,
+    publisher,
     stores: new InMemoryStores(seed),
     version: packageVersion(),
   });

@@ -4,6 +4,7 @@ import express, { Router, type Request } from "express";
 
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubClient } from "../github/github-client.js";
+import type { ReviewPublisher } from "../github/review-publisher.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { Stores } from "../persistence/stores.js";
@@ -18,10 +19,12 @@ export interface GithubWebhookRouterDeps {
   github: GitHubClient;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob">;
   logger: Logger;
+  /** Posts the finished review back to the pull request; omitted in tests that do not publish. */
+  publisher?: Pick<ReviewPublisher, "follow">;
 }
 
 /** `POST /webhooks/github`: signature first, then the decision tree of `seq_uc1_pr_review.mmd` (FR-GW-03/04, FR-GH-01). */
-export function createGithubWebhookRouter({ secret, stores, github, orchestrator, logger }: GithubWebhookRouterDeps): Router {
+export function createGithubWebhookRouter({ secret, stores, github, orchestrator, logger, publisher }: GithubWebhookRouterDeps): Router {
   const router = Router();
 
   router.post(
@@ -91,14 +94,13 @@ export function createGithubWebhookRouter({ secret, stores, github, orchestrator
         return;
       }
 
-      const filtered = filterPullRequestFiles(
-        await github.listPullRequestFiles({
-          ...(pullRequest.installation ? { installationId: pullRequest.installation.id } : {}),
-          owner: pullRequest.repository.owner.login,
-          repo: pullRequest.repository.name,
-          pullNumber: pullRequest.number,
-        }),
-      );
+      const ref = {
+        ...(pullRequest.installation ? { installationId: pullRequest.installation.id } : {}),
+        owner: pullRequest.repository.owner.login,
+        repo: pullRequest.repository.name,
+        pullNumber: pullRequest.number,
+      };
+      const filtered = filterPullRequestFiles(await github.listPullRequestFiles(ref));
       logFields.files = filtered.files.length;
       logFields.skippedFiles = countByReason(filtered.skippedFiles);
       // Interim: the design finishes an all-filtered review with an empty report, which needs the review store.
@@ -113,8 +115,22 @@ export function createGithubWebhookRouter({ secret, stores, github, orchestrator
           { idempotencyKey: deliveryId, requestId: res.locals.requestId },
         );
         logFields.reviewId = job.reviewId;
-        if (created) accept("review_started", "review_started", job.reviewId);
-        else accept("duplicate_ignored", "duplicate_ignored", job.reviewId);
+        if (!created) {
+          // A redelivery: the first delivery already owns the Check Run and the review.
+          accept("duplicate_ignored", "duplicate_ignored", job.reviewId);
+          return;
+        }
+        accept("review_started", "review_started", job.reviewId);
+        // After the 202: GitHub gets its answer fast, and publishing never delays or fails the webhook.
+        void publisher?.follow({
+          ref,
+          headSha: pullRequest.pull_request.head.sha,
+          jobId: job.jobId,
+          reviewId: job.reviewId,
+          requestId: res.locals.requestId,
+          threshold: config.confidenceThreshold,
+          postInlineComments: config.postInlineComments,
+        });
       } catch (error) {
         if (!(error instanceof OrchestratorCallError)) throw error;
         const details = { kind: error.kind, ...(error.status !== undefined ? { status: error.status } : {}) };

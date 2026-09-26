@@ -67,4 +67,47 @@ describe("OctokitGitHubClient", () => {
 
     await expect(github.listPullRequestFiles({ owner: "octo", repo: "playground", pullNumber: 7 })).rejects.toThrow(/No GitHub App installation/);
   });
+
+  it("creates a Check Run, completes it with annotations in batches of 50, and posts a COMMENT review", async () => {
+    const calls: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/access_tokens")) {
+        return json(201, { token: "ghs_installation", expires_at: new Date(Date.now() + 3_600_000).toISOString(), permissions: {}, repository_selection: "selected" });
+      }
+      calls.push({ method: init?.method ?? "GET", path: url.pathname, body: JSON.parse(String(init?.body ?? "{}")) });
+      return url.pathname.endsWith("/check-runs") ? json(201, { id: 777 }) : json(200, {});
+    });
+    const github = new OctokitGitHubClient({ appId: 12345, privateKey, fetch: fetchImpl });
+    const ref = { installationId: 42, owner: "octo", repo: "playground", pullNumber: 7 };
+    const annotations = Array.from({ length: 51 }, (_, i) => ({ path: "a.py", startLine: i + 1, endLine: i + 1, level: "notice" as const, title: "t", message: "m" }));
+
+    const id = await github.createCheckRun(ref, { name: "Code-Sentinel", headSha: "abc" });
+    await github.completeCheckRun(ref, id, { conclusion: "failure", output: { title: "1 critical", summary: "s", annotations } });
+    await github.createReview(ref, { commitId: "abc", body: "b", comments: [{ path: "a.py", line: 7, startLine: 6, body: "x" }, { path: "a.py", line: 3, body: "y" }] });
+
+    expect(id).toBe(777);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /repos/octo/playground/check-runs",
+      "PATCH /repos/octo/playground/check-runs/777",
+      "PATCH /repos/octo/playground/check-runs/777",
+      "POST /repos/octo/playground/pulls/7/reviews",
+    ]);
+    expect(calls[0]!.body).toMatchObject({ name: "Code-Sentinel", head_sha: "abc", status: "in_progress" });
+    expect(calls[1]!.body).toMatchObject({ status: "completed", conclusion: "failure", output: { title: "1 critical", summary: "s" } });
+    expect((calls[1]!.body.output as { annotations: unknown[] }).annotations).toHaveLength(50);
+    expect(calls[2]!.body).not.toHaveProperty("conclusion");
+    expect((calls[2]!.body.output as { annotations: unknown[] }).annotations).toEqual([
+      { path: "a.py", start_line: 51, end_line: 51, annotation_level: "notice", title: "t", message: "m" },
+    ]);
+    expect(calls[3]!.body).toEqual({
+      commit_id: "abc",
+      event: "COMMENT",
+      body: "b",
+      comments: [
+        { path: "a.py", line: 7, side: "RIGHT", start_line: 6, start_side: "RIGHT", body: "x" },
+        { path: "a.py", line: 3, side: "RIGHT", body: "y" },
+      ],
+    });
+  });
 });

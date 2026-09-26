@@ -32,6 +32,7 @@ describe("loadGatewayConfig", () => {
       jwtSecret: "0123456789abcdef0123456789abcdef",
       githubWebhookSecret: "webhook-secret-16",
       seed: "dev",
+      reviewPollTimeoutMs: 300_000,
     });
   });
 

@@ -137,3 +137,19 @@ describe("OrchestratorClient.health", () => {
     expect(invalid.kind).toBe("invalid_response");
   });
 });
+
+describe("OrchestratorClient.getReviewJob", () => {
+  it("GETs the job with the request id and validates it; a 404 is an http error", async () => {
+    const fetchImpl = vi.fn<FetchLike>(async () => jsonResponse({ ...reviewJobResponse(202), status: "running" }));
+
+    const job = await client(fetchImpl).getReviewJob("0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b", { requestId: "req-9" });
+
+    expect(job.status).toBe("running");
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("http://orchestrator.internal:8080/internal/v1/review-jobs/0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b");
+    expect((init?.headers as Record<string, string>)["X-Request-Id"]).toBe("req-9");
+
+    const missing = await callError(client(async () => jsonResponse({ code: "not_found" }, 404)).getReviewJob("nope"));
+    expect(missing).toMatchObject({ kind: "http", status: 404 });
+  });
+});

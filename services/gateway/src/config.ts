@@ -19,6 +19,8 @@ export interface GatewayConfig {
   githubApp?: { appId: number; privateKeyPath: string };
   /** Points the dev seed's repository at a real repo, e.g. the test playground. */
   devRepository?: { fullName: string; githubRepoId: number };
+  /** How long to wait for a review job before completing its Check Run as timed out. */
+  reviewPollTimeoutMs: number;
 }
 
 /** Thrown by `loadGatewayConfig` with every invalid variable listed at once. */
@@ -63,6 +65,7 @@ const EnvSchema = z.object({
       .refine((value) => /^https?:$/.test(new URL(value).protocol), "must be an http or https URL"),
   ),
   ORCHESTRATOR_TIMEOUT_MS: integer(1000, 30000, 5000),
+  REVIEW_POLL_TIMEOUT_MS: integer(10_000, 1_800_000, 300_000),
   SERVICE_TOKEN: secret(1),
   // HS256 needs a 256-bit key.
   JWT_SECRET: secret(32),
@@ -116,6 +119,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     jwtSecret: values.JWT_SECRET,
     githubWebhookSecret: values.GITHUB_WEBHOOK_SECRET,
     seed: values.GATEWAY_SEED,
+    reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
   };
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };

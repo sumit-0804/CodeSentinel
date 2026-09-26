@@ -77,6 +77,18 @@ export class OrchestratorClient {
     return { job: data, created: status === 202 };
   }
 
+  /** `GET /internal/v1/review-jobs/{jobId}`: the job's state, and its report once finished. */
+  async getReviewJob(jobId: string, opts: { requestId?: string } = {}): Promise<ReviewJob> {
+    const { data } = await this.send({
+      method: "GET",
+      path: `/internal/v1/review-jobs/${encodeURIComponent(jobId)}`,
+      ...(opts.requestId ? { headers: { "X-Request-Id": opts.requestId } } : {}),
+      schema: ReviewJobSchema,
+      successStatuses: [200],
+    });
+    return data;
+  }
+
   /** `GET /healthz`. */
   async health(): Promise<Health> {
     const { data } = await this.send({ method: "GET", path: "/healthz", schema: HealthSchema, successStatuses: [200] });
@@ -143,4 +155,4 @@ export class OrchestratorClient {
 }
 
 /** The slice of the client the app uses, so tests can pass plain objects. */
-export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "health">;
+export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "getReviewJob" | "health">;

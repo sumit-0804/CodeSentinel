@@ -36,8 +36,9 @@ async function webhookApp({ edit, files = devSeed().pullRequestFiles, createRevi
       createReviewJob ?? (async () => ({ job: reviewJobResponse(202), created: true })),
     ),
   };
-  const app = createApp(testAppDeps({ logger, stores, github, orchestrator }));
-  return { app, lines, github, orchestrator, findByGithubRepoId };
+  const publisher = { follow: vi.fn(async () => {}) };
+  const app = createApp(testAppDeps({ logger, stores, github, orchestrator, publisher }));
+  return { app, lines, github, orchestrator, findByGithubRepoId, publisher };
 }
 
 type WebhookApp = Awaited<ReturnType<typeof webhookApp>>;
@@ -253,5 +254,26 @@ describe("POST /webhooks/github: review flow", () => {
     expect(response.status).toBe(502);
     expect(ApiErrorSchema.parse(response.body)).toMatchObject({ code: "orchestrator_unavailable", details: { kind: "network" } });
     expect(requestLog(target)).toMatchObject({ status: 502, outcome: "orchestrator_unavailable" });
+  });
+
+  it("hands a new job to the publisher after answering, and never a duplicate or an ignored event", async () => {
+    const target = await webhookApp();
+    await deliver(target, pullRequestEventPayload());
+
+    expect(target.publisher.follow).toHaveBeenCalledTimes(1);
+    expect(target.publisher.follow).toHaveBeenCalledWith({
+      ref: { installationId: 42, owner: "code-sentinel", repo: "consumer-api", pullNumber: 42 },
+      headSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      jobId: reviewJobResponse(202).jobId,
+      reviewId: EXAMPLE_REVIEW_ID,
+      requestId: expect.any(String),
+      threshold: 0.8,
+      postInlineComments: true,
+    });
+
+    const duplicate = await webhookApp({ createReviewJob: async () => ({ job: reviewJobResponse(200), created: false }) });
+    await deliver(duplicate, pullRequestEventPayload());
+    await deliver(duplicate, pullRequestEventPayload({ action: "closed" }));
+    expect(duplicate.publisher.follow).not.toHaveBeenCalled();
   });
 });

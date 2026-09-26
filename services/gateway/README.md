@@ -22,8 +22,9 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
 | Session token (HS256 JWT) | `auth/session-token.ts` | working; nothing mints it outside tests until OAuth login lands |
 | Stores | `persistence/stores.ts`, `persistence/in-memory.ts`, `persistence/dev-seed.ts` | interfaces + in-memory |
-| GitHub client (FR-GH-01) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files), `github/stub-github-client.ts` | working; the stub is used when no App is configured |
-| Orchestrator client (FR-GW-04) | `orchestrator/orchestrator-client.ts` | working, tested against a stubbed `fetch` |
+| GitHub client (FR-GH-01..03) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files, Check Runs, reviews), `github/stub-github-client.ts` | working; the stub records every call and is used when no App is configured |
+| Publishing the review to the PR (FR-GH-02/03/04) | `github/review-publisher.ts`, `github/review-output.ts` | working |
+| Orchestrator client (FR-GW-04) | `orchestrator/orchestrator-client.ts` (create job, poll job, health) | working, tested against a stubbed `fetch` |
 | Webhook signature (FR-GW-03) | `webhooks/signature.ts` | working |
 | Webhook handler (FR-GH-01) | `webhooks/github-webhook.ts`, `webhooks/github-payload.ts` | working |
 | File filter | `webhooks/file-filter.ts` | working |
@@ -71,6 +72,45 @@ Language comes from the extension: `js/mjs/cjs/jsx` → `javascript`, `ts/mts/ct
 `py` → `python`, anything else → `unknown`, which is still sent (agents skip it as
 `unsupported_language`, and the Documentation agent may still use it).
 
+## Publishing the review to the pull request
+
+`seq_uc1_pr_review.mmd`, FR-GH-02..04. When the orchestrator answers 202 for a **new** job, the
+webhook returns its 202 to GitHub first, then hands the job to `ReviewPublisher.follow()`, which
+runs in the background and never throws. A redelivery (`duplicate_ignored`) publishes nothing, so
+there is never a second Check Run or review.
+
+1. **Check Run "Code-Sentinel", `in_progress`**, on the PR's head commit, right away (AC-01).
+2. **Poll** `GET /internal/v1/review-jobs/{jobId}` every 2 s until the job is `completed`,
+   `partial`, `failed` or `cancelled`, up to `REVIEW_POLL_TIMEOUT_MS` (5 min). Orchestrator errors
+   are retried until then; a 404 (job gone) stops at once.
+3. **One review, `event: COMMENT`** (never approves or blocks), when the repository has
+   `postInlineComments` on. It has one inline comment per finding at or above the repository's
+   confidence threshold (0.8 by default, FR-ORC-06) that either carries a fix or comes from the
+   Security, Logic or Performance agent:
+   - a fix is a ```` ```suggestion ```` block the author commits with one click; Style's
+     Prettier/Black fixes are labelled deterministic, the Security Agent's LLM fixes AI-suggested
+     (review before committing). Nothing is ever pushed to the branch (FR-GH-04);
+   - Style lint findings without a fix are not posted inline; they are Check Run annotations;
+   - at most 50 comments, highest ranked first; the rest are counted in the Check Run;
+   - if GitHub refuses the review (422, a line it will not accept), each comment is posted on its
+     own and the ones still refused are listed in the Check Run summary.
+4. **Complete the Check Run** (FR-GH-02):
+
+   | Conclusion | When |
+   | --- | --- |
+   | `failure` | a finding at or above the threshold is `critical` (even on a partial review) |
+   | `neutral` | otherwise, the review is `partial`, `failed`, `cancelled`, or did not finish in time |
+   | `success` | otherwise |
+
+   The summary has the counts by severity, coverage (files and changed lines), one line per agent
+   (✅ findings and provider, ⚠️ no result, ⏸️ LLM analysis deferred, ➖ not configured), skipped
+   files with reasons, how many findings fell below the threshold, and any posting problems.
+   Every finding at or above the threshold is an annotation on its lines (`failure` / `warning` /
+   `notice`), sent 50 per request.
+
+If the Check Run cannot be created (for example a missing permission), the review is still
+posted and the failure is logged with the request id.
+
 ## Authentication
 
 `/v1` routes pass through `createAuthMiddleware`, which sets `res.locals.principal`
@@ -116,6 +156,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `PORT` | `3000` | Listen port | integer 1..65535 |
 | `ORCHESTRATOR_URL` | required | Orchestrator base URL | http or https URL |
 | `ORCHESTRATOR_TIMEOUT_MS` | `5000` | Timeout for each orchestrator call | integer 1000..30000 |
+| `REVIEW_POLL_TIMEOUT_MS` | `300000` | How long to wait for a review job before completing its Check Run as timed out | integer 10000..1800000 |
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `JWT_SECRET` | required | HS256 key for the `cs_session` JWT | at least 32 characters |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
@@ -142,7 +183,9 @@ stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - GitHub OAuth login that mints the session cookie
-- Check Runs and inline suggestions (FR-GH-02/03)
+- Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`) once PostgreSQL lands
+- Accept / reject tracking of posted suggestions (UC-3)
+- Cancelling a superseded job when a new commit is pushed
 - PostgreSQL stores and migrations from `schema.sql`
 - Installation events (acknowledged and ignored today)
 - An all-filtered pull request finishing the review with an empty report (today: 202
@@ -158,7 +201,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-90 tests in 14 files. They run the real app on an ephemeral port (`withServer` from
+105 tests in 16 files. They run the real app on an ephemeral port (`withServer` from
 `@code-sentinel/service-kit/testing`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
 secret, port 3000 or the network.
 
@@ -194,8 +237,8 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
 2. Settings → Developer settings → GitHub Apps → **New GitHub App**:
    - Homepage URL: the Code-Sentinel repo URL. Webhook URL: the smee channel URL. Webhook secret:
      the value of `GITHUB_WEBHOOK_SECRET` in `services/gateway/.env`.
-   - Repository permissions: **Pull requests: Read**, **Contents: Read** (Metadata: Read is
-     automatic); **Checks: Read and write** for the later Check Run step.
+   - Repository permissions: **Pull requests: Read and write** (inline review comments),
+     **Checks: Read and write** (the Check Run), **Contents: Read** (Metadata: Read is automatic).
    - Subscribe to events: **Pull request**. Where can it be installed: **Only on this account**.
 3. On the App page: note the **App ID**, then **Generate a private key** and save the `.pem` as
    `services/gateway/github-app.pem`.
