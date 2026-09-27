@@ -82,3 +82,11 @@ describe("scanFile secrets", () => {
     expect(rulesOn("# old key AKIAIOSFODNN7EXAMPLE")).toEqual(["security/secret-aws-access-key"]);
   });
 });
+
+describe("scanFile secret wording", () => {
+  it("names the secret type with a masked prefix", () => {
+    const [finding] = scanFile({ path: "app.py", language: "python", changeType: "modified", patch: "@@ -1 +1 @@\n+key = 'AKIAIOSFODNN7EXAMPLE'" });
+
+    expect(finding?.description).toBe("AWS access key (AKIA****) is hardcoded. Revoke it, then load it from the environment or a secret manager.");
+  });
+});

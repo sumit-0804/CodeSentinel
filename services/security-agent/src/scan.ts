@@ -20,7 +20,7 @@ export function scanFile(file: ChangedFile): SecurityFinding[] {
       findings.push({
         ruleId: secret.ruleId,
         title: `${secret.title} committed in code`,
-        description: `A ${secret.title.toLowerCase()} (${shown}) is hardcoded. Revoke it, then load it from the environment or a secret manager.`,
+        description: `${secret.title} (${shown}) is hardcoded. Revoke it, then load it from the environment or a secret manager.`,
         location,
         severity: "critical",
         confidence: secret.confidence,
