@@ -5,7 +5,24 @@
 | Step | State |
 | --- | --- |
 | PR 7 AI fixes from the Security Agent | merged (#16) |
-| PR 8 publishing from the gateway | code done; the live run waits for the App's Pull requests: Read & write |
+| PR 8 publishing from the gateway | done; live run passed (below) |
+
+**Live run** (App `code-sentinel-dev-sumit` with Pull requests and Checks: write; smee; gateway,
+orchestrator, Security, Style local; dev LLM keys), pushing commit `a8f662a` to playground PR #1:
+
+- The webhook reached the gateway at 13:19:13.4 and GitHub records the Check Run as started at
+  13:19:13 (AC-01); from the push, the Check Run was visible after 7 s, most of it GitHub and smee
+  delivery.
+- The Check Run completed **failure** after 11 s: "2 critical · 5 info", coverage 3/3 files and
+  23/23 lines, one line per agent, `README.md` skipped by Style, "1 lower-confidence finding below
+  the threshold" (the `innerHTML` XSS at 0.7), and 7 annotations on the right lines.
+- One `COMMENTED` review by `code-sentinel-dev-sumit[bot]` with 4 inline comments: the AWS key
+  (no fix: it must be revoked), the SQL injection with a one-click **AI fix** (a parameterised
+  query), and two one-click **Prettier fixes** on `cart.js` limited to added lines.
+- GitHub delivered the `synchronize` event twice (same delivery id): the second was
+  `duplicate_ignored`, and the commit has exactly one Code-Sentinel Check Run and one review.
+- Fixed from what the PR showed: the secret finding read "A aws access key …"; it now reads
+  "AWS access key (AKIA****) is hardcoded …".
 
 Deviation from the plan below: `updateCheckRun` became `completeCheckRun` (the gateway only ever
 completes a run), and the review is posted **before** the Check Run is completed, so the summary
