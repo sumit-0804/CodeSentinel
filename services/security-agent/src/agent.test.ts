@@ -129,6 +129,20 @@ describe("security agent", () => {
     });
   });
 
+  it("treats a sibling CWE as the same issue (live: CWE-321 for the AWS key the rule calls CWE-798)", async () => {
+    const { client } = llmAnswering(
+      JSON.stringify({
+        findings: [
+          finding({ ruleId: "security/hardcoded-aws-key", title: "Hard-coded AWS Access Key", lineStart: 130, lineEnd: 130, cweId: "CWE-321" }),
+        ],
+      }),
+    );
+
+    const response = await review(client);
+
+    expect(response.findings.map((f) => f.ruleId)).toEqual(["security/sql-injection", "security/secret-aws-access-key"]);
+  });
+
   it("keeps rule findings when the LLM fails or answers junk, and logs why", async () => {
     const { logger, lines } = captureLogger();
 

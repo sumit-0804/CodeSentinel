@@ -15,9 +15,14 @@ request, asks Groq (or Gemini) for what single-line rules cannot see. Built on
 2. **LLM pass** (`llm-pass.ts`, only with `options.llmProvider`): one call for the whole request.
    The model sees each hunk with new-side line numbers, `+` for added lines, and **secrets already
    masked**. Its answer must match a strict JSON schema, is validated again with zod, and a
-   finding is kept only if it starts on an added line of a file in the request. A finding with the
-   same file and CWE as a rule finding within 3 lines of it is dropped as a duplicate: model line
-   numbers can drift (Gemini put a rule's SQL injection 2 lines early in the 27-Sep live check).
+   finding is kept only if it starts on an added line of a file in the request. A finding in the
+   same file and **CWE family** as a rule finding, within 3 lines of it, is dropped as a duplicate.
+   Model line numbers can drift: Gemini put a rule's SQL injection 2 lines early in the 27-Sep live
+   check. Models also pick sibling CWEs: Groq called the AWS key CWE-321 where the rule says
+   CWE-798 (10-Oct dry run). The families are in `cwe-families.ts`: hardcoded credentials (798, 259,
+   321, 522, 547), SQL injection (89, 564, 943), command injection (78, 77, 88), code injection
+   (94, 95), XSS (79, 80), path traversal (22, 23, 35, 73), deserialization (502) and open redirect
+   (601). A CWE outside them only matches itself.
    **AI fixes:** the model also returns `suggestedCode`, the replacement for `lineStart..lineEnd`.
    It becomes `suggestion { kind: "ai_suggested" }` (a one-click "suggested change" on the PR,
    FR-GH-03) only if every replaced line was added by this PR, the text actually changes them, and

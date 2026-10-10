@@ -1,5 +1,6 @@
 import { analyzePerFile, type ReviewAgent } from "@code-sentinel/agent-kit";
 
+import { issueKey } from "./cwe-families.js";
 import { runLlmPass } from "./llm-pass.js";
 import { capabilityRules } from "./rules.js";
 import { scanFile, type SecurityFinding } from "./scan.js";
@@ -8,12 +9,12 @@ import { SECRET_RULES } from "./secrets.js";
 /** An LLM's line numbers can drift a little (seen live: off by 2), so nearby counts as the same issue. */
 const DUPLICATE_LINES = 3;
 
-/** True when a rule already reported this issue: same file, same CWE (or rule id), within a few lines. */
+/** True when a rule already reported this issue: same file, same CWE family (or rule id), within a few lines. */
 function isDuplicate(finding: SecurityFinding, rules: SecurityFinding[]): boolean {
   return rules.some(
     (rule) =>
       rule.location.filePath === finding.location.filePath &&
-      (rule.cweId ?? rule.ruleId) === (finding.cweId ?? finding.ruleId) &&
+      issueKey(rule) === issueKey(finding) &&
       Math.abs(rule.location.lineStart - finding.location.lineStart) <= DUPLICATE_LINES,
   );
 }
@@ -31,7 +32,7 @@ function adoptSuggestion(duplicate: SecurityFinding, rules: SecurityFinding[]): 
       candidate.location.filePath === filePath &&
       candidate.location.lineStart >= lineStart &&
       candidate.location.lineStart <= lineEnd &&
-      (candidate.cweId ?? candidate.ruleId) === (duplicate.cweId ?? duplicate.ruleId),
+      issueKey(candidate) === issueKey(duplicate),
   );
   if (!rule) return;
   rule.suggestion = duplicate.suggestion;
