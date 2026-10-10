@@ -8,7 +8,7 @@ import tseslint from "typescript-eslint";
  */
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/.turbo/**", "docs/**"],
+    ignores: ["**/dist/**", "**/node_modules/**", "**/.turbo/**", "**/generated/**", "docs/**"],
   },
   js.configs.recommended,
   tseslint.configs.recommended,

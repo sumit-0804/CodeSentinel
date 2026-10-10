@@ -1,0 +1,450 @@
+// Code-Sentinel database (Supabase Postgres). This file is the source of truth; docs/design/schema/schema.sql
+// is generated from it. Only the `public` schema is ours: Supabase owns `auth` (users, sessions, MFA factors).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enumerated types
+// ---------------------------------------------------------------------------
+
+enum OrgRole {
+  admin
+  member
+
+  @@map("org_role")
+}
+
+/// GitHub account an installation belongs to: a personal account or an organization.
+enum AccountType {
+  user
+  organization
+
+  @@map("account_type")
+}
+
+enum AgentKind {
+  security
+  style
+  performance
+  logic
+  documentation
+
+  @@map("agent_kind")
+}
+
+enum ReviewTrigger {
+  github_pull_request
+  vscode_on_demand
+  dashboard_manual
+
+  @@map("review_trigger")
+}
+
+/// The report statuses plus `cancelled`, which only a job can reach.
+enum ReviewStatus {
+  queued
+  running
+  completed
+  partial
+  failed
+  cancelled
+
+  @@map("review_status")
+}
+
+enum CheckConclusion {
+  pass
+  fail
+  neutral
+
+  @@map("check_conclusion")
+}
+
+enum AgentRunStatus {
+  pending
+  running
+  succeeded
+  timed_out
+  failed
+  skipped
+
+  @@map("agent_run_status")
+}
+
+enum Severity {
+  critical
+  warning
+  info
+
+  @@map("severity")
+}
+
+enum FixKind {
+  deterministic
+  ai_suggested
+
+  @@map("fix_kind")
+}
+
+enum SuggestionState {
+  proposed
+  accepted
+  rejected
+  superseded
+
+  @@map("suggestion_state")
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy and identity (FR-GW-02, FR-WEB-01, NFR-13)
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id                         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  githubOrgLogin             String      @unique @map("github_org_login")
+  githubOrgId                BigInt      @unique @map("github_org_id")
+  accountType                AccountType @default(organization) @map("account_type")
+  displayName                String      @map("display_name")
+  defaultConfidenceThreshold Decimal     @default(0.800) @map("default_confidence_threshold") @db.Decimal(4, 3)
+  createdAt                  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  members           OrganizationMember[]
+  installations     GithubInstallation[]
+  apiKeys           ApiKey[]
+  repositories      Repository[]
+  reviews           Review[]
+  findingEmbeddings FindingEmbedding[]
+
+  @@map("organizations")
+}
+
+/// Profile mirror of `auth.users`: the id is Supabase's user id, inserted by the `on_auth_user_created` trigger.
+model User {
+  id           String    @id @db.Uuid
+  githubUserId BigInt?   @unique @map("github_user_id")
+  githubLogin  String?   @map("github_login")
+  email        String?   @unique
+  name         String?
+  avatarUrl    String?   @map("avatar_url")
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  memberships            OrganizationMember[]
+  githubToken            GithubUserToken?
+  apiKeys                ApiKey[]
+  settingsUpdated        RepositorySetting[]
+  agentConfigUpdated     RepositoryAgentConfig[]
+  reviewsTriggered       Review[]
+  suggestionsResolved    Suggestion[]
+
+  @@map("users")
+}
+
+model OrganizationMember {
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           OrgRole  @default(member)
+  addedAt        DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@index([userId], map: "idx_org_members_user")
+  @@map("organization_members")
+}
+
+/// The installation token itself is never stored; it is minted per request from the App private key.
+model GithubInstallation {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  githubInstallationId BigInt    @unique @map("github_installation_id")
+  accountLogin         String    @map("account_login")
+  webhookSecretRef     String    @default("env:GITHUB_WEBHOOK_SECRET") @map("webhook_secret_ref")
+  suspendedAt          DateTime? @map("suspended_at") @db.Timestamptz(6)
+  installedAt          DateTime  @default(now()) @map("installed_at") @db.Timestamptz(6)
+  uninstalledAt        DateTime? @map("uninstalled_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositories Repository[]
+
+  @@map("github_installations")
+}
+
+/// A GitHub App user token (8 h) and its refresh token, sealed with AES-256-GCM (`secret-box.ts`).
+model GithubUserToken {
+  userId             String    @id @map("user_id") @db.Uuid
+  accessTokenSealed  String    @map("access_token_sealed")
+  refreshTokenSealed String?   @map("refresh_token_sealed")
+  expiresAt          DateTime? @map("expires_at") @db.Timestamptz(6)
+  refreshExpiresAt   DateTime? @map("refresh_expires_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("github_user_tokens")
+}
+
+/// Personal API keys; only the SHA-256 of the full `cs_live_` key is stored.
+model ApiKey {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  label          String
+  keyPrefix      String    @map("key_prefix")
+  keyHash        Bytes     @unique @map("key_hash")
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_api_keys_user", where: raw("revoked_at IS NULL"))
+  @@map("api_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Repositories and per-repository configuration (FR-WEB-02, FR-WEB-03, FR-ORC-06)
+// ---------------------------------------------------------------------------
+
+model Repository {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
+  githubInstallationId String   @map("github_installation_id") @db.Uuid
+  githubRepoId         BigInt   @unique @map("github_repo_id")
+  fullName             String   @map("full_name")
+  defaultBranch        String   @default("main") @map("default_branch")
+  primaryLanguage      String?  @map("primary_language")
+  isPrivate            Boolean  @default(true) @map("is_private")
+  reviewEnabled        Boolean  @default(true) @map("review_enabled")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installation GithubInstallation      @relation(fields: [githubInstallationId], references: [id], onDelete: Cascade)
+  settings     RepositorySetting?
+  agentConfig  RepositoryAgentConfig[]
+  reviews      Review[]
+
+  @@unique([organizationId, fullName])
+  @@index([organizationId], map: "idx_repositories_org", where: raw("review_enabled"))
+  @@map("repositories")
+}
+
+/// A NULL threshold means inherit: the organization default, else the platform default of 0.800 (FR-ORC-06).
+model RepositorySetting {
+  repositoryId                String   @id @map("repository_id") @db.Uuid
+  confidenceThresholdOverride Decimal? @map("confidence_threshold_override") @db.Decimal(4, 3)
+  agentTimeoutMs              Int      @default(20000) @map("agent_timeout_ms")
+  autoFixStyle                Boolean  @default(true) @map("auto_fix_style")
+  postInlineComments          Boolean  @default(true) @map("post_inline_comments")
+  updatedBy                   String?  @map("updated_by") @db.Uuid
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  updatedByUser User?      @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@map("repository_settings")
+}
+
+model RepositoryAgentConfig {
+  repositoryId String    @map("repository_id") @db.Uuid
+  agent        AgentKind
+  enabled      Boolean   @default(true)
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  updatedByUser User?      @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@id([repositoryId, agent])
+  @@map("repository_agent_config")
+}
+
+// ---------------------------------------------------------------------------
+// Review jobs (FR-ORC-01..04, FR-GH-01, FR-GH-02, FR-VSC-01, NFR-04)
+// ---------------------------------------------------------------------------
+
+/// One review job. `report` holds the full CombinedReport the API returns; agent runs, findings and
+/// suggestions are also written as rows for history and filters.
+model Review {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobId               String?          @unique @map("job_id") @db.Uuid
+  idempotencyKey      String?          @unique @map("idempotency_key")
+  organizationId      String           @map("organization_id") @db.Uuid
+  repositoryId        String           @map("repository_id") @db.Uuid
+  trigger             ReviewTrigger
+  triggeredByUserId   String?          @map("triggered_by_user_id") @db.Uuid
+  prNumber            Int?             @map("pr_number")
+  prTitle             String?          @map("pr_title")
+  headSha             String           @map("head_sha")
+  baseSha             String?          @map("base_sha")
+  headRef             String?          @map("head_ref")
+  baseRef             String?          @map("base_ref")
+  changedFilesCount   Int              @default(0) @map("changed_files_count")
+  changedLinesCount   Int              @default(0) @map("changed_lines_count")
+  status              ReviewStatus     @default(queued)
+  confidenceThreshold Decimal          @map("confidence_threshold") @db.Decimal(4, 3)
+  githubCheckRunId    BigInt?          @map("github_check_run_id")
+  checkConclusion     CheckConclusion? @map("check_conclusion")
+  durationMs          Int?             @map("duration_ms")
+  errorMessage        String?          @map("error_message")
+  report              Json?
+  error               Json?
+  deliveryId          String?          @unique(map: "uq_reviews_delivery") @map("delivery_id")
+  startedAt           DateTime?        @map("started_at") @db.Timestamptz(6)
+  completedAt         DateTime?        @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository      Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  triggeredByUser User?        @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  agentRuns       AgentRun[]
+  findings        Finding[]
+
+  // Guards against a redelivered webhook starting a duplicate job for the same commit (FR-GH-01).
+  @@unique([repositoryId, prNumber, headSha], map: "uq_reviews_pr_head", where: raw("trigger = 'github_pull_request'"))
+  @@index([organizationId, createdAt(sort: Desc)], map: "idx_reviews_history")
+  @@index([repositoryId, createdAt(sort: Desc)], map: "idx_reviews_repo")
+  // Written the way Postgres stores it (IN becomes = ANY), or migrate diff sees drift on every run.
+  @@index([status], map: "idx_reviews_status", where: raw("status = ANY (ARRAY['queued'::review_status, 'running'::review_status])"))
+  @@map("reviews")
+}
+
+/// One row per agent invoked, written even on timeout so NFR-12 has per-agent latency and failures.
+model AgentRun {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reviewId         String         @map("review_id") @db.Uuid
+  agent            AgentKind
+  status           AgentRunStatus @default(pending)
+  serviceVersion   String?        @map("service_version")
+  llmProvider      String?        @map("llm_provider")
+  llmModel         String?        @map("llm_model")
+  llmFallbackDepth Int            @default(0) @map("llm_fallback_depth") @db.SmallInt
+  findingsCount    Int            @default(0) @map("findings_count")
+  latencyMs        Int?           @map("latency_ms")
+  timeoutMs        Int            @map("timeout_ms")
+  attempt          Int            @default(1) @db.SmallInt
+  errorCode        String?        @map("error_code")
+  errorMessage     String?        @map("error_message")
+  startedAt        DateTime?      @map("started_at") @db.Timestamptz(6)
+  finishedAt       DateTime?      @map("finished_at") @db.Timestamptz(6)
+
+  review   Review    @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  findings Finding[]
+
+  @@unique([reviewId, agent, attempt])
+  @@index([reviewId], map: "idx_agent_runs_review")
+  @@index([agent, latencyMs(sort: Desc)], map: "idx_agent_runs_slow", where: raw("status = 'succeeded'"))
+  @@map("agent_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Findings and suggested fixes (FR-ORC-03, FR-ORC-04, FR-GH-03, FR-GH-04, FR-SEC-03)
+// ---------------------------------------------------------------------------
+
+/// dedupe_key = hash(file_path, line range, rule/issue type); collapses agents reporting the same issue.
+model Finding {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reviewId       String    @map("review_id") @db.Uuid
+  agentRunId     String    @map("agent_run_id") @db.Uuid
+  agent          AgentKind
+  ruleId         String    @map("rule_id")
+  title          String
+  description    String
+  filePath       String    @map("file_path")
+  lineStart      Int       @map("line_start")
+  lineEnd        Int       @map("line_end")
+  severity       Severity
+  confidence     Decimal   @db.Decimal(4, 3)
+  severityRank   Int       @map("severity_rank") @db.SmallInt
+  cweId          String?   @map("cwe_id")
+  dedupeKey      String    @map("dedupe_key")
+  duplicateOf    String?   @map("duplicate_of") @db.Uuid
+  duplicateCount Int       @default(1) @map("duplicate_count") @db.SmallInt
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  review       Review              @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  agentRun     AgentRun            @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  original     Finding?            @relation("FindingDuplicates", fields: [duplicateOf], references: [id], onDelete: SetNull)
+  duplicates   Finding[]           @relation("FindingDuplicates")
+  suggestions  Suggestion[]
+  embedding    FindingEmbedding?
+  similarTo    FindingSimilarity[] @relation("SimilaritySource")
+  similarFrom  FindingSimilarity[] @relation("SimilarityTarget")
+
+  @@unique([reviewId, dedupeKey], map: "uq_findings_dedupe", where: raw("duplicate_of IS NULL"))
+  @@index([reviewId, severityRank, confidence(sort: Desc)], map: "idx_findings_review")
+  @@index([reviewId, agent], map: "idx_findings_agent")
+  @@index([reviewId, filePath], map: "idx_findings_file")
+  @@map("findings")
+}
+
+/// Deterministic style fixes never need review; AI fixes must carry an explicit accept/reject (FR-GH-04, NFR-07).
+model Suggestion {
+  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  findingId           String          @map("finding_id") @db.Uuid
+  kind                FixKind
+  state               SuggestionState @default(proposed)
+  originalSnippet     String          @map("original_snippet")
+  suggestedSnippet    String          @map("suggested_snippet")
+  explanation         String?
+  postedToGithub      Boolean         @default(false) @map("posted_to_github")
+  githubCommentId     BigInt?         @map("github_comment_id")
+  resolvedByUserId    String?         @map("resolved_by_user_id") @db.Uuid
+  resolvedAt          DateTime?       @map("resolved_at") @db.Timestamptz(6)
+  resolutionCommitSha String?         @map("resolution_commit_sha")
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  finding        Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  resolvedByUser User?   @relation(fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([findingId], map: "idx_suggestions_finding")
+  @@index([state], map: "idx_suggestions_open", where: raw("state = 'proposed'"))
+  @@map("suggestions")
+}
+
+// ---------------------------------------------------------------------------
+// Vector database bookkeeping (FR-VDB-01, FR-VDB-02). Reworked for pgvector in Phase B.
+// ---------------------------------------------------------------------------
+
+model FindingEmbedding {
+  findingId      String   @id @map("finding_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  collection     String
+  vectorId       String   @map("vector_id")
+  embeddingModel String   @map("embedding_model")
+  indexedAt      DateTime @default(now()) @map("indexed_at") @db.Timestamptz(6)
+
+  finding      Finding      @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([collection, vectorId])
+  @@index([organizationId], map: "idx_embeddings_org")
+  @@map("finding_embeddings")
+}
+
+model FindingSimilarity {
+  findingId        String   @map("finding_id") @db.Uuid
+  similarFindingId String   @map("similar_finding_id") @db.Uuid
+  similarityScore  Decimal  @map("similarity_score") @db.Decimal(5, 4)
+  retrievedAt      DateTime @default(now()) @map("retrieved_at") @db.Timestamptz(6)
+
+  finding        Finding @relation("SimilaritySource", fields: [findingId], references: [id], onDelete: Cascade)
+  similarFinding Finding @relation("SimilarityTarget", fields: [similarFindingId], references: [id], onDelete: Cascade)
+
+  @@id([findingId, similarFindingId])
+  @@index([findingId, similarityScore(sort: Desc)], map: "idx_similarities_score")
+  @@map("finding_similarities")
+}

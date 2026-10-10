@@ -26,6 +26,7 @@ packages/        Shared libraries
   llm/           Groq (primary) and Gemini (secondary) clients, quota budget, Gemini embeddings
   agent-kit/     Shared base of the agent services — agent.yaml routes, per-file skips, deadline, diff parsing
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
+  db/            Prisma 7 schema, migrations and client for the Supabase Postgres database
 docs/            Course deliverables and design artifacts
 ```
 
@@ -34,7 +35,8 @@ The agent services and clients land here as their work packages start (see
 
 ## Getting started
 
-Requires Node.js 20+.
+Requires Node.js 20.19+ (Prisma 7). The database setup is in
+[`packages/db/README.md`](packages/db/README.md).
 
 ```bash
 npm install
@@ -70,8 +72,13 @@ failing still reports the other) and executes, from a clean `npm ci`:
 npm run lint       # ESLint flat config (eslint.config.mjs), every workspace
 npm run build      # Turborepo builds contracts before its dependants
 npm run typecheck
+npx prisma migrate deploy   # in packages/db, against the job's Postgres service
 npm run test
 ```
+
+Each leg gets a throwaway `pgvector/pgvector:pg16` Postgres service. `DATABASE_URL` and
+`TEST_DATABASE_URL` point at it, so the migrations are applied fresh and `packages/db`'s integration
+tests run on every push.
 
 A second job, `ci`, waits for both matrix legs and fails unless every leg succeeded. It runs even
 when a leg fails or is skipped (`if: always()`), because GitHub counts a skipped required check as

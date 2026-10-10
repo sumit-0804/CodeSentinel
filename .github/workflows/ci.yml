@@ -23,6 +23,24 @@ jobs:
       fail-fast: false
       matrix:
         node: [20, 22]
+    # A throwaway database for packages/db's migration and integration tests (pgvector, as Supabase has it).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: code_sentinel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d code_sentinel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://ci:ci@localhost:5432/code_sentinel
+      TEST_DATABASE_URL: postgres://ci:ci@localhost:5432/code_sentinel
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -33,6 +51,8 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm run typecheck
+      - run: npx prisma migrate deploy
+        working-directory: packages/db
       - run: npm run test
 
   # The single required check for branch protection. It must run even when a matrix leg fails or
