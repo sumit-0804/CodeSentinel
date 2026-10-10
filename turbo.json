@@ -12,7 +12,8 @@
       "inputs": ["src/**", "../../eslint.config.mjs"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": ["TEST_DATABASE_URL"]
     }
   }
 }
