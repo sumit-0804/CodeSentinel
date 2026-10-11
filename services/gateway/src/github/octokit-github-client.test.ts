@@ -110,4 +110,31 @@ describe("OctokitGitHubClient", () => {
       ],
     });
   });
+
+  it("lists every repository an installation covers, across pages", async () => {
+    const repo = (id: number, extra: Record<string, unknown> = {}) => ({ id, full_name: `octo/r${id}`, private: true, default_branch: "main", language: "Python", ...extra });
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      // Real responses carry their URL; the paginate plugin reads it.
+      const reply = (body: unknown, headers: Record<string, string> = {}) =>
+        Object.defineProperty(json(200, body, headers), "url", { value: url.toString() });
+      if (url.pathname === "/app/installations/42/access_tokens") {
+        return json(201, { token: "ghs_installation", expires_at: new Date(Date.now() + 3_600_000).toISOString(), permissions: {}, repository_selection: "selected" });
+      }
+      if (url.pathname === "/installation/repositories" && url.searchParams.get("page") === "2") {
+        return reply({ total_count: 2, repositories: [repo(2, { private: false, default_branch: "trunk", language: null })] });
+      }
+      if (url.pathname === "/installation/repositories") {
+        const next = `<https://api.github.com/installation/repositories?per_page=100&page=2>; rel="next"`;
+        return reply({ total_count: 2, repositories: [repo(1)] }, { link: next });
+      }
+      return json(404, { message: "Not Found" });
+    });
+    const github = new OctokitGitHubClient({ appId: 12345, privateKey, fetch: fetchImpl });
+
+    await expect(github.listInstallationRepositories(42)).resolves.toEqual([
+      { id: 1, fullName: "octo/r1", defaultBranch: "main", isPrivate: true, language: "Python" },
+      { id: 2, fullName: "octo/r2", defaultBranch: "trunk", isPrivate: false },
+    ]);
+  });
 });

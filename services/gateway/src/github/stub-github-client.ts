@@ -2,6 +2,7 @@ import type {
   CheckConclusion,
   CheckRunOutput,
   GitHubClient,
+  InstallationRepository,
   PullRequestFile,
   PullRequestRef,
   ReviewComment,
@@ -32,10 +33,16 @@ export class StubGitHubClient implements GitHubClient {
   readonly calls: PullRequestRef[] = [];
   readonly checkRuns: RecordedCheckRun[] = [];
   readonly reviews: RecordedReview[] = [];
+  /** Repositories each installation covers, keyed by GitHub's installation id; tests edit it. */
+  readonly installationRepositories = new Map<number, InstallationRepository[]>();
   private readonly files: PullRequestFile[];
 
   constructor(files: PullRequestFile[] = []) {
     this.files = structuredClone(files);
+  }
+
+  async listInstallationRepositories(installationId: number): Promise<InstallationRepository[]> {
+    return structuredClone(this.installationRepositories.get(installationId) ?? []);
   }
 
   async listPullRequestFiles(ref: PullRequestRef): Promise<PullRequestFile[]> {

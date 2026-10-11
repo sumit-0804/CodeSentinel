@@ -6,6 +6,7 @@ import type {
   CheckConclusion,
   CheckRunOutput,
   GitHubClient,
+  InstallationRepository,
   PullRequestFile,
   PullRequestRef,
   ReviewComment,
@@ -22,6 +23,14 @@ export interface OctokitGitHubClientOptions {
   /** Defaults to the global `fetch`; injected in tests. */
   fetch?: typeof fetch;
   baseUrl?: string;
+}
+
+interface GitHubRepositoryItem {
+  id: number | bigint;
+  full_name: string;
+  default_branch?: string;
+  private: boolean;
+  language?: string | null;
 }
 
 /** The fields of a "list pull request files" item that map to `PullRequestFile`. */
@@ -42,6 +51,20 @@ export class OctokitGitHubClient implements GitHubClient {
 
   constructor(options: OctokitGitHubClientOptions) {
     this.options = options;
+  }
+
+  async listInstallationRepositories(installationId: number): Promise<InstallationRepository[]> {
+    // The paginate plugin unwraps `{ total_count, repositories }` into one array.
+    const repos: GitHubRepositoryItem[] = await this.forInstallation(installationId).paginate("GET /installation/repositories", {
+      per_page: 100,
+    });
+    return repos.map((repo) => ({
+      id: Number(repo.id),
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch ?? "main",
+      isPrivate: repo.private,
+      ...(repo.language ? { language: repo.language } : {}),
+    }));
   }
 
   async listPullRequestFiles(ref: PullRequestRef): Promise<PullRequestFile[]> {

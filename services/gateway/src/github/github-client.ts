@@ -45,8 +45,19 @@ export interface ReviewComment {
   body: string;
 }
 
-/** Outbound GitHub calls: PR files in, Check Runs and reviews out (FR-GH-01..03). */
+/** A repository an installation of the App can access. */
+export interface InstallationRepository {
+  id: number;
+  fullName: string;
+  defaultBranch: string;
+  isPrivate: boolean;
+  language?: string;
+}
+
+/** Outbound GitHub calls as the App: PR files in, Check Runs and reviews out (FR-GH-01..03). */
 export interface GitHubClient {
+  /** Every repository the installation covers, for the installation sync (A6). */
+  listInstallationRepositories(installationId: number): Promise<InstallationRepository[]>;
   listPullRequestFiles(ref: PullRequestRef): Promise<PullRequestFile[]>;
   /** Creates an `in_progress` Check Run on `headSha` and returns its id. */
   createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number>;
