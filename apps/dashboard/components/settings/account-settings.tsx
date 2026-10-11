@@ -134,6 +134,15 @@ export function AccountSettings({
         <ul className="panel">
           <Organizations state={organizations} />
         </ul>
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-ink-3">
+          {/* Route handlers that redirect to GitHub: plain links, so nothing is prefetched. */}
+          <a href="/onboarding/github/install" className="font-semibold text-cyan hover:underline">
+            Install on another account
+          </a>
+          <a href="/onboarding/github/connect" className="font-semibold text-cyan hover:underline">
+            Join organizations the app is already on
+          </a>
+        </p>
       </section>
 
       <section className="grid gap-3.5">

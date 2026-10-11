@@ -32,22 +32,32 @@ function StepRow({ step, index }: { step: Step; index: number }) {
   );
 }
 
-/** First-run checklist; installing the GitHub App arrives with onboarding (A6). */
-export function Onboarding({ signedInWith }: { signedInWith: string }) {
+/** First-run checklist: account, then the GitHub App on at least one repository, then a pull request. */
+export function Onboarding({ signedInWith, connected = false }: { signedInWith: string; connected?: boolean }) {
   const steps: Step[] = [
     { title: "Create your account", detail: `Signed in with ${signedInWith}`, state: "done" },
     {
       title: "Install the app and pick repositories",
-      detail: "On your account or an organization you manage",
-      state: "now",
-      action: (
-        <Button variant="default" disabled title="Arrives with GitHub onboarding">
-          Install on GitHub
-        </Button>
-      ),
+      detail: connected ? "Done. Add more any time from Repositories" : "On your account or an organization you manage",
+      state: connected ? "done" : "now",
+      ...(connected
+        ? {}
+        : {
+            action: (
+              // A route handler that redirects to GitHub: a plain link, so it isn't prefetched.
+              <Button asChild variant="default">
+                <a href="/onboarding/github/install">Install on GitHub</a>
+              </Button>
+            ),
+          }),
     },
-    { title: "Open a pull request", detail: "The verdict appears here and on GitHub within seconds", state: "next" },
+    {
+      title: "Open a pull request",
+      detail: "The verdict appears here and on GitHub within seconds",
+      state: connected ? "now" : "next",
+    },
   ];
+  const done = steps.filter((step) => step.state === "done").length;
 
   return (
     <div className="panel">
@@ -56,12 +66,17 @@ export function Onboarding({ signedInWith }: { signedInWith: string }) {
           <div className="flex items-center gap-3 text-[13.5px] text-ink-2">
             <span>Setup</span>
             <span className="h-1.5 max-w-[220px] flex-1 overflow-hidden rounded-full bg-panel-3">
-              <span className="block h-full w-1/3 bg-[linear-gradient(90deg,var(--cs-violet),var(--cs-cyan))] shadow-[0_0_10px_rgb(61_240_255/0.6)]" />
+              <span
+                className="block h-full bg-[linear-gradient(90deg,var(--cs-violet),var(--cs-cyan))] shadow-[0_0_10px_rgb(61_240_255/0.6)]"
+                style={{ width: `${(done / steps.length) * 100}%` }}
+              />
             </span>
-            <span className="tabular-nums">1 of 3</span>
+            <span className="tabular-nums">
+              {done} of {steps.length}
+            </span>
           </div>
           <h2 className="text-display text-[clamp(22px,2.6vw,30px)] leading-[1.2]">
-            <TextGenerateEffect words="Connect your first repository" />
+            <TextGenerateEffect words={connected ? "Open your first pull request" : "Connect your first repository"} />
           </h2>
           <p className="max-w-[48ch] text-ink-2">
             Code Sentinel reviews pull requests in the repositories you pick and posts one verdict back to GitHub.
@@ -71,7 +86,13 @@ export function Onboarding({ signedInWith }: { signedInWith: string }) {
               <StepRow key={step.title} step={step} index={index} />
             ))}
           </ol>
-          <p className="text-[13px] text-ink-3">Installing on GitHub arrives with GitHub onboarding, the next release.</p>
+          <p className="text-[13px] text-ink-3">
+            Already installed on an organization by someone else?{" "}
+            <a href="/onboarding/github/connect" className="font-semibold text-cyan hover:underline">
+              Connect GitHub
+            </a>{" "}
+            to join it.
+          </p>
         </div>
         <div aria-hidden="true" className="grid gap-4 rounded-2xl border border-dashed border-line-2 bg-[rgb(5_6_11/0.5)] p-6">
           <span className="text-[13px] font-semibold text-ink-3">What a clean review looks like</span>
