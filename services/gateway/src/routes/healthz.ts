@@ -1,4 +1,5 @@
 import type { GatewayHealth } from "@code-sentinel/contracts";
+import { checkDependency } from "@code-sentinel/service-kit";
 import { Router } from "express";
 
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
@@ -26,7 +27,7 @@ export function createHealthzRouter({ orchestrator, database, version, databaseT
         (health) => health.status,
         () => "unavailable",
       ),
-      database ? pingDatabase(database, databaseTimeoutMs) : undefined,
+      database ? checkDependency(() => database.ping(), databaseTimeoutMs) : undefined,
     ]);
 
     const dependencies: Record<string, string> = {
@@ -42,19 +43,4 @@ export function createHealthzRouter({ orchestrator, database, version, databaseT
   });
 
   return router;
-}
-
-async function pingDatabase(database: DatabaseHealth, timeoutMs: number): Promise<"ok" | "unavailable"> {
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("database ping timed out")), timeoutMs);
-  });
-  try {
-    await Promise.race([database.ping(), timeout]);
-    return "ok";
-  } catch {
-    return "unavailable";
-  } finally {
-    clearTimeout(timer);
-  }
 }

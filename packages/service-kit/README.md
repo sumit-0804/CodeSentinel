@@ -10,6 +10,7 @@ services log, trace and fail the same way. Moved out of the gateway unchanged.
 | `requestLoggerMiddleware` | `http/request-logger.ts` | morgan writing one redacted JSON line per request: method, path without query, status, duration, request id and `res.locals.logFields` |
 | `HttpError`, `badRequest`, `unauthorized`, `notFound`, `unprocessable`, `badGateway` | `http/errors.ts` | Throw from any handler to answer with that status and an `ApiError` body |
 | `errorHandler`, `notFoundHandler` | `http/error-handler.ts` | `HttpError` → its status; `ZodError` → 400 `invalid_body` with the issues; body-parser errors → 413 / 415; anything else → 500 `internal_error` with detail in the log only. Every body echoes `requestId` |
+| `checkDependency` | `health.ts` | For `/healthz`: `"ok"` when a probe (e.g. a database `SELECT 1`) resolves within the timeout (2 s by default), otherwise `"unavailable"` |
 | `loadEnvFile`, `envFileName` | `env-file.ts` | Merges `.env` (or `.env.production` when `NODE_ENV=production`) under the process environment; real variables win |
 | `serviceAuthMiddleware` | `http/service-auth.ts` | Requires `Authorization: Bearer <SERVICE_TOKEN>` on internal routes; compares SHA-256 digests in constant time. 401 `unauthenticated` without a bearer token, `invalid_credentials` for a wrong one |
 | `ServiceLocals`, `ServiceResponse`, `ServiceHandler` | `locals.ts` | Types for `res.locals`; a service extends `ServiceLocals` with its own fields |
