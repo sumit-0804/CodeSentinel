@@ -11,6 +11,7 @@ export { buildReviewJobRequest } from "./webhooks/review-job-request.js";
 export type { GitHubClient, PullRequestFile, PullRequestRef } from "./github/github-client.js";
 export { StubGitHubClient } from "./github/stub-github-client.js";
 export { InMemoryStores, type StoreSeed } from "./persistence/in-memory.js";
+export { PrismaStores } from "./persistence/prisma-stores.js";
 export type {
   ApiKeyStore,
   RepositoryConfigStore,
