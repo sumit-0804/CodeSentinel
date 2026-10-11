@@ -94,6 +94,7 @@ async function main(): Promise<void> {
     github,
     publisher,
     stores,
+    ...(prisma ? { database: { ping: () => prisma.$queryRaw`SELECT 1` } } : {}),
     version: packageVersion(),
   });
   const server = app.listen(config.port, () => {

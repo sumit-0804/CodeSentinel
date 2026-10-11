@@ -14,7 +14,7 @@ import type { GitHubClient } from "./github/github-client.js";
 import type { ReviewPublisher } from "./github/review-publisher.js";
 import type { OrchestratorClientLike } from "./orchestrator/orchestrator-client.js";
 import type { Stores } from "./persistence/stores.js";
-import { createHealthzRouter } from "./routes/healthz.js";
+import { createHealthzRouter, type DatabaseHealth } from "./routes/healthz.js";
 import { createMeRouter } from "./routes/me.js";
 import { createGithubWebhookRouter } from "./webhooks/github-webhook.js";
 
@@ -27,6 +27,8 @@ export interface AppDeps {
   orchestrator: OrchestratorClientLike;
   github: GitHubClient;
   stores: Stores;
+  /** Pinged by `/healthz` when the stores are in Postgres. */
+  database?: DatabaseHealth;
   /** Reported by `/healthz`. */
   version?: string;
   /** Clock for session and API-key expiry checks. */
@@ -40,7 +42,7 @@ export interface AppDeps {
  * globally, so the webhook route receives the exact bytes GitHub signed (FR-GW-03).
  */
 export function createApp(deps: AppDeps): Express {
-  const { config, logger, orchestrator, github, stores, version = DEFAULT_VERSION, now, publisher } = deps;
+  const { config, logger, orchestrator, github, stores, database, version = DEFAULT_VERSION, now, publisher } = deps;
   const app = express();
 
   app.disable("x-powered-by");
@@ -48,7 +50,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
 
-  app.use(createHealthzRouter({ orchestrator, version }));
+  app.use(createHealthzRouter({ orchestrator, version, ...(database ? { database } : {}) }));
   app.use(
     createGithubWebhookRouter({ secret: config.githubWebhookSecret, stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}) }),
   );
