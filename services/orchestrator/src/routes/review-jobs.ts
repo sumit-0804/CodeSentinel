@@ -16,14 +16,14 @@ export function createReviewJobsRouter({ controller }: ReviewJobsRouterDeps): Ro
   const router = Router();
 
   // A whole pull request's patches travel in one body.
-  router.post("/review-jobs", express.json({ limit: "10mb" }), (req: Request, res: ServiceResponse) => {
+  router.post("/review-jobs", express.json({ limit: "10mb" }), async (req: Request, res: ServiceResponse) => {
     const idempotencyKey = req.get("idempotency-key");
     if (idempotencyKey !== undefined && !VALID_IDEMPOTENCY_KEY.test(idempotencyKey)) {
       throw badRequest("invalid_header", "Idempotency-Key must be 1..200 visible ASCII characters");
     }
 
     const request = ReviewJobRequestSchema.parse(req.body);
-    const { job, created } = controller.createJob(request, {
+    const { job, created } = await controller.createJob(request, {
       requestId: res.locals.requestId,
       ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
     });
@@ -31,12 +31,12 @@ export function createReviewJobsRouter({ controller }: ReviewJobsRouterDeps): Ro
     res.status(created ? 202 : 200).json(job);
   });
 
-  router.get("/review-jobs/:jobId", (req: Request<{ jobId: string }>, res: ServiceResponse) => {
-    res.json(found(controller.getJob(req.params.jobId), req.params.jobId));
+  router.get("/review-jobs/:jobId", async (req: Request<{ jobId: string }>, res: ServiceResponse) => {
+    res.json(found(await controller.getJob(req.params.jobId), req.params.jobId));
   });
 
-  router.post("/review-jobs/:jobId/cancel", (req: Request<{ jobId: string }>, res: ServiceResponse) => {
-    const job = found(controller.cancelJob(req.params.jobId), req.params.jobId);
+  router.post("/review-jobs/:jobId/cancel", async (req: Request<{ jobId: string }>, res: ServiceResponse) => {
+    const job = found(await controller.cancelJob(req.params.jobId), req.params.jobId);
     res.locals.logFields = { jobId: job.jobId, status: job.status };
     res.json(job);
   });

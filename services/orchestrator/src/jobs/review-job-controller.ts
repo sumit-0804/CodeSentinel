@@ -50,10 +50,10 @@ export class ReviewJobController {
     this.newId = deps.newId ?? randomUUID;
   }
 
-  createJob(request: ReviewJobRequest, options: CreateJobOptions = {}): CreatedJob {
+  async createJob(request: ReviewJobRequest, options: CreateJobOptions = {}): Promise<CreatedJob> {
     const { idempotencyKey, requestId } = options;
     if (idempotencyKey !== undefined) {
-      const existing = this.store.findByIdempotencyKey(idempotencyKey);
+      const existing = await this.store.findByIdempotencyKey(idempotencyKey);
       if (existing) return { job: existing, created: false };
     }
     if (request.enabledAgents?.length === 0) {
@@ -69,24 +69,28 @@ export class ReviewJobController {
       status: "queued",
       createdAt: this.timestamp(),
     };
-    this.store.insert(job, idempotencyKey);
+    // A concurrent delivery or an earlier review of the same pull request commit wins.
+    const inserted = await this.store.insert(job, request, idempotencyKey);
+    if (!inserted.created) return inserted;
+
     this.execute(job, request, requestId).catch((error: unknown) => {
       this.logger.error("review job bookkeeping failed", { jobId: job.jobId, requestId, error });
     });
     return { job, created: true };
   }
 
-  getJob(jobId: string): ReviewJob | undefined {
+  getJob(jobId: string): Promise<ReviewJob | undefined> {
     return this.store.get(jobId);
   }
 
   /** Stops the run and its agent calls (NFR-14). A job that already finished is returned as is. */
-  cancelJob(jobId: string): ReviewJob | undefined {
-    const job = this.store.get(jobId);
+  async cancelJob(jobId: string): Promise<ReviewJob | undefined> {
+    const job = await this.store.get(jobId);
     if (!job || isTerminal(job.status)) return job;
 
     const cancelled: ReviewJob = { ...job, status: "cancelled", completedAt: this.timestamp() };
-    this.store.update(cancelled);
+    // The run may have finished between the read and this write; then its result stands.
+    if (!(await this.store.complete(cancelled))) return this.store.get(jobId);
     this.inFlight.get(jobId)?.abort(new Error(`Review job ${jobId} cancelled`));
     return cancelled;
   }
@@ -94,39 +98,34 @@ export class ReviewJobController {
   private async execute(job: ReviewJob, request: ReviewJobRequest, requestId: string | undefined): Promise<void> {
     const controller = new AbortController();
     this.inFlight.set(job.jobId, controller);
-    this.store.update({ ...job, status: "running", startedAt: this.timestamp() });
+    const startedAt = this.timestamp();
     const log = { jobId: job.jobId, reviewId: job.reviewId, requestId };
 
     try {
+      await this.store.markRunning(job.jobId, startedAt);
       const report = await this.run(
         { reviewId: job.reviewId, request, ...(requestId !== undefined ? { requestId } : {}) },
         { signal: controller.signal },
       );
-      this.finish(job.jobId, (current) => ({
-        ...current,
-        status: report.status,
-        agentRuns: report.agentRuns,
-        report,
-      }));
+      await this.finish({ ...job, startedAt, status: report.status, agentRuns: report.agentRuns, report });
       this.logger.info("review job finished", { ...log, status: report.status });
     } catch (error) {
       if (controller.signal.aborted) return;
       this.logger.error("review job failed", { ...log, error });
-      this.finish(job.jobId, (current) => ({
-        ...current,
+      await this.finish({
+        ...job,
+        startedAt,
         status: "failed",
         error: { code: "internal_error", message: "The review could not be completed" },
-      }));
+      });
     } finally {
       this.inFlight.delete(job.jobId);
     }
   }
 
-  /** Writes the final state unless the job was cancelled meanwhile. */
-  private finish(jobId: string, change: (current: ReviewJob) => ReviewJob): void {
-    const current = this.store.get(jobId);
-    if (!current || isTerminal(current.status)) return;
-    this.store.update({ ...change(current), completedAt: this.timestamp() });
+  /** Writes the final state; the store ignores it if the job was cancelled meanwhile. */
+  private async finish(job: ReviewJob): Promise<void> {
+    await this.store.complete({ ...job, completedAt: this.timestamp() });
   }
 
   private timestamp(): string {
