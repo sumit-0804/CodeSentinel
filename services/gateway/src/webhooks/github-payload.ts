@@ -24,5 +24,26 @@ export const PullRequestEventSchema = z.object({
 });
 export type PullRequestEvent = z.infer<typeof PullRequestEventSchema>;
 
+const InstallationRefSchema = z.object({
+  id: z.number().int(),
+  account: z.object({ id: z.number().int(), login: z.string(), type: z.string() }).nullable().optional(),
+  suspended_at: z.string().nullable().optional(),
+});
+
+/** `installation`: the App was installed, removed, suspended, unsuspended, or its permissions changed. */
+export const InstallationEventSchema = z.object({
+  action: z.string(),
+  installation: InstallationRefSchema,
+});
+export type InstallationEvent = z.infer<typeof InstallationEventSchema>;
+
+/** `installation_repositories`: repositories were added to or removed from an installation. */
+export const InstallationRepositoriesEventSchema = z.object({
+  action: z.enum(["added", "removed"]),
+  installation: InstallationRefSchema,
+  repositories_removed: z.array(z.object({ id: z.number().int() })).default([]),
+});
+export type InstallationRepositoriesEvent = z.infer<typeof InstallationRepositoriesEventSchema>;
+
 export const isReviewAction = (action: unknown): boolean =>
   typeof action === "string" && (REVIEW_ACTIONS as readonly string[]).includes(action);

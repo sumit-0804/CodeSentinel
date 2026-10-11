@@ -10,21 +10,34 @@ import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client
 import type { Stores } from "../persistence/stores.js";
 import { filterPullRequestFiles } from "./file-filter.js";
 import { isReviewAction, PullRequestEventSchema } from "./github-payload.js";
+import { handleInstallationEvent } from "./installation-events.js";
 import { buildReviewJobRequest } from "./review-job-request.js";
 import { createSignatureMiddleware } from "./signature.js";
 
 export interface GithubWebhookRouterDeps {
   secret: string;
-  stores: Pick<Stores, "repositories" | "repositoryConfig">;
+  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations">;
   github: GitHubClient;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob">;
   logger: Logger;
   /** Posts the finished review back to the pull request; omitted in tests that do not publish. */
   publisher?: Pick<ReviewPublisher, "follow">;
+  now?: () => Date;
 }
 
-/** `POST /webhooks/github`: signature first, then the decision tree of `seq_uc1_pr_review.mmd` (FR-GW-03/04, FR-GH-01). */
-export function createGithubWebhookRouter({ secret, stores, github, orchestrator, logger, publisher }: GithubWebhookRouterDeps): Router {
+/**
+ * `POST /webhooks/github`: signature first, then installation events (A6) or the decision tree of
+ * `seq_uc1_pr_review.mmd` (FR-GW-03/04, FR-GH-01).
+ */
+export function createGithubWebhookRouter({
+  secret,
+  stores,
+  github,
+  orchestrator,
+  logger,
+  publisher,
+  now = () => new Date(),
+}: GithubWebhookRouterDeps): Router {
   const router = Router();
 
   router.post(
@@ -61,6 +74,23 @@ export function createGithubWebhookRouter({ secret, stores, github, orchestrator
 
       const action = (payload as { action?: unknown } | null)?.action;
       logFields.action = typeof action === "string" ? action : undefined;
+
+      if (event === "installation" || event === "installation_repositories") {
+        let outcome;
+        try {
+          outcome = await handleInstallationEvent(event, payload, { github, installations: stores.installations, now });
+        } catch (error) {
+          // Answering 502 marks the delivery failed on GitHub, so it can be redelivered once GitHub recovers.
+          logger.warn("installation sync failed", { requestId: res.locals.requestId, deliveryId, error });
+          throw reject("installation_sync_failed", badGateway("github_unavailable", "The installation could not be synced"));
+        }
+        if (outcome === "invalid_payload") {
+          throw reject("invalid_payload", badRequest("invalid_payload", `Payload is not a valid ${event} event`));
+        }
+        accept(outcome, outcome === "event_ignored" ? "event_ignored" : "installation_synced");
+        return;
+      }
+
       if (event !== "pull_request" || !isReviewAction(action)) {
         accept("event_ignored", "event_ignored");
         return;
