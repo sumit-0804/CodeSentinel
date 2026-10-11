@@ -17,6 +17,15 @@ const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set (packages/db/.env)");
 if (process.env.NODE_ENV === "production") throw new Error("the dev seed must never run in production");
 
+// Optional `owner/name:githubRepoId` (same format as the gateway's GATEWAY_DEV_REPOSITORY), e.g. the test playground.
+const repoOverride = process.env.SEED_GITHUB_REPOSITORY?.trim();
+if (repoOverride && !/^[\w.-]+\/[\w.-]+:\d+$/.test(repoOverride)) {
+  throw new Error("SEED_GITHUB_REPOSITORY must look like owner/name:githubRepoId");
+}
+const [fullName, githubRepoId] = repoOverride
+  ? [repoOverride.split(":")[0]!, BigInt(repoOverride.split(":")[1]!)]
+  : ["code-sentinel/consumer-api", 123456789n];
+
 const prisma = createPrismaClient(url);
 
 await prisma.organization.upsert({
@@ -29,15 +38,16 @@ await prisma.githubInstallation.upsert({
   update: {},
   create: { id: INSTALLATION_ID, organizationId: ORGANIZATION_ID, githubInstallationId: 1n, accountLogin: "code-sentinel" },
 });
+// The update also sets the repo, so rerunning with or without SEED_GITHUB_REPOSITORY switches it.
 await prisma.repository.upsert({
   where: { id: REPOSITORY_ID },
-  update: {},
+  update: { githubRepoId, fullName },
   create: {
     id: REPOSITORY_ID,
     organizationId: ORGANIZATION_ID,
     githubInstallationId: INSTALLATION_ID,
-    githubRepoId: 123456789n,
-    fullName: "code-sentinel/consumer-api",
+    githubRepoId,
+    fullName,
     settings: { create: {} },
   },
 });
@@ -65,4 +75,4 @@ await prisma.apiKey.upsert({
 });
 
 await prisma.$disconnect();
-process.stdout.write("dev seed applied\n");
+process.stdout.write(`dev seed applied (repository ${fullName})\n`);
