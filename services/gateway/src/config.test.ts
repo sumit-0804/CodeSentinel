@@ -11,6 +11,13 @@ const FULL_ENV = {
   GATEWAY_SEED: "dev",
 };
 
+// Dummy values: a fake client id and secret, and 32 zero bytes as the key.
+const GITHUB_LINK_ENV = {
+  GITHUB_APP_CLIENT_ID: "Iv23liTestClientId",
+  GITHUB_APP_CLIENT_SECRET: "0123456789abcdef0123456789abcdef01234567",
+  FIELD_ENCRYPTION_KEY: Buffer.alloc(32).toString("base64"),
+};
+
 function configError(env: Record<string, string | undefined>): GatewayConfigError {
   try {
     loadGatewayConfig(env);
@@ -126,6 +133,7 @@ describe("loadGatewayConfig", () => {
         NODE_ENV: "production",
         GITHUB_APP_ID: "1",
         GITHUB_PRIVATE_KEY_PATH: "k.pem",
+        ...GITHUB_LINK_ENV,
         SUPABASE_URL: "https://ref.supabase.co",
       });
 
@@ -140,9 +148,30 @@ describe("loadGatewayConfig", () => {
       NODE_ENV: "production",
       GITHUB_APP_ID: "1",
       GITHUB_PRIVATE_KEY_PATH: "k.pem",
+      ...GITHUB_LINK_ENV,
       DATABASE_URL: "postgresql://u:p@db.example:5432/postgres",
     });
 
     expect(error.problems).toEqual(["SUPABASE_URL is required when NODE_ENV is production"]);
+  });
+
+  describe("GitHub linking", () => {
+    it("reads the three settings together", () => {
+      expect(loadGatewayConfig({ ...FULL_ENV, ...GITHUB_LINK_ENV }).githubLink).toEqual({
+        clientId: GITHUB_LINK_ENV.GITHUB_APP_CLIENT_ID,
+        clientSecret: GITHUB_LINK_ENV.GITHUB_APP_CLIENT_SECRET,
+        fieldEncryptionKey: GITHUB_LINK_ENV.FIELD_ENCRYPTION_KEY,
+      });
+      expect(loadGatewayConfig(FULL_ENV).githubLink).toBeUndefined();
+    });
+
+    it("refuses a partial set and a key that is not 32 bytes", () => {
+      expect(configError({ ...FULL_ENV, GITHUB_APP_CLIENT_ID: "Iv23abc" }).message).toContain(
+        "GITHUB_APP_CLIENT_ID must be set together with GITHUB_APP_CLIENT_SECRET and FIELD_ENCRYPTION_KEY",
+      );
+      expect(configError({ ...FULL_ENV, ...GITHUB_LINK_ENV, FIELD_ENCRYPTION_KEY: "c2hvcnQ=" }).message).toContain(
+        "FIELD_ENCRYPTION_KEY must be 32 bytes, base64-encoded",
+      );
+    });
   });
 });

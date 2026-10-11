@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createPrismaClient, type PrismaClient } from "@code-sentinel/db";
+import { createPrismaClient, SecretBox, type PrismaClient } from "@code-sentinel/db";
 import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
 
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { GatewayConfigError, loadGatewayConfig, type GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
+import { OctokitGitHubUserClient } from "./github/github-user-client.js";
+import { InstallationSync } from "./github/installation-sync.js";
 import { OctokitGitHubClient } from "./github/octokit-github-client.js";
 import { ReviewPublisher } from "./github/review-publisher.js";
 import { StubGitHubClient } from "./github/stub-github-client.js";
@@ -86,6 +88,21 @@ async function main(): Promise<void> {
     github = new StubGitHubClient(pullRequestFiles);
   }
 
+  // GitHub linking needs the App's OAuth credentials and the key that seals user tokens at rest.
+  let githubLink: { githubUsers: OctokitGitHubUserClient; sync: InstallationSync } | undefined;
+  if (config.githubLink) {
+    const githubUsers = new OctokitGitHubUserClient({ clientId: config.githubLink.clientId, clientSecret: config.githubLink.clientSecret });
+    const sync = new InstallationSync({
+      github,
+      githubUsers,
+      users: stores.users,
+      installations: stores.installations,
+      githubTokens: stores.githubTokens,
+      secretBox: new SecretBox(config.githubLink.fieldEncryptionKey),
+    });
+    githubLink = { githubUsers, sync };
+  }
+
   const publisher = new ReviewPublisher({ github, orchestrator, logger, timeoutMs: config.reviewPollTimeoutMs });
   const app = createApp({
     config,
@@ -94,6 +111,7 @@ async function main(): Promise<void> {
     github,
     publisher,
     stores,
+    ...(githubLink ? { githubLink } : {}),
     ...(prisma ? { database: { ping: () => prisma.$queryRaw`SELECT 1` } } : {}),
     version: packageVersion(),
   });
@@ -103,6 +121,7 @@ async function main(): Promise<void> {
       stores: prisma ? "postgres" : "memory",
       seed: config.seed,
       github: config.githubApp ? `app ${config.githubApp.appId}` : "stub",
+      githubLink: config.githubLink ? "on" : "off",
       ...(!prisma && config.devRepository ? { devRepository: config.devRepository.fullName } : {}),
       nodeEnv: env.NODE_ENV,
       envFile: file,

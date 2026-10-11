@@ -19,6 +19,8 @@ export interface GatewayConfig {
   databaseUrl?: string;
   /** Set together; without them PR files come from the stub client (dev and tests only). */
   githubApp?: { appId: number; privateKeyPath: string };
+  /** The App's OAuth credentials and the key that seals user tokens; without them GitHub linking answers 503. */
+  githubLink?: { clientId: string; clientSecret: string; fieldEncryptionKey: string };
   /** Points the dev seed's repository at a real repo, e.g. the test playground. */
   devRepository?: { fullName: string; githubRepoId: number };
   /** How long to wait for a review job before completing its Check Run as timed out. */
@@ -78,6 +80,16 @@ const EnvSchema = z.object({
   ),
   GITHUB_APP_ID: z.preprocess(blankAsUndefined, z.coerce.number({ invalid_type_error: "must be an integer" }).int("must be an integer").positive("must be positive").optional()),
   GITHUB_PRIVATE_KEY_PATH: z.preprocess(blankAsUndefined, z.string().optional()),
+  GITHUB_APP_CLIENT_ID: z.preprocess(blankAsUndefined, z.string().optional()),
+  GITHUB_APP_CLIENT_SECRET: z.preprocess(blankAsUndefined, z.string().min(20, "must be at least 20 characters").optional()),
+  // AES-256-GCM key for sealed GitHub tokens: exactly 32 bytes, base64-encoded.
+  FIELD_ENCRYPTION_KEY: z.preprocess(
+    blankAsUndefined,
+    z
+      .string()
+      .refine((value) => Buffer.from(value, "base64").length === 32, "must be 32 bytes, base64-encoded")
+      .optional(),
+  ),
   GATEWAY_DEV_REPOSITORY: z.preprocess(
     blankAsUndefined,
     z.string().regex(/^[\w.-]+\/[\w.-]+:\d+$/, "must look like owner/name:githubRepoId").optional(),
@@ -105,6 +117,18 @@ const EnvSchema = z.object({
   })  .refine((values) => (values.GITHUB_APP_ID === undefined) === (values.GITHUB_PRIVATE_KEY_PATH === undefined), {
     message: "must be set together with GITHUB_PRIVATE_KEY_PATH",
     path: ["GITHUB_APP_ID"],
+  })
+  .refine(
+    (values) => {
+      const set = [values.GITHUB_APP_CLIENT_ID, values.GITHUB_APP_CLIENT_SECRET, values.FIELD_ENCRYPTION_KEY].filter((v) => v !== undefined);
+      return set.length === 0 || set.length === 3;
+    },
+    { message: "must be set together with GITHUB_APP_CLIENT_SECRET and FIELD_ENCRYPTION_KEY", path: ["GITHUB_APP_CLIENT_ID"] },
+  )
+  .refine((values) => values.NODE_ENV !== "production" || values.GITHUB_APP_CLIENT_ID !== undefined, {
+    // Without them nobody can connect a repository.
+    message: "is required when NODE_ENV is production",
+    path: ["GITHUB_APP_CLIENT_ID"],
   })
   .refine((values) => values.NODE_ENV !== "production" || values.GITHUB_APP_ID !== undefined, {
     // The stub client returns no files, so a deployed gateway would review nothing.
@@ -142,6 +166,13 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };
+  }
+  if (values.GITHUB_APP_CLIENT_ID && values.GITHUB_APP_CLIENT_SECRET && values.FIELD_ENCRYPTION_KEY) {
+    config.githubLink = {
+      clientId: values.GITHUB_APP_CLIENT_ID,
+      clientSecret: values.GITHUB_APP_CLIENT_SECRET,
+      fieldEncryptionKey: values.FIELD_ENCRYPTION_KEY,
+    };
   }
   if (values.GATEWAY_DEV_REPOSITORY) {
     const [fullName, id] = values.GATEWAY_DEV_REPOSITORY.split(":") as [string, string];
