@@ -6,12 +6,21 @@ import { AppFrame } from "@/components/shell/app-frame";
 import { CommandPalette, PaletteTrigger } from "@/components/shell/command-palette";
 import { NavLinks } from "@/components/shell/nav-links";
 import { requireUser } from "@/lib/auth";
+import { getAccount } from "@/lib/organization";
 import { toShellUser } from "@/lib/shell-user";
 
 const PickerSkeleton = () => <div className="h-[50px] animate-pulse rounded-xl bg-panel-2/60" />;
 
 async function SignedInOrg() {
-  return <OrgSwitcher user={toShellUser(await requireUser())} />;
+  const [user, account] = await Promise.all([requireUser(), getAccount()]);
+  // When the gateway is unreachable the switcher still renders, just without organizations.
+  return (
+    <OrgSwitcher
+      user={toShellUser(user)}
+      organizations={account.ok ? account.organizations : []}
+      {...(account.ok && account.current ? { currentId: account.current.organizationId } : {})}
+    />
+  );
 }
 
 async function SignedInUser() {
