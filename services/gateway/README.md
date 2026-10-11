@@ -18,10 +18,10 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Security headers | `app.ts` (helmet) | working |
 | Config from env, validated at startup | `config.ts`, `loadEnvFile` from `@code-sentinel/service-kit` | working |
 | Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
-| `GET /healthz` | `routes/healthz.ts` | working |
+| `GET /healthz` | `routes/healthz.ts` | working; reports the orchestrator and, with `DATABASE_URL`, the database |
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
 | Session token (HS256 JWT) | `auth/session-token.ts` | working; nothing mints it outside tests until OAuth login lands |
-| Stores | `persistence/stores.ts`, `persistence/in-memory.ts`, `persistence/dev-seed.ts` | interfaces + in-memory |
+| Stores | `persistence/stores.ts`, `persistence/prisma-stores.ts` (Supabase Postgres), `persistence/in-memory.ts` + `persistence/dev-seed.ts` | working; see [Persistence](#persistence) |
 | GitHub client (FR-GH-01..03) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files, Check Runs, reviews), `github/stub-github-client.ts` | working; the stub records every call and is used when no App is configured |
 | Publishing the review to the PR (FR-GH-02/03/04) | `github/review-publisher.ts`, `github/review-output.ts` | working |
 | Orchestrator client (FR-GW-04) | `orchestrator/orchestrator-client.ts` (create job, poll job, health) | working, tested against a stubbed `fetch` |
@@ -119,7 +119,7 @@ posted and the failure is logged with the request id.
 | Scheme | Client | Check |
 | --- | --- | --- |
 | `Authorization: Bearer cs_live_…` | VS Code | SHA-256 of the key matches an active (not revoked) row in `api_keys`; `lastUsedAt` is updated |
-| `cs_session` cookie | Dashboard | HS256 JWT (`sub` = user, `org` = organization, `jti` = session, `iss` = `code-sentinel`, `exp`) signed with `JWT_SECRET`, then its SHA-256 matches an active, unexpired row in `sessions` with the same ids |
+| `cs_session` cookie | Dashboard | HS256 JWT (`sub` = user, `org` = organization, `jti` = session, `iss` = `code-sentinel`, `exp`) signed with `JWT_SECRET`, then its SHA-256 matches an active, unexpired session with the same ids (in-memory stores only; replaced by Supabase sign-in in Phase A5) |
 
 The session store is consulted even after the JWT verifies, so logging out or revoking a session
 takes effect immediately instead of at `exp`. API keys are opaque and never parsed as JWTs: a
@@ -160,20 +160,44 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `JWT_SECRET` | required | HS256 key for the `cs_session` JWT | at least 32 characters |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
-| `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` |
+| `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
+| `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role). Set → Prisma stores; unset → in-memory stores | `postgres://` or `postgresql://` URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
 | `GITHUB_APP_ID` | unset | The GitHub App's numeric id | positive integer; set together with `GITHUB_PRIVATE_KEY_PATH`; required when `NODE_ENV=production` |
 | `GITHUB_PRIVATE_KEY_PATH` | unset | The App's private key (`.pem`), relative to `services/gateway/` | read at startup; an unreadable file stops the gateway. `*.pem` is gitignored |
 | `GATEWAY_DEV_REPOSITORY` | unset | Points the dev seed's repository at a real repo, e.g. `sumit-0804/code-sentinel-playground:1390792507` | `owner/name:githubRepoId` |
 
 An empty value (`PORT=`) means "use the default". With `GITHUB_APP_ID` and
 `GITHUB_PRIVATE_KEY_PATH` set, PR files come from GitHub through the App; without them, from a stub
-(dev seed files, or none). Until PostgreSQL lands, `GATEWAY_SEED=none` starts with empty stores.
+(dev seed files, or none). Without `DATABASE_URL`, `GATEWAY_SEED=none` starts with empty stores.
 
-`GATEWAY_SEED=dev` is for the local manual check only. It seeds one organization, the repository
+`GATEWAY_SEED=dev` is for the local manual check without a database. It seeds one organization, the repository
 `code-sentinel/consumer-api` (`githubRepoId` 123456789, all five agents enabled, platform threshold
 0.8), the user `octo-dev` with the API key **`cs_live_dev_00000000`** (`DEV_API_KEY`), and a GitHub
 stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-lock.json`
 (`generated_file`) and `logo.png` (`binary`).
+
+## Persistence
+
+`server.ts` picks the stores at startup and the `gateway listening` line says which (`stores`):
+
+| `DATABASE_URL` | Stores | Data |
+| --- | --- | --- |
+| set | `PrismaStores` over [`@code-sentinel/db`](../../packages/db/README.md) | the Supabase tables; seed a dev database with `npm run seed -w @code-sentinel/db` |
+| unset | `InMemoryStores` | empty, or the dev seed with `GATEWAY_SEED=dev` |
+
+Both implement the interfaces in `persistence/stores.ts`, resolve repository settings with the same
+`resolveEffectiveConfig()` (`persistence/effective-config.ts`), and pass the same contract suite
+(`test-support/stores-contract.ts`): in memory on every run, and against Postgres in
+`prisma-stores.integration.test.ts` when `TEST_DATABASE_URL` is set (CI). That suite writes rows
+with fresh random ids and deletes them afterwards, so it can also run against Supabase dev.
+
+Differences to know:
+- `organizations.default_confidence_threshold` is `NOT NULL DEFAULT 0.800`, so with a database the
+  threshold source is never `platform_default`; only the in-memory stores reach it.
+- There's no `sessions` table (Supabase owns sessions), so `PrismaStores` accepts no `cs_session`
+  cookie. API keys work. Supabase sign-in replaces the cookie in Phase A5.
+- `/healthz` adds `dependencies.database` (`ok` or `unavailable`, from `SELECT 1` within 2 s); anything
+  but `ok` makes the gateway `degraded`.
 
 ## Not started yet
 
@@ -183,10 +207,9 @@ stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - GitHub OAuth login that mints the session cookie
-- Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`) once PostgreSQL lands
+- Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`); the orchestrator writes `reviews` in Phase A3
 - Accept / reject tracking of posted suggestions (UC-3)
 - Cancelling a superseded job when a new commit is pushed
-- PostgreSQL stores and migrations from `schema.sql`
 - Installation events (acknowledged and ignored today)
 - An all-filtered pull request finishing the review with an empty report (today: 202
   `event_ignored`, no orchestrator call)
@@ -243,8 +266,13 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
 3. On the App page: note the **App ID**, then **Generate a private key** and save the `.pem` as
    `services/gateway/github-app.pem`.
 4. **Install App** → only `code-sentinel-playground`.
-5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`,
-   `GATEWAY_SEED=dev`, `GATEWAY_DEV_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507`.
+5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`, then
+   either of these:
+   - **In memory:** `GATEWAY_SEED=dev`, `GATEWAY_DEV_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507`.
+   - **With Supabase dev:** `GATEWAY_SEED=none` and `DATABASE_URL=<session pooler URL>`. Then seed the
+     repository once: set `SEED_GITHUB_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507` in
+     `packages/db/.env` and run `npm run seed -w @code-sentinel/db`. `/healthz` then shows
+     `"database":"ok"`.
 
 **Each run:**
 
@@ -257,4 +285,8 @@ open a pull request from `demo/risky-change` to `main` in the playground. The ga
 `review_started` with the real files, and the orchestrator job ends with Security findings (SQL
 injection, the AWS key, `innerHTML`) and Style findings with Prettier fixes. **Redeliver** from the
 App's *Advanced → Recent Deliveries* page gives `duplicate_ignored`; a new push gives a new job.
+
+The database setup was run live on 11-Oct (playground PR #4): the gateway logged `stores: postgres`,
+found the playground repository and its settings in Supabase dev, and posted "2 critical · 5 info"
+with 4 inline comments, the same result as the in-memory runs.
 

@@ -48,12 +48,23 @@ npm run typecheck
 
 The monorepo uses npm workspaces with [Turborepo](https://turbo.build/) for task running.
 
-To run the pipeline locally, copy each service's `.env.example` to `.env`, give both the same
-`SERVICE_TOKEN`, point the gateway's `ORCHESTRATOR_URL` at the orchestrator, then after
-`npm run build`:
+To run the pipeline locally:
+- Copy each service's `.env.example` to `.env`, all four with the same `SERVICE_TOKEN`.
+- Point the gateway's `ORCHESTRATOR_URL` and the orchestrator's `AGENT_SECURITY_URL` / `AGENT_STYLE_URL` at `http://127.0.0.1:<port>`. An agent without a URL is skipped.
+- The gateway uses Supabase when `DATABASE_URL` is set, and in-memory stores otherwise (see [Persistence](services/gateway/README.md#persistence)).
+
+Then, after `npm run build`, start each service in its own terminal:
 
 ```bash
 npm run start -w @code-sentinel/orchestrator
+```
+
+```bash
+npm run start -w @code-sentinel/security-agent
+```
+
+```bash
+npm run start -w @code-sentinel/style-agent
 ```
 
 ```bash

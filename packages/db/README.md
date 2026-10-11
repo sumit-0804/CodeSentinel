@@ -90,6 +90,9 @@ prompt and hold Prisma's advisory lock until it's killed.
 **Seed:** the same ids as `@code-sentinel/contracts/examples` and the gateway's in-memory dev seed:
 organization `code-sentinel`, repository `code-sentinel/consumer-api` (GitHub id 123456789), user
 `octo-dev`, and the API key `cs_live_dev_00000000`. That key is published here, so dev data only.
+Set `SEED_GITHUB_REPOSITORY=owner/name:githubRepoId` (e.g. the test playground) to seed that
+repository instead, so its pull requests are reviewed by a gateway running with `DATABASE_URL`.
+Rerunning the seed with or without it switches the repository back and forth.
 
 **Integration tests** (`src/schema.integration.test.ts`) prove the hand-written SQL: the partial
 unique index, the CHECKs, JSON reports and the `cancelled` status. They create one throwaway

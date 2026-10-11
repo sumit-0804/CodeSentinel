@@ -129,7 +129,7 @@ model Organization {
   @@map("organizations")
 }
 
-/// Profile mirror of `auth.users`: the id is Supabase's user id, inserted by the `on_auth_user_created` trigger.
+/// Profile mirror of `auth.users`: the id is Supabase's user id; the gateway upserts the row on first sign-in.
 model User {
   id           String    @id @db.Uuid
   githubUserId BigInt?   @unique @map("github_user_id")
