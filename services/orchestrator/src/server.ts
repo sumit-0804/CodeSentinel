@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { createPrismaClient, type PrismaClient } from "@code-sentinel/db";
 import { LlmConfigError, loadLlmLimits, type LlmLimits } from "@code-sentinel/llm";
 import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
 
@@ -9,7 +10,8 @@ import { createApp, DEFAULT_VERSION } from "./app.js";
 import { createLlmRouting } from "./budget/llm-routing.js";
 import { loadOrchestratorConfig, OrchestratorConfigError, type OrchestratorConfig } from "./config.js";
 import { buildReviewGraph } from "./graph/review-graph.js";
-import { InMemoryJobStore } from "./jobs/job-store.js";
+import { InMemoryJobStore, type JobStore } from "./jobs/job-store.js";
+import { PrismaJobStore } from "./jobs/prisma-job-store.js";
 import { ReviewJobController } from "./jobs/review-job-controller.js";
 
 function packageVersion(): string {
@@ -21,7 +23,7 @@ function packageVersion(): string {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const logger = createJsonLogger();
 
   // The service directory holds `.env` / `.env.production`; `NODE_ENV=production` picks the latter.
@@ -47,22 +49,44 @@ function main(): void {
   const llmRouting = createLlmRouting(llmLimits, config.llmAgentTimeoutMs);
   if (!llmRouting) logger.warn("no LLM provider configured; LLM agents run their rule-based checks only");
   const { run } = buildReviewGraph({ clients, ...(llmRouting ? { llmRouting } : {}) });
-  const controller = new ReviewJobController({
-    run,
-    logger,
-    store: new InMemoryJobStore({ retentionMs: config.jobRetentionMs }),
-  });
+
+  let prisma: PrismaClient | undefined;
+  let store: JobStore;
+  if (config.databaseUrl) {
+    prisma = createPrismaClient(config.databaseUrl);
+    try {
+      // Fail at startup, not on the first review, when the URL or the password is wrong.
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (error) {
+      createJsonLogger(process.stderr).error("cannot reach the database", { error: (error as Error).message });
+      await prisma.$disconnect();
+      process.exitCode = 1;
+      return;
+    }
+    const prismaStore = new PrismaJobStore(prisma, llmRouting ? { llmAgentTimeoutMs: config.llmAgentTimeoutMs } : {});
+    // One orchestrator instance: whatever a previous process left queued or running can never finish.
+    const orphaned = await prismaStore.failOrphaned(new Date().toISOString());
+    if (orphaned > 0) logger.warn("failed review jobs left running by a previous process", { orphaned });
+    store = prismaStore;
+  } else {
+    store = new InMemoryJobStore({ retentionMs: config.jobRetentionMs });
+  }
+
+  const controller = new ReviewJobController({ run, logger, store });
+  const database = prisma;
   const app = createApp({
     serviceToken: config.serviceToken,
     logger,
     controller,
     agentsHealth: { clients },
+    ...(database ? { database: { ping: () => database.$queryRaw`SELECT 1` } } : {}),
     version: packageVersion(),
   });
 
   const server = app.listen(config.port, () => {
     logger.info("orchestrator listening", {
       port: config.port,
+      stores: prisma ? "postgres" : "memory",
       agents: Object.keys(clients),
       llmProviders: Object.keys(llmRouting?.budgets ?? {}),
       nodeEnv: env.NODE_ENV,
@@ -72,11 +96,11 @@ function main(): void {
 
   const shutdown = (signal: string) => {
     logger.info("orchestrator shutting down", { signal });
-    server.close();
+    server.close(() => void prisma?.$disconnect());
     server.closeIdleConnections();
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
 }
 
-main();
+await main();

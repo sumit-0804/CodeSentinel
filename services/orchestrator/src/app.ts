@@ -10,7 +10,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { createAgentsHealthRouter, type AgentsHealthRouterDeps } from "./routes/agents-health.js";
-import { createHealthzRouter } from "./routes/healthz.js";
+import { createHealthzRouter, type DatabaseHealth } from "./routes/healthz.js";
 import { createReviewJobsRouter, type ReviewJobsRouterDeps } from "./routes/review-jobs.js";
 
 export const DEFAULT_VERSION = "0.0.0";
@@ -21,13 +21,15 @@ export interface AppDeps {
   logger: Logger;
   controller: ReviewJobsRouterDeps["controller"];
   agentsHealth: AgentsHealthRouterDeps;
+  /** Pinged by `/healthz` when reviews are stored in Postgres. */
+  database?: DatabaseHealth;
   /** Reported by `/healthz`. */
   version?: string;
 }
 
 /** The orchestrator's HTTP layer (`orchestrator.yaml`). Only the gateway calls `/internal/*`. */
 export function createApp(deps: AppDeps): Express {
-  const { serviceToken, logger, controller, agentsHealth, version = DEFAULT_VERSION } = deps;
+  const { serviceToken, logger, controller, agentsHealth, database, version = DEFAULT_VERSION } = deps;
   const app = express();
 
   app.disable("x-powered-by");
@@ -35,7 +37,7 @@ export function createApp(deps: AppDeps): Express {
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
 
-  app.use(createHealthzRouter({ version }));
+  app.use(createHealthzRouter({ version, ...(database ? { database } : {}) }));
 
   const internal = express.Router();
   internal.use(serviceAuthMiddleware(serviceToken));

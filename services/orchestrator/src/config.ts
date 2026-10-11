@@ -8,6 +8,8 @@ export interface OrchestratorConfig {
   jobRetentionMs: number;
   /** Minimum per-agent timeout for LLM agents; a Gemini call can take over 20 s on the free tier. */
   llmAgentTimeoutMs: number;
+  /** Supabase Postgres (session pooler). Set → reviews are stored in `reviews`; unset → in memory. */
+  databaseUrl?: string;
 }
 
 /** Thrown by `loadOrchestratorConfig` with every invalid variable listed at once. */
@@ -41,6 +43,15 @@ const EnvSchema = z.object({
   SERVICE_TOKEN: z.preprocess(blankAsUndefined, z.string().min(1, "must not be empty")),
   JOB_RETENTION_MS: integer(60_000, 86_400_000, 3_600_000),
   LLM_AGENT_TIMEOUT_MS: integer(1_000, 120_000, 45_000),
+  DATABASE_URL: z.preprocess(
+    blankAsUndefined,
+    z.string().regex(/^postgres(ql)?:\/\/\S+$/, "must be a postgres:// or postgresql:// URL").optional(),
+  ),
+  NODE_ENV: z.string().optional(),
+}).refine((values) => values.NODE_ENV !== "production" || values.DATABASE_URL !== undefined, {
+  // In memory, a restart loses every review a deployed gateway is still waiting on.
+  message: "is required when NODE_ENV is production",
+  path: ["DATABASE_URL"],
 });
 
 /**
@@ -65,5 +76,6 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
     serviceToken: values.SERVICE_TOKEN,
     jobRetentionMs: values.JOB_RETENTION_MS,
     llmAgentTimeoutMs: values.LLM_AGENT_TIMEOUT_MS,
+    ...(values.DATABASE_URL !== undefined ? { databaseUrl: values.DATABASE_URL } : {}),
   };
 }

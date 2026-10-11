@@ -34,4 +34,33 @@ describe("loadOrchestratorConfig", () => {
       "JOB_RETENTION_MS must be between 60000 and 86400000",
     ]);
   });
+
+  describe("DATABASE_URL", () => {
+    const DB_URL = "postgresql://prisma.ref:secret@aws-0-ap-south-1.pooler.supabase.com:5432/postgres";
+
+    function problems(env: Record<string, string>): readonly string[] {
+      try {
+        loadOrchestratorConfig(env);
+      } catch (error) {
+        return (error as OrchestratorConfigError).problems;
+      }
+      return [];
+    }
+
+    it("is optional and read when set", () => {
+      expect(loadOrchestratorConfig({ SERVICE_TOKEN: "token" }).databaseUrl).toBeUndefined();
+      expect(loadOrchestratorConfig({ SERVICE_TOKEN: "token", DATABASE_URL: DB_URL }).databaseUrl).toBe(DB_URL);
+    });
+
+    it("rejects a URL that is not postgres, without echoing it", () => {
+      const found = problems({ SERVICE_TOKEN: "token", DATABASE_URL: "mysql://user:secret@db/x" });
+
+      expect(found).toEqual(["DATABASE_URL must be a postgres:// or postgresql:// URL"]);
+    });
+
+    it("is required in production", () => {
+      expect(problems({ SERVICE_TOKEN: "token", NODE_ENV: "production" })).toEqual(["DATABASE_URL is required when NODE_ENV is production"]);
+      expect(problems({ SERVICE_TOKEN: "token", NODE_ENV: "production", DATABASE_URL: DB_URL })).toEqual([]);
+    });
+  });
 });
