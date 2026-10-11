@@ -12,7 +12,7 @@ import type { LlmProviderName } from "@code-sentinel/llm";
 import { AgentCallError } from "../agents/agent-call-error.js";
 import type { AgentClient } from "../agents/agent-client.js";
 import type { AgentSkippedFiles } from "../aggregation/skipped-files.js";
-import { LLM_AGENTS, reserveBatch, settleCall, type LlmRouting } from "../budget/llm-routing.js";
+import { agentBudgetMs, LLM_AGENTS, reserveBatch, settleCall, type LlmRouting } from "../budget/llm-routing.js";
 import { planLlmReview } from "../budget/plan.js";
 import { DEADLINE_MARGIN_MS } from "./defaults.js";
 import type { ReviewState } from "./review-state.js";
@@ -94,7 +94,7 @@ async function runLlmAgent(
   signal?: AbortSignal,
 ): Promise<AgentOutcome> {
   const started = routing.now();
-  const deadlineAt = started + Math.max(state.agentTimeoutMs, routing.llmAgentTimeoutMs);
+  const deadlineAt = started + agentBudgetMs(agent, state.agentTimeoutMs, routing.llmAgentTimeoutMs);
   const plan = planLlmReview(state.files, routing.plan);
   const skipped: SkippedFile[] = [...plan.skipped];
   const calls: Promise<BatchResult>[] = [];

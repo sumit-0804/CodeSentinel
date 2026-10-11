@@ -6,6 +6,11 @@ import type { PlanLimits } from "./plan.js";
 /** Agents that call an LLM; the Style Agent never does (NFR-07). */
 export const LLM_AGENTS: ReadonlySet<AgentKind> = new Set(["security", "performance", "logic", "documentation"]);
 
+/** An agent's time budget: with an LLM provider configured, LLM agents get at least `llmAgentTimeoutMs`. */
+export function agentBudgetMs(agent: AgentKind, agentTimeoutMs: number, llmAgentTimeoutMs?: number): number {
+  return llmAgentTimeoutMs !== undefined && LLM_AGENTS.has(agent) ? Math.max(agentTimeoutMs, llmAgentTimeoutMs) : agentTimeoutMs;
+}
+
 /** Groq first, then Gemini (`plans/llm-agents.md`). */
 const PROVIDER_ORDER: readonly LlmProviderName[] = ["groq", "gemini"];
 

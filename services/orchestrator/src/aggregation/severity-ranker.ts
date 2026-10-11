@@ -23,3 +23,8 @@ export class SeverityRanker {
     return SEVERITY_WEIGHT[severity];
   }
 }
+
+/** `findings.severity_rank`: 1 is the most severe, so an ascending index lists critical first. */
+export function severityRank(severity: Severity): number {
+  return 4 - SEVERITY_WEIGHT[severity];
+}

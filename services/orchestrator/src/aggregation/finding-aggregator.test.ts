@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding } from "@code-sentinel/contracts";
-import { FindingAggregator } from "./finding-aggregator.js";
+import { dedupeKey, FindingAggregator } from "./finding-aggregator.js";
+import { severityRank } from "./severity-ranker.js";
 
 function finding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -39,5 +40,19 @@ describe("FindingAggregator", () => {
     ]);
 
     expect(result).toHaveLength(2);
+  });
+
+  it("keys a finding by file, line range and rule, not by agent or wording", () => {
+    const key = dedupeKey(finding());
+
+    expect(key).toMatch(/^[0-9a-f]{40}$/);
+    expect(dedupeKey(finding({ agent: "logic", title: "Other", confidence: 0.1 }))).toBe(key);
+    expect(dedupeKey(finding({ ruleId: "security/other" }))).not.toBe(key);
+  });
+});
+
+describe("severityRank", () => {
+  it("ranks critical first", () => {
+    expect([severityRank("critical"), severityRank("warning"), severityRank("info")]).toEqual([1, 2, 3]);
   });
 });

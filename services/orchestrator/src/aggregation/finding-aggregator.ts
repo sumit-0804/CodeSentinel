@@ -14,7 +14,7 @@ export class FindingAggregator {
     const byKey = new Map<string, Finding>();
 
     for (const finding of findings) {
-      const key = this.dedupeKey(finding);
+      const key = dedupeKey(finding);
       const existing = byKey.get(key);
 
       if (!existing) {
@@ -32,11 +32,12 @@ export class FindingAggregator {
 
     return [...byKey.values()];
   }
+}
 
-  private dedupeKey(finding: Finding): string {
-    const { filePath, lineStart, lineEnd } = finding.location;
-    return createHash("sha1")
-      .update(`${filePath}:${lineStart}:${lineEnd}:${finding.ruleId}`)
-      .digest("hex");
-  }
+/** `hash(filePath, lineStart, lineEnd, ruleId)`; also stored as `findings.dedupe_key`. */
+export function dedupeKey(finding: Finding): string {
+  const { filePath, lineStart, lineEnd } = finding.location;
+  return createHash("sha1")
+    .update(`${filePath}:${lineStart}:${lineEnd}:${finding.ruleId}`)
+    .digest("hex");
 }

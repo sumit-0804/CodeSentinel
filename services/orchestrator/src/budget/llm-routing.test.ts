@@ -1,7 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { QuotaBudget } from "@code-sentinel/llm";
-import { createLlmRouting, reserveBatch, settleCall, type LlmRouting } from "./llm-routing.js";
+import { agentBudgetMs, createLlmRouting, reserveBatch, settleCall, type LlmRouting } from "./llm-routing.js";
+
+describe("agentBudgetMs", () => {
+  it("gives LLM agents at least the LLM timeout, only when an LLM provider is configured", () => {
+    expect(agentBudgetMs("security", 20000, 45000)).toBe(45000);
+    expect(agentBudgetMs("security", 60000, 45000)).toBe(60000);
+    expect(agentBudgetMs("style", 20000, 45000)).toBe(20000);
+    expect(agentBudgetMs("security", 20000)).toBe(20000);
+  });
+});
 
 const T0 = Date.parse("2026-09-27T10:00:00.000Z");
 
