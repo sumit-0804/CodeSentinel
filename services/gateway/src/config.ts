@@ -15,6 +15,8 @@ export interface GatewayConfig {
   githubWebhookSecret: string;
   /** `dev` loads in-memory demo data; never set in a deployed environment. */
   seed: GatewaySeed;
+  /** Supabase Postgres (session pooler). Set → Prisma stores; unset → in-memory stores and `seed`. */
+  databaseUrl?: string;
   /** Set together; without them PR files come from the stub client (dev and tests only). */
   githubApp?: { appId: number; privateKeyPath: string };
   /** Points the dev seed's repository at a real repo, e.g. the test playground. */
@@ -71,6 +73,10 @@ const EnvSchema = z.object({
   JWT_SECRET: secret(32),
   GITHUB_WEBHOOK_SECRET: secret(16),
   GATEWAY_SEED: z.preprocess(blankAsUndefined, z.enum(["none", "dev"]).default("none")),
+  DATABASE_URL: z.preprocess(
+    blankAsUndefined,
+    z.string().regex(/^postgres(ql)?:\/\/\S+$/, "must be a postgres:// or postgresql:// URL").optional(),
+  ),
   GITHUB_APP_ID: z.preprocess(blankAsUndefined, z.coerce.number({ invalid_type_error: "must be an integer" }).int("must be an integer").positive("must be positive").optional()),
   GITHUB_PRIVATE_KEY_PATH: z.preprocess(blankAsUndefined, z.string().optional()),
   GATEWAY_DEV_REPOSITORY: z.preprocess(
@@ -83,6 +89,15 @@ const EnvSchema = z.object({
     // The dev seed contains a published API key, so it must never load in production.
     message: "must be none when NODE_ENV is production",
     path: ["GATEWAY_SEED"],
+  })
+  .refine((values) => !(values.DATABASE_URL !== undefined && values.GATEWAY_SEED === "dev"), {
+    // The dev seed only fills the in-memory stores; a database is seeded with `npm run seed -w @code-sentinel/db`.
+    message: "must be none when DATABASE_URL is set",
+    path: ["GATEWAY_SEED"],
+  })
+  .refine((values) => values.NODE_ENV !== "production" || values.DATABASE_URL !== undefined, {
+    message: "is required when NODE_ENV is production",
+    path: ["DATABASE_URL"],
   })
   .refine((values) => (values.GITHUB_APP_ID === undefined) === (values.GITHUB_PRIVATE_KEY_PATH === undefined), {
     message: "must be set together with GITHUB_PRIVATE_KEY_PATH",
@@ -121,6 +136,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     seed: values.GATEWAY_SEED,
     reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
   };
+  if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };
   }

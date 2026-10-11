@@ -101,4 +101,30 @@ describe("loadGatewayConfig", () => {
     );
     expect(configError({ ...FULL_ENV, GATEWAY_DEV_REPOSITORY: "no-id" }).message).toContain("must look like owner/name:githubRepoId");
   });
+
+  describe("DATABASE_URL", () => {
+    const DB_URL = "postgresql://prisma.ref:secret@aws-0-ap-south-1.pooler.supabase.com:5432/postgres";
+
+    it("is optional and read when set", () => {
+      expect(loadGatewayConfig(FULL_ENV).databaseUrl).toBeUndefined();
+      expect(loadGatewayConfig({ ...FULL_ENV, GATEWAY_SEED: "none", DATABASE_URL: DB_URL }).databaseUrl).toBe(DB_URL);
+    });
+
+    it("rejects a URL that is not postgres, without echoing it", () => {
+      const error = configError({ ...FULL_ENV, GATEWAY_SEED: "none", DATABASE_URL: "mysql://user:secret@db/x" });
+
+      expect(error.message).toContain("DATABASE_URL must be a postgres:// or postgresql:// URL");
+      expect(error.message).not.toContain("secret");
+    });
+
+    it("refuses the dev seed alongside a database", () => {
+      expect(configError({ ...FULL_ENV, DATABASE_URL: DB_URL }).message).toContain("GATEWAY_SEED must be none when DATABASE_URL is set");
+    });
+
+    it("is required in production", () => {
+      const error = configError({ ...FULL_ENV, GATEWAY_SEED: "none", NODE_ENV: "production", GITHUB_APP_ID: "1", GITHUB_PRIVATE_KEY_PATH: "k.pem" });
+
+      expect(error.problems).toEqual(["DATABASE_URL is required when NODE_ENV is production"]);
+    });
+  });
 });

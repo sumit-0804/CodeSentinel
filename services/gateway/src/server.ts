@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createPrismaClient, type PrismaClient } from "@code-sentinel/db";
 import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
 
 import { createApp, DEFAULT_VERSION } from "./app.js";
@@ -13,6 +14,8 @@ import { StubGitHubClient } from "./github/stub-github-client.js";
 import { OrchestratorClient } from "./orchestrator/orchestrator-client.js";
 import { devSeed } from "./persistence/dev-seed.js";
 import { emptySeed, InMemoryStores } from "./persistence/in-memory.js";
+import { PrismaStores } from "./persistence/prisma-stores.js";
+import type { Stores } from "./persistence/stores.js";
 
 function packageVersion(): string {
   try {
@@ -23,7 +26,7 @@ function packageVersion(): string {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const logger = createJsonLogger();
 
   // The service directory holds `.env` / `.env.production`; `NODE_ENV=production` picks the latter.
@@ -45,11 +48,29 @@ function main(): void {
     serviceToken: config.serviceToken,
     timeoutMs: config.orchestratorTimeoutMs,
   });
-  // Until PostgreSQL lands, `none` starts with empty stores; `dev` seeds one repository and user.
+  // Without a database, `none` starts with empty stores and `dev` seeds one repository and user.
   const { seed, pullRequestFiles } =
     config.seed === "dev"
       ? devSeed(config.devRepository ? { repository: config.devRepository } : {})
       : { seed: emptySeed(), pullRequestFiles: [] };
+
+  let prisma: PrismaClient | undefined;
+  let stores: Stores;
+  if (config.databaseUrl) {
+    prisma = createPrismaClient(config.databaseUrl);
+    try {
+      // Fail at startup, not on the first webhook, when the URL or the password is wrong.
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (error) {
+      createJsonLogger(process.stderr).error("cannot reach the database", { error: (error as Error).message });
+      await prisma.$disconnect();
+      process.exitCode = 1;
+      return;
+    }
+    stores = new PrismaStores(prisma);
+  } else {
+    stores = new InMemoryStores(seed);
+  }
 
   let github: GitHubClient;
   if (config.githubApp) {
@@ -72,15 +93,16 @@ function main(): void {
     orchestrator,
     github,
     publisher,
-    stores: new InMemoryStores(seed),
+    stores,
     version: packageVersion(),
   });
   const server = app.listen(config.port, () => {
     logger.info("gateway listening", {
       port: config.port,
+      stores: prisma ? "postgres" : "memory",
       seed: config.seed,
       github: config.githubApp ? `app ${config.githubApp.appId}` : "stub",
-      ...(config.devRepository ? { devRepository: config.devRepository.fullName } : {}),
+      ...(!prisma && config.devRepository ? { devRepository: config.devRepository.fullName } : {}),
       nodeEnv: env.NODE_ENV,
       envFile: file,
     });
@@ -88,11 +110,11 @@ function main(): void {
 
   const shutdown = (signal: string) => {
     logger.info("gateway shutting down", { signal });
-    server.close();
+    server.close(() => void prisma?.$disconnect());
     server.closeIdleConnections();
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
 }
 
-main();
+await main();
