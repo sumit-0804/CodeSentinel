@@ -52,7 +52,8 @@ export interface ApiKeyRecord {
 /** A `users` row with its `organization_members` rows. */
 export interface UserRecord {
   userId: string;
-  githubLogin: string;
+  /** Absent until the user links GitHub. */
+  githubLogin?: string;
   email?: string;
   avatarUrl?: string;
   memberships: OrganizationMembership[];

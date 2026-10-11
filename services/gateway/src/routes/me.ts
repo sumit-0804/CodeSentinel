@@ -23,7 +23,7 @@ export function createMeRouter({ users }: MeRouterDeps): Router {
 
     const body: CurrentUser = {
       userId: user.userId,
-      githubLogin: user.githubLogin,
+      ...(user.githubLogin !== undefined ? { githubLogin: user.githubLogin } : {}),
       ...(user.email !== undefined ? { email: user.email } : {}),
       ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
       organizations: user.memberships,

@@ -42,6 +42,18 @@ describe("GET /v1/me", () => {
     expect(CurrentUserSchema.parse(body).userId).toBe(TEST_USER_ID);
   });
 
+  it("omits githubLogin for a user who has not linked GitHub", async () => {
+    const seeded = await seededStores((seed) => {
+      delete seed.users[0]!.githubLogin;
+    });
+
+    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
+
+    expect(status).toBe(200);
+    expect(CurrentUserSchema.parse(body).userId).toBe(TEST_USER_ID);
+    expect(body).not.toHaveProperty("githubLogin");
+  });
+
   it("answers 401 when the credential's user no longer exists", async () => {
     const seeded = await seededStores((seed) => {
       seed.users = [];

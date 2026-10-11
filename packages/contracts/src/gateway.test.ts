@@ -196,6 +196,10 @@ describe("CurrentUserSchema", () => {
     expect(parsed.organizations[0]?.role).toBe("admin");
   });
 
+  it("accepts a user who has not linked GitHub", () => {
+    expect(CurrentUserSchema.safeParse({ userId: KEY_ID, email: "a@example.test", organizations: [] }).success).toBe(true);
+  });
+
   it("rejects an unknown role", () => {
     const result = CurrentUserSchema.safeParse({
       userId: KEY_ID,
