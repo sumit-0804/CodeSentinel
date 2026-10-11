@@ -182,7 +182,10 @@ export const CurrentUserSchema = z.object({
   // Absent until the user links GitHub (email and Google sign-ins have none).
   githubLogin: z.string().optional(),
   email: z.string().optional(),
+  name: z.string().optional(),
   avatarUrl: z.string().optional(),
+  /** Sign-in methods linked to the account (`email`, `github`, `google`); absent for API-key callers. */
+  providers: z.array(z.string()).optional(),
   organizations: z.array(OrganizationMembershipSchema),
 });
 export type CurrentUser = z.infer<typeof CurrentUserSchema>;

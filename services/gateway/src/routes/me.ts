@@ -25,7 +25,9 @@ export function createMeRouter({ users }: MeRouterDeps): Router {
       userId: user.userId,
       ...(user.githubLogin !== undefined ? { githubLogin: user.githubLogin } : {}),
       ...(user.email !== undefined ? { email: user.email } : {}),
+      ...(user.name !== undefined ? { name: user.name } : {}),
       ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
+      ...(principal.providers ? { providers: principal.providers } : {}),
       organizations: user.memberships,
     };
     res.json(body);

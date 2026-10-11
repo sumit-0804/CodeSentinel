@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { seededStores, testAppDeps, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
+import { testSupabase, type TestSupabase } from "../test-support/supabase-tokens.js";
 
-async function getMe(seeded: SeededStores, headers: Record<string, string> = {}) {
+async function getMe(seeded: SeededStores, headers: Record<string, string> = {}, supabase?: TestSupabase) {
   let result!: { status: number; body: Record<string, unknown> };
-  await withServer(createApp(testAppDeps({ stores: seeded.stores })), async (baseUrl) => {
+  const deps = testAppDeps({ stores: seeded.stores, ...(supabase ? { supabaseVerifier: supabase.verifier } : {}) });
+  await withServer(createApp(deps), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/v1/me`, { headers });
     result = { status: response.status, body: (await response.json()) as Record<string, unknown> };
   });
@@ -33,13 +35,26 @@ describe("GET /v1/me", () => {
     expect(user.organizations).toHaveLength(1);
   });
 
-  it("returns the same user for the session cookie", async () => {
+  it("returns the signed-in user with name and linked sign-in methods for a Supabase token", async () => {
     const seeded = await seededStores();
+    const supabase = await testSupabase();
 
-    const { status, body } = await getMe(seeded, { Cookie: `cs_session=${seeded.sessionToken}` });
+    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${await supabase.sign(TEST_USER_ID)}` }, supabase);
 
     expect(status).toBe(200);
-    expect(CurrentUserSchema.parse(body).userId).toBe(TEST_USER_ID);
+    expect(CurrentUserSchema.parse(body)).toMatchObject({
+      userId: TEST_USER_ID,
+      name: "Ada Lovelace",
+      providers: ["email", "github"],
+    });
+  });
+
+  it("omits providers for an API key", async () => {
+    const seeded = await seededStores();
+
+    const { body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
+
+    expect(body).not.toHaveProperty("providers");
   });
 
   it("omits githubLogin for a user who has not linked GitHub", async () => {
