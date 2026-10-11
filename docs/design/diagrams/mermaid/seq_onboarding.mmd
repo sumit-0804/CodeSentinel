@@ -1,0 +1,36 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":40,"width":160,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor U as User (browser)
+    participant DB as Dashboard (Next.js server)
+    participant GH as GitHub
+    participant GW as API Gateway
+    participant PG as Supabase Postgres
+
+    U->>DB: Install on GitHub
+    DB-->>U: redirect to github.com/apps/code-sentinel-mvp/installations/new?state=… (state kept in an httpOnly cookie)
+    U->>GH: choose account and repositories, install
+    GH-->>U: redirect to /onboarding/github/callback?code=…&state=…&installation_id=…
+    U->>DB: callback
+    DB->>DB: state matches the cookie (otherwise ask the user to confirm, never use the code)
+    DB->>GW: POST /v1/github/link { code } with the Supabase bearer token
+    GW->>GH: exchange code (App client ID + secret)
+    GH-->>GW: user token (8 h) + refresh token (6 months)
+    GW->>GH: GET /user
+    GW->>PG: users.github_user_id / github_login (one GitHub account per user)
+    GW->>PG: github_user_tokens, sealed with AES-256-GCM
+
+    loop every installation the user can reach (GET /user/installations)
+        GW->>PG: upsert organization (by GitHub id) and installation
+        GW->>GH: GET /installation/repositories (as the App)
+        GW->>PG: upsert repositories by GitHub id, mark the missing ones removed
+        GW->>GH: GET /user/memberships/orgs/{org}
+        GW->>PG: organization_members: admin of own account, otherwise GitHub's role
+    end
+    GW-->>DB: 200 { githubLogin, installations }
+    DB-->>U: /repositories with "N repositories are ready"
+
+    Note over GH,PG: Later changes arrive as webhooks, handled as the App
+    GH->>GW: installation / installation_repositories (signed)
+    GW->>PG: sync, or mark uninstalled / suspended / removed (history kept)
+    GW-->>GH: 202 installation_synced

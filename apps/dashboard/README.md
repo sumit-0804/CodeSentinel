@@ -25,6 +25,8 @@ npm run dev -w @code-sentinel/dashboard
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The publishable key (safe in the browser; never the secret key) |
 | `NEXT_PUBLIC_SITE_URL` | This app's origin. Every auth redirect is built from it, never from the `Host` header |
 | `GATEWAY_URL` | The API gateway (`http://localhost:3000` locally). Server-only, never `NEXT_PUBLIC_`. Unset → pages say the API isn't configured |
+| `GITHUB_APP_SLUG` | The GitHub App's URL name (`code-sentinel-mvp`), for the install link. Server-only |
+| `GITHUB_APP_CLIENT_ID` | The App's client ID, for the "connect" link. Server-only. Both unset → the buttons explain GitHub isn't set up |
 
 Env is validated with zod the first time it's read (`lib/env.ts`), so `next build` works without it, as in CI.
 
@@ -39,7 +41,11 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/auth/callback` | OAuth sign-in and identity linking: exchanges the PKCE code |
 | `/auth/confirm` | Email links (`token_hash` + `type`): sign-up, recovery, invite, email change. Works in any browser |
 | `/auth/error` | Names what failed and offers one next action |
-| `/overview`, `/repositories` | First-run checklist; installing the GitHub App arrives with A6 |
+| `/overview` | First-run checklist; step 2 is done once the organization has a repository |
+| `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`) |
+| `/onboarding/github/install` | Sets a random `state` cookie and sends you to install the App on GitHub |
+| `/onboarding/github/connect` | Same, through GitHub's authorize page: links GitHub and joins organizations the App is already on |
+| `/onboarding/github/callback` | GitHub's Callback and Setup URL. A `code` with a matching `state` is sent to `POST /v1/github/link`; without our `state` the code is never used and you confirm instead; an installation updated on GitHub (no code) triggers a sync |
 | `/pull-requests` | Empty state until reviews exist |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
 
@@ -62,7 +68,11 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
   and checks the JSON against a schema from `@code-sentinel/contracts`. The browser never talks to the
   gateway (backend-for-frontend), so there is no CORS and no token in client code. It returns
   `{ ok: true, data }` or `{ ok: false, reason }` (`unconfigured`, `unreachable`, `unauthorized`,
-  `error`), so a page names what failed. Settings → Organizations is the first caller (`/v1/me`).
+  `error`), so a page names what failed, plus the gateway's error `code` when it sent one.
+- **Organization in use:** the sidebar switcher lists the memberships from `/v1/me`. Choosing one sets
+  the httpOnly `cs_org` cookie through a Server Action that first checks the membership. Pages read it
+  with `getAccount()` (`lib/organization.ts`, once per request), fall back to the first membership if it
+  no longer matches, and send it as `X-Organization-Id`. The gateway checks it again.
 - With Cache Components on, anything that reads the session sits behind `<Suspense>`: the sidebar and page frames are
   prerendered, and the parts that name the user stream in.
 

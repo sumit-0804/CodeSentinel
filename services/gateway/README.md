@@ -20,7 +20,10 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
 | `GET /healthz` | `routes/healthz.ts` | working; reports the orchestrator and, with `DATABASE_URL`, the database |
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `auth/supabase-token.ts`, `routes/me.ts` | working: `cs_live_` API keys and Supabase access tokens; see [Authentication](#authentication) |
-| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`) | ready for the account and repository routes (A6, A9) |
+| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`) | used by the GitHub and repository routes |
+| Connecting GitHub (A6) | `routes/github.ts`, `github/github-user-client.ts`, `github/installation-sync.ts` | working; see [Connecting GitHub](#connecting-github) |
+| `GET /v1/repositories` | `routes/repositories.ts` | working: the organization's active repositories; toggles and agent config are A9 |
+| Installation webhooks | `webhooks/installation-events.ts` | working: install, uninstall, suspend, repositories added or removed |
 | Stores | `persistence/stores.ts`, `persistence/prisma-stores.ts` (Supabase Postgres), `persistence/in-memory.ts` + `persistence/dev-seed.ts` | working; see [Persistence](#persistence) |
 | GitHub client (FR-GH-01..03) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files, Check Runs, reviews), `github/stub-github-client.ts` | working; the stub records every call and is used when no App is configured |
 | Publishing the review to the PR (FR-GH-02/03/04) | `github/review-publisher.ts`, `github/review-output.ts` | working |
@@ -40,9 +43,10 @@ exact bytes GitHub signed. Checks run in this order and stop at the first that a
 | 1 | `X-Hub-Signature-256` missing or wrong (the body is never parsed, logged or forwarded) | 401 | `invalid_signature` | `invalid_signature` |
 | 2 | `X-GitHub-Event` or `X-GitHub-Delivery` missing | 400 | `missing_header` | `missing_header` |
 | 3 | Body is not JSON | 400 | `invalid_payload` | `invalid_payload` |
-| 4 | Not `pull_request` `opened` / `synchronize` / `reopened` (`ping`, `installation*`, other actions) | 202 | `event_ignored` | `event_ignored` |
+| 4 | `installation` or `installation_repositories`: see [the table below](#installation-events) | 202 | `installation_synced` / `event_ignored` | as below |
+| 4 | Not `pull_request` `opened` / `synchronize` / `reopened` (`ping`, other actions) | 202 | `event_ignored` | `event_ignored` |
 | 5 | Payload fails the minimal `pull_request` schema | 400 | `invalid_payload` | `invalid_payload` |
-| 6 | `repository.id` not known | 202 | `event_ignored` | `repository_unknown` |
+| 6 | `repository.id` not known, removed from its installation, or its installation uninstalled or suspended | 202 | `event_ignored` | `repository_unknown` |
 | 6 | Repository has `reviewEnabled: false` | 202 | `repository_disabled` | `repository_disabled` |
 | 7 | Every agent disabled (the orchestrator would answer 422) | 202 | `repository_disabled` | `repository_disabled` |
 | 8 | Every PR file filtered out; no orchestrator call | 202 | `event_ignored` | `no_reviewable_files` |
@@ -54,6 +58,61 @@ The job is sent with `Idempotency-Key` = the delivery id and `X-Request-Id` = th
 GitHub redelivery after a 502 cannot start a second review. The gateway never looks at the PR
 author, so external contributors take the same path (AC-10). The request log line carries
 `deliveryId`, `event`, `action`, `repository`, `files`, `skippedFiles` counts and `outcome`.
+
+### Installation events
+
+GitHub sends these to every App; the gateway keeps Supabase in step as the App (no user involved, so
+memberships are untouched; people join an organization through their own sync).
+
+| Event / action | What changes | Log `outcome` |
+| --- | --- | --- |
+| `installation` `created`, `new_permissions_accepted`, `unsuspend` | The account's organization and the installation are upserted, and its repositories made to match the App's list (`GET /installation/repositories`) | `installation_synced` |
+| `installation` `deleted` | Installation marked uninstalled, its repositories marked removed (rows and review history stay) | `installation_removed` |
+| `installation` `suspend` | Installation marked suspended: its PRs are ignored until `unsuspend` | `installation_suspended` |
+| `installation_repositories` `added` | Same as `created` (the payload lacks branches and languages, so the App's list is the source) | `installation_synced` |
+| `installation_repositories` `removed` | Those repositories marked removed | `repositories_removed` |
+| any other `installation` action | nothing | `event_ignored` |
+
+A malformed payload is 400 `invalid_payload`. If GitHub fails during the sync the answer is 502
+`github_unavailable`, which marks the delivery failed on GitHub so it can be redelivered.
+
+## Connecting GitHub
+
+How a signed-in user gets organizations and repositories (A6, `seq_onboarding.mmd`):
+
+1. The dashboard sends them to `github.com/apps/<slug>/installations/new` (or, to join organizations the
+   App is already on, to GitHub's authorize page) with a random `state` it keeps in a cookie.
+2. GitHub redirects to the dashboard's callback with a `code`. With **Request user authorization
+   (OAuth) during installation** on, installing also authorizes. The dashboard checks the `state`, then
+   calls **`POST /v1/github/link { code }`**:
+   - exchanges the code for a GitHub App **user token** (8 h, plus a 6-month refresh token) using the
+     App's client ID and secret
+   - `GET /user`, and records `users.github_user_id` / `github_login`. One GitHub account belongs to one
+     Code Sentinel user: another user's account is 409 `github_account_taken`
+   - stores both tokens **sealed** with `SecretBox` (AES-256-GCM, `FIELD_ENCRYPTION_KEY`); plaintext is
+     never stored or logged
+   - runs the sync and answers with each installation's account and repository count
+3. **Sync** (`InstallationSync`, also `POST /v1/installations/sync`): the user's token, refreshed first
+   if it expires within a minute, lists their installations (`GET /user/installations`). Each one is
+   upserted with its repositories (as the App), and the user's membership is recorded: **admin** of
+   their own account, and for an organization the role GitHub reports (`GET /user/memberships/orgs/{org}`,
+   which needs the App's **Members: read** permission). If GitHub won't say, `member` is added but an
+   existing role is never lowered.
+4. `GET /v1/installations` lists the user's installations, and `GET /v1/repositories` an organization's
+   active repositories (`X-Organization-Id`, or the only membership; API keys use their own).
+
+Repositories are matched by GitHub id, so a rename updates the name in place. A repository that leaves
+its installation is **marked removed, never deleted**, and comes back with its history if added again.
+
+| `code` | HTTP | When |
+| --- | --- | --- |
+| `github_code_invalid` | 400 | GitHub refused the code (used, expired, or for another App) |
+| `github_account_taken` | 409 | The GitHub account is linked to another user |
+| `github_not_linked` | 409 | Sync without a stored token, or the refresh token has run out |
+| `github_unavailable` | 502 | GitHub did not answer during the exchange or the sync |
+| `github_link_unconfigured` | 503 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` or `FIELD_ENCRYPTION_KEY` not set |
+
+These are account routes: API keys get 403 `session_required`. A7 adds a TOTP step-up to `link` and `sync`.
 
 **File filter** (`filterPullRequestFiles`), applied to GitHub's PR file list in GitHub's order:
 
@@ -184,6 +243,9 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role). Set → Prisma stores; unset → in-memory stores | `postgres://` or `postgresql://` URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
 | `GITHUB_APP_ID` | unset | The GitHub App's numeric id | positive integer; set together with `GITHUB_PRIVATE_KEY_PATH`; required when `NODE_ENV=production` |
 | `GITHUB_PRIVATE_KEY_PATH` | unset | The App's private key (`.pem`), relative to `services/gateway/` | read at startup; an unreadable file stops the gateway. `*.pem` is gitignored |
+| `GITHUB_APP_CLIENT_ID` | unset | The App's client ID (General settings), for connecting GitHub | set together with the next two; all three required when `NODE_ENV=production`. Unset → the link routes answer 503 |
+| `GITHUB_APP_CLIENT_SECRET` | unset | A client secret generated on the App's General settings | at least 20 characters |
+| `FIELD_ENCRYPTION_KEY` | unset | Seals GitHub user tokens at rest (AES-256-GCM) | exactly 32 bytes, base64. Losing it means users connect GitHub again |
 | `GATEWAY_DEV_REPOSITORY` | unset | Points the dev seed's repository at a real repo, e.g. `sumit-0804/code-sentinel-playground:1390792507` | `owner/name:githubRepoId` |
 
 An empty value (`PORT=`) means "use the default". With `GITHUB_APP_ID` and
@@ -221,6 +283,10 @@ Differences to know:
   function, and against Supabase the session cases are skipped. In memory, `activeSessionIds` lists
   the live sessions, so without a database a real dashboard session is never accepted.
 - `users.recordSignIn` upserts by id and leaves memberships alone.
+- Installations and repositories are upserted by their GitHub ids. `repositories.removed_at` marks a
+  repository that left its installation (names are unique only among active rows, so a recreated
+  repository can reuse one). A GitHub login now held by a different account id is renamed aside
+  (`login~<id>`), because logins can be reused after a rename.
 - `/healthz` adds `dependencies.database` (`ok` or `unavailable`, from `SELECT 1` within 2 s); anything
   but `ok` makes the gateway `degraded`.
 
@@ -228,13 +294,12 @@ Differences to know:
 
 - `/v1/reviews`: create (on-demand), list, get, SSE events, style fixes
 - Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
-- Repositories and config routes (`/v1/repositories`, admin-role check)
+- Repository toggles and config (`PATCH /v1/repositories/{id}`, `/config`, admin-role check): A9
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`); the orchestrator writes `reviews` in Phase A3
 - Accept / reject tracking of posted suggestions (UC-3)
 - Cancelling a superseded job when a new commit is pushed
-- Installation events (acknowledged and ignored today)
 - An all-filtered pull request finishing the review with an empty report (today: 202
   `event_ignored`, no orchestrator call)
 
@@ -248,7 +313,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-151 tests in 16 files (14 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set). They run
+197 tests in 19 files (25 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
 (`test-support/supabase-tokens.ts`), and never need a real secret, port 3000 or the network.
@@ -292,12 +357,22 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
      the value of `GITHUB_WEBHOOK_SECRET` in `services/gateway/.env`.
    - Repository permissions: **Pull requests: Read and write** (inline review comments),
      **Checks: Read and write** (the Check Run), **Contents: Read** (Metadata: Read is automatic).
-   - Subscribe to events: **Pull request**. Where can it be installed: **Only on this account**.
-3. On the App page: note the **App ID**, then **Generate a private key** and save the `.pem` as
-   `services/gateway/github-app.pem`.
-4. **Install App** → only `code-sentinel-playground`.
-5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`, then
-   either of these:
+     Organization permissions: **Members: Read** (tells org admins from members when connecting).
+   - Subscribe to events: **Pull request**. GitHub sends `installation` and
+     `installation_repositories` to every App without a subscription.
+   - Where can it be installed: **Any account**, so organizations and teammates can install it.
+   - **Identifying and authorizing users:** Callback URL `http://localhost:3001/onboarding/github/callback`
+     (the dashboard), **Expire user authorization tokens** on, **Request user authorization (OAuth)
+     during installation** on.
+   - **Post installation:** Setup URL the same callback, **Redirect on update** on.
+3. On the App page: note the **App ID** and **Client ID**, **Generate a new client secret**, then
+   **Generate a private key** and save the `.pem` as `services/gateway/github-app.pem`.
+4. **Install App** from the dashboard (Repositories → **Add repositories**), or from GitHub on
+   `code-sentinel-playground` and then **Connect GitHub** in the dashboard.
+5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`,
+   `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` and `FIELD_ENCRYPTION_KEY` (see
+   [Configuration](#configuration)), and in `apps/dashboard/.env.local` `GITHUB_APP_SLUG` and
+   `GITHUB_APP_CLIENT_ID`. Then either of these:
    - **In memory:** `GATEWAY_SEED=dev`, `GATEWAY_DEV_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507`.
    - **With Supabase dev:** `GATEWAY_SEED=none` and `DATABASE_URL=<session pooler URL>`. Then seed the
      repository once: set `SEED_GITHUB_REPOSITORY=sumit-0804/code-sentinel-playground:1390792507` in
