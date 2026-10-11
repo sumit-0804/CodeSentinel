@@ -1,5 +1,5 @@
 /** Pages that need a signed-in user. Every page also checks for itself; the proxy only redirects early. */
-const APP_PREFIXES = ["/overview", "/pull-requests", "/repositories", "/settings", "/reset-password"];
+const APP_PREFIXES = ["/overview", "/pull-requests", "/repositories", "/settings", "/reset-password", "/onboarding"];
 
 /** Pages a signed-in user has no reason to see. */
 const GUEST_ONLY = ["/sign-in", "/sign-up", "/forgot-password"];

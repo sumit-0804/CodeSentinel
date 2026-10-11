@@ -33,6 +33,30 @@ export function parseGatewayUrl(value: string | undefined): string | undefined {
 
 export const gatewayUrl = () => parseGatewayUrl(process.env.GATEWAY_URL);
 
+const githubAppSchema = z.object({
+  // The App's URL name, as in https://github.com/apps/<slug>.
+  slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,38}$/, "GITHUB_APP_SLUG must be the App's URL name, e.g. code-sentinel-mvp"),
+  clientId: z.string().regex(/^[A-Za-z0-9.]{10,40}$/, "GITHUB_APP_CLIENT_ID must be the App's client ID"),
+});
+
+export type GithubAppEnv = z.infer<typeof githubAppSchema>;
+
+/** The GitHub App the install and connect links point at. Server-only; unset → undefined (the buttons explain why). */
+export function parseGithubApp(slug: string | undefined, clientId: string | undefined): GithubAppEnv | undefined {
+  if (!slug?.trim() && !clientId?.trim()) return undefined;
+  const result = githubAppSchema.safeParse({ slug: slug?.trim(), clientId: clientId?.trim() });
+  if (!result.success) {
+    const names: Record<string, string> = { slug: "GITHUB_APP_SLUG", clientId: "GITHUB_APP_CLIENT_ID" };
+    const problems = result.error.issues.map((issue) =>
+      issue.code === "invalid_type" ? `${names[String(issue.path[0])]} is required` : issue.message,
+    );
+    throw new Error(`${problems.join("; ")}. Set both; see apps/dashboard/.env.example.`);
+  }
+  return result.data;
+}
+
+export const githubApp = () => parseGithubApp(process.env.GITHUB_APP_SLUG, process.env.GITHUB_APP_CLIENT_ID);
+
 let cached: DashboardEnv | undefined;
 
 // Read lazily so `next build` works without env (CI); the literal names let Next inline them.

@@ -8,7 +8,8 @@ const TIMEOUT_MS = 5000;
 
 /** Why a call failed, so a page can say what went wrong instead of crashing. */
 export type GatewayFailure = "unconfigured" | "unreachable" | "unauthorized" | "error";
-export type GatewayResult<T> = { ok: true; data: T } | { ok: false; reason: GatewayFailure; status?: number };
+/** A failure carries the gateway's error `code` when it sent one (e.g. `github_account_taken`). */
+export type GatewayResult<T> = { ok: true; data: T } | { ok: false; reason: GatewayFailure; status?: number; code?: string };
 
 /**
  * Calls the gateway from the server with the signed-in user's Supabase access token (the BFF
@@ -40,9 +41,13 @@ export async function gatewayFetch<T>(
     return { ok: false, reason: "unreachable" };
   }
 
-  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
-  if (!response.ok) return { ok: false, reason: "error", status: response.status };
+  const body: unknown = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const code = (body as { code?: unknown } | undefined)?.code;
+    const reason = response.status === 401 || response.status === 403 ? "unauthorized" : "error";
+    return { ok: false, reason, status: response.status, ...(typeof code === "string" ? { code } : {}) };
+  }
 
-  const parsed = schema.safeParse(await response.json().catch(() => undefined));
+  const parsed = schema.safeParse(body);
   return parsed.success ? { ok: true, data: parsed.data } : { ok: false, reason: "error", status: response.status };
 }
