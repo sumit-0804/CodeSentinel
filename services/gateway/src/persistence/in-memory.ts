@@ -7,7 +7,6 @@ import type {
   RepositoryConfigStore,
   RepositoryRecord,
   RepositoryStore,
-  SessionRecord,
   SessionStore,
   Stores,
   UserRecord,
@@ -20,7 +19,8 @@ export interface StoreSeed {
   repositorySettings: ({ repositoryId: string } & RepositorySettingsInput)[];
   /** Only rows that exist; an agent without a row is enabled (the column default). */
   repositoryAgentConfig: { repositoryId: string; agent: AgentKind; enabled: boolean }[];
-  sessions: SessionRecord[];
+  /** Supabase session ids that are still signed in; like `auth.sessions`, any other id is not active. */
+  activeSessionIds: string[];
   apiKeys: ApiKeyRecord[];
   users: UserRecord[];
 }
@@ -30,7 +30,7 @@ export const emptySeed = (): StoreSeed => ({
   repositories: [],
   repositorySettings: [],
   repositoryAgentConfig: [],
-  sessions: [],
+  activeSessionIds: [],
   apiKeys: [],
   users: [],
 });
@@ -74,12 +74,7 @@ export class InMemoryStores implements Stores {
     };
 
     this.sessions = {
-      findActiveByTokenHash: async (tokenHash, now) =>
-        copy(
-          data.sessions.find(
-            (s) => s.tokenHash === tokenHash && s.revokedAt === undefined && s.expiresAt.getTime() > now.getTime(),
-          ),
-        ),
+      isActive: async (sessionId) => data.activeSessionIds.includes(sessionId),
     };
 
     this.apiKeys = {
@@ -93,6 +88,18 @@ export class InMemoryStores implements Stores {
 
     this.users = {
       findById: async (userId) => copy(data.users.find((u) => u.userId === userId)),
+      recordSignIn: async ({ userId, email, name, avatarUrl }) => {
+        // Mirrors the unique `users.email`: an address another row holds is skipped, not an error.
+        const emailFree = email !== undefined && !data.users.some((u) => u.email === email && u.userId !== userId);
+        const fields = {
+          ...(emailFree ? { email } : {}),
+          ...(name !== undefined ? { name } : {}),
+          ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+        };
+        const existing = data.users.find((u) => u.userId === userId);
+        if (existing) Object.assign(existing, fields);
+        else data.users.push({ userId, memberships: [], ...fields });
+      },
     };
   }
 }

@@ -31,7 +31,7 @@ export function uniqueSeed() {
     ],
     repositorySettings: [],
     repositoryAgentConfig: [],
-    sessions: [],
+    activeSessionIds: [],
     apiKeys: [
       { keyId, userId, organizationId, label: "Test", keyPrefix: apiKey.slice(0, 12), keyHash: sha256Hex(apiKey) },
       {
@@ -60,9 +60,14 @@ type UniqueSeed = ReturnType<typeof uniqueSeed>;
 
 /**
  * The behaviour every `Stores` implementation must share. `makeStores` builds stores holding exactly
- * `seed` (plus whatever unrelated rows already exist).
+ * `seed` (plus whatever unrelated rows already exist). `cleanUp` removes users a case created itself;
+ * `sessions: false` skips the session cases where active sessions cannot be seeded (a real Supabase project).
  */
-export function describeStoresContract(makeStores: (seed: StoreSeed) => Promise<Stores>): void {
+export function describeStoresContract(
+  makeStores: (seed: StoreSeed) => Promise<Stores>,
+  options: { sessions: boolean; cleanUp?: (userId: string) => Promise<void> } = { sessions: true },
+): void {
+  const { cleanUp } = options;
   async function build(edit: (s: UniqueSeed) => void = () => {}) {
     const unique = uniqueSeed();
     edit(unique);
@@ -179,6 +184,55 @@ export function describeStoresContract(makeStores: (seed: StoreSeed) => Promise<
 
       expect(user).toBeDefined();
       expect(user).not.toHaveProperty("githubLogin");
+    });
+
+    it("records a first sign-in as a new user without memberships", async () => {
+      const { stores } = await build();
+      const userId = randomUUID();
+
+      await stores.users.recordSignIn({ userId, email: `new-${userId}@example.test`, name: "Ada Lovelace", avatarUrl: "https://a.example/ada.png" }, new Date());
+
+      await expect(stores.users.findById(userId)).resolves.toEqual({
+        userId,
+        email: `new-${userId}@example.test`,
+        name: "Ada Lovelace",
+        avatarUrl: "https://a.example/ada.png",
+        memberships: [],
+      });
+      await cleanUp?.(userId);
+    });
+
+    it("refreshes an existing user's profile and keeps their memberships", async () => {
+      const { stores, ids, seed } = await build();
+
+      await stores.users.recordSignIn({ userId: ids.userId, name: "Renamed" }, new Date());
+
+      const user = await stores.users.findById(ids.userId);
+      expect(user).toMatchObject({ name: "Renamed", email: seed.users[0]!.email, memberships: seed.users[0]!.memberships });
+    });
+
+    it("skips an email another user already holds instead of failing", async () => {
+      const { stores, seed } = await build();
+      const userId = randomUUID();
+
+      await stores.users.recordSignIn({ userId, email: seed.users[0]!.email!, name: "Duplicate" }, new Date());
+
+      const user = await stores.users.findById(userId);
+      expect(user).toMatchObject({ userId, name: "Duplicate" });
+      expect(user).not.toHaveProperty("email");
+      await cleanUp?.(userId);
+    });
+  });
+
+  describe.skipIf(!options.sessions)("sessions", () => {
+    it("reports a signed-in session as active and an unknown one as not", async () => {
+      const sessionId = randomUUID();
+      const { stores } = await build(({ seed }) => {
+        seed.activeSessionIds.push(sessionId);
+      });
+
+      await expect(stores.sessions.isActive(sessionId)).resolves.toBe(true);
+      await expect(stores.sessions.isActive(randomUUID())).resolves.toBe(false);
     });
   });
 }

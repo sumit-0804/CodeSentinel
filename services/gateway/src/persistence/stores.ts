@@ -27,16 +27,6 @@ export interface EffectiveRepositoryConfig {
   postInlineComments: boolean;
 }
 
-/** A `sessions` row. `tokenHash` is the SHA-256 of the `cs_session` JWT. */
-export interface SessionRecord {
-  sessionId: string;
-  userId: string;
-  organizationId: string;
-  tokenHash: string;
-  expiresAt: Date;
-  revokedAt?: Date;
-}
-
 /** An `api_keys` row. `keyHash` is the SHA-256 of the full `cs_live_` key; the key itself is never stored. */
 export interface ApiKeyRecord {
   keyId: string;
@@ -55,8 +45,17 @@ export interface UserRecord {
   /** Absent until the user links GitHub. */
   githubLogin?: string;
   email?: string;
+  name?: string;
   avatarUrl?: string;
   memberships: OrganizationMembership[];
+}
+
+/** Profile fields from a verified Supabase token, written to `users` when the user signs in. */
+export interface SignInProfile {
+  userId: string;
+  email?: string;
+  name?: string;
+  avatarUrl?: string;
 }
 
 export interface RepositoryStore {
@@ -68,9 +67,9 @@ export interface RepositoryConfigStore {
   getEffectiveConfig(repositoryId: string): Promise<EffectiveRepositoryConfig | undefined>;
 }
 
+/** Supabase owns sessions; the gateway only asks whether one is still live, so sign-out applies before `exp`. */
 export interface SessionStore {
-  /** Only sessions that are neither revoked nor expired at `now`. */
-  findActiveByTokenHash(tokenHash: string, now: Date): Promise<SessionRecord | undefined>;
+  isActive(sessionId: string): Promise<boolean>;
 }
 
 export interface ApiKeyStore {
@@ -81,6 +80,8 @@ export interface ApiKeyStore {
 
 export interface UserStore {
   findById(userId: string): Promise<UserRecord | undefined>;
+  /** Inserts or refreshes the `users` row (replaces Supabase's auth trigger); memberships are untouched. */
+  recordSignIn(profile: SignInProfile, now: Date): Promise<void>;
 }
 
 export interface Stores {

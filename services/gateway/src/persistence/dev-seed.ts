@@ -34,7 +34,7 @@ export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRe
     ],
     repositorySettings: [],
     repositoryAgentConfig: [],
-    sessions: [],
+    activeSessionIds: [],
     apiKeys: [
       {
         keyId: "1b2c3d4e-5f60-4718-8293-a4b5c6d7e8f9",

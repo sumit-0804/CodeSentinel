@@ -1,35 +1,39 @@
-import { createPrismaClient, type PrismaClient } from "@code-sentinel/db";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createPrismaClient } from "@code-sentinel/db";
+import { afterAll, afterEach, describe } from "vitest";
 
-import { deleteSeed, writeSeed } from "../test-support/prisma-seed.js";
+import { deleteSeed, installSessionStandIn, writeSeed } from "../test-support/prisma-seed.js";
 import { describeStoresContract } from "../test-support/stores-contract.js";
 import type { StoreSeed } from "./in-memory.js";
 import { PrismaStores } from "./prisma-stores.js";
 
 // Needs a migrated database: CI sets TEST_DATABASE_URL to its Postgres service; locally it is opt-in.
 const url = process.env.TEST_DATABASE_URL;
+const prisma = url ? createPrismaClient(url) : undefined;
+// Decided before the suite is collected, because it switches the session cases on or off.
+const sessions = prisma ? await installSessionStandIn(prisma) : false;
 
-describe.skipIf(!url)("PrismaStores (integration)", () => {
-  let prisma: PrismaClient;
+describe.skipIf(!prisma)("PrismaStores (integration)", () => {
+  const db = prisma!;
   const written: StoreSeed[] = [];
 
-  beforeAll(() => {
-    prisma = createPrismaClient(url!);
-  });
   afterEach(async () => {
-    for (const seed of written.splice(0)) await deleteSeed(prisma, seed);
+    for (const seed of written.splice(0)) await deleteSeed(db, seed, { sessions });
   });
   afterAll(async () => {
-    await prisma.$disconnect();
+    await db.$disconnect();
   });
 
-  describeStoresContract(async (seed) => {
-    written.push(seed);
-    await writeSeed(prisma, seed);
-    return new PrismaStores(prisma);
-  });
-
-  it("never returns a cs_session session, because Supabase owns sessions", async () => {
-    await expect(new PrismaStores(prisma).sessions.findActiveByTokenHash("ab".repeat(32), new Date())).resolves.toBeUndefined();
-  });
+  describeStoresContract(
+    async (seed) => {
+      written.push(seed);
+      await writeSeed(db, seed, { sessions });
+      return new PrismaStores(db);
+    },
+    {
+      sessions,
+      cleanUp: async (userId) => {
+        await db.user.deleteMany({ where: { id: userId } });
+      },
+    },
+  );
 });

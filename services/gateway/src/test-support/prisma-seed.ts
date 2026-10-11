@@ -4,8 +4,31 @@ import type { PrismaClient } from "@code-sentinel/db";
 
 import type { StoreSeed } from "../persistence/in-memory.js";
 
+/**
+ * A test database has no Supabase `auth` schema, so it gets a stand-in `private.session_is_active`
+ * backed by `private.test_sessions`. A database that already has the real function is left alone;
+ * then `false` is returned and active sessions cannot be seeded.
+ */
+export async function installSessionStandIn(prisma: PrismaClient): Promise<boolean> {
+  const [fn] = await prisma.$queryRaw<{ exists: boolean }[]>`select to_regprocedure('private.session_is_active(uuid)') is not null as exists`;
+  if (fn?.exists) {
+    const [table] = await prisma.$queryRaw<{ exists: boolean }[]>`select to_regclass('private.test_sessions') is not null as exists`;
+    return table?.exists === true;
+  }
+  await prisma.$executeRawUnsafe(`create schema if not exists private`);
+  await prisma.$executeRawUnsafe(`create table if not exists private.test_sessions (id uuid primary key)`);
+  await prisma.$executeRawUnsafe(
+    `create function private.session_is_active(session_id uuid) returns boolean language sql stable
+     as $$ select exists (select 1 from private.test_sessions where id = session_id) $$`,
+  );
+  return true;
+}
+
 /** Writes a `StoreSeed` as database rows. Logins and GitHub ids are random, so seeds never collide. */
-export async function writeSeed(prisma: PrismaClient, seed: StoreSeed): Promise<void> {
+export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { sessions = false } = {}): Promise<void> {
+  if (sessions) {
+    for (const id of seed.activeSessionIds) await prisma.$executeRaw`insert into private.test_sessions (id) values (${id}::uuid)`;
+  }
   const displayNames = new Map(seed.users.flatMap((u) => u.memberships).map((m) => [m.organizationId, m.displayName]));
 
   for (const org of seed.organizations) {
@@ -54,6 +77,7 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed): Promise<
         id: user.userId,
         githubLogin: user.githubLogin ?? null,
         email: user.email ?? null,
+        name: user.name ?? null,
         avatarUrl: user.avatarUrl ?? null,
         memberships: { create: user.memberships.map((m) => ({ organizationId: m.organizationId, role: m.role })) },
       },
@@ -76,7 +100,10 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed): Promise<
 }
 
 /** Removes what `writeSeed` wrote; deleting organizations and users cascades to everything else. */
-export async function deleteSeed(prisma: PrismaClient, seed: StoreSeed): Promise<void> {
+export async function deleteSeed(prisma: PrismaClient, seed: StoreSeed, { sessions = false } = {}): Promise<void> {
+  if (sessions && seed.activeSessionIds.length > 0) {
+    await prisma.$executeRaw`delete from private.test_sessions where id = any(${seed.activeSessionIds}::uuid[])`;
+  }
   await prisma.organization.deleteMany({ where: { id: { in: seed.organizations.map((o) => o.organizationId) } } });
   await prisma.user.deleteMany({ where: { id: { in: seed.users.map((u) => u.userId) } } });
 }

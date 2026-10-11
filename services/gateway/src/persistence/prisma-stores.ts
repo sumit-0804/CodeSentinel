@@ -60,8 +60,13 @@ export class PrismaStores implements Stores {
       },
     };
 
-    // Supabase owns sessions and there is no `sessions` table, so no `cs_session` cookie is valid here (A5 removes the path).
-    this.sessions = { findActiveByTokenHash: async () => undefined };
+    // `auth.sessions` is Supabase's; `private.session_is_active` is a security-definer function only `prisma` may run.
+    this.sessions = {
+      isActive: async (sessionId) => {
+        const rows = await prisma.$queryRaw<{ active: boolean }[]>`select private.session_is_active(${sessionId}::uuid) as active`;
+        return rows[0]?.active === true;
+      },
+    };
 
     this.apiKeys = {
       findActiveByKeyHash: async (keyHash) => {
@@ -96,6 +101,7 @@ export class PrismaStores implements Stores {
           userId: row.id,
           ...(row.githubLogin !== null ? { githubLogin: row.githubLogin } : {}),
           ...(row.email !== null ? { email: row.email } : {}),
+          ...(row.name !== null ? { name: row.name } : {}),
           ...(row.avatarUrl !== null ? { avatarUrl: row.avatarUrl } : {}),
           memberships: row.memberships.map((m) => ({
             organizationId: m.organizationId,
@@ -103,6 +109,24 @@ export class PrismaStores implements Stores {
             role: m.role,
           })),
         };
+      },
+      recordSignIn: async ({ userId, email, name, avatarUrl }, now) => {
+        const write = (withEmail: boolean) => {
+          const fields = {
+            ...(withEmail && email !== undefined ? { email } : {}),
+            ...(name !== undefined ? { name } : {}),
+            ...(avatarUrl !== undefined ? { avatarUrl } : {}),
+            lastSeenAt: now,
+          };
+          return prisma.user.upsert({ where: { id: userId }, create: { id: userId, ...fields }, update: fields });
+        };
+        try {
+          await write(true);
+        } catch (error) {
+          // `users.email` is unique; if another row holds the address (seed or dev data), keep signing in without it.
+          if ((error as { code?: unknown }).code !== "P2002") throw error;
+          await write(false);
+        }
       },
     };
   }
