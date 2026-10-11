@@ -25,8 +25,11 @@ export interface JobStore {
   /** One GitHub review per repository, pull request and head commit, as `uq_reviews_pr_head` requires. */
   insert(job: ReviewJob, request: ReviewJobRequest, idempotencyKey?: string): Promise<InsertResult>;
   markRunning(jobId: string, startedAt: string): Promise<void>;
-  /** Writes a terminal job only while the stored one is still queued or running; `false` otherwise. */
-  complete(job: ReviewJob): Promise<boolean>;
+  /**
+   * Writes a terminal job only while the stored one is still queued or running; `false` otherwise.
+   * `request` (the job's own) lets a database store record each agent's time budget.
+   */
+  complete(job: ReviewJob, request?: ReviewJobRequest): Promise<boolean>;
   /** Fails every queued or running job; called once at startup, before any new job exists. */
   failOrphaned(completedAt: string): Promise<number>;
 }

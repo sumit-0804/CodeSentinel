@@ -107,25 +107,23 @@ export class ReviewJobController {
         { reviewId: job.reviewId, request, ...(requestId !== undefined ? { requestId } : {}) },
         { signal: controller.signal },
       );
-      await this.finish({ ...job, startedAt, status: report.status, agentRuns: report.agentRuns, report });
+      await this.finish({ ...job, startedAt, status: report.status, agentRuns: report.agentRuns, report }, request);
       this.logger.info("review job finished", { ...log, status: report.status });
     } catch (error) {
       if (controller.signal.aborted) return;
       this.logger.error("review job failed", { ...log, error });
-      await this.finish({
-        ...job,
-        startedAt,
-        status: "failed",
-        error: { code: "internal_error", message: "The review could not be completed" },
-      });
+      await this.finish(
+        { ...job, startedAt, status: "failed", error: { code: "internal_error", message: "The review could not be completed" } },
+        request,
+      );
     } finally {
       this.inFlight.delete(job.jobId);
     }
   }
 
   /** Writes the final state; the store ignores it if the job was cancelled meanwhile. */
-  private async finish(job: ReviewJob): Promise<void> {
-    await this.store.complete({ ...job, completedAt: this.timestamp() });
+  private async finish(job: ReviewJob, request: ReviewJobRequest): Promise<void> {
+    await this.store.complete({ ...job, completedAt: this.timestamp() }, request);
   }
 
   private timestamp(): string {

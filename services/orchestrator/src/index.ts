@@ -12,7 +12,8 @@
 
 export { createApp, DEFAULT_VERSION, type AppDeps } from "./app.js";
 export { loadOrchestratorConfig, OrchestratorConfigError, type OrchestratorConfig } from "./config.js";
-export { InMemoryJobStore, isTerminal, type JobStore } from "./jobs/job-store.js";
+export { InMemoryJobStore, isTerminal, ORPHANED_ERROR, type JobStore } from "./jobs/job-store.js";
+export { PrismaJobStore } from "./jobs/prisma-job-store.js";
 export {
   ReviewJobController,
   type CreatedJob,
