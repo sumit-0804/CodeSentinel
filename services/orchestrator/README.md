@@ -19,7 +19,7 @@ there.
 | HTTP server (`orchestrator.yaml`) | `app.ts`, `server.ts`, `routes/` | working |
 | Service-token auth on `/internal/*` | `serviceAuthMiddleware` from `@code-sentinel/service-kit` | working |
 | `ReviewJobController` (create, poll, cancel, idempotency) | `jobs/review-job-controller.ts` | working |
-| Job store | `jobs/job-store.ts` | in-memory, finished jobs dropped after `JOB_RETENTION_MS` |
+| Job store | `jobs/job-store.ts` (`JobStore`, `InMemoryJobStore`), `jobs/prisma-job-store.ts` (`PrismaJobStore`) | working; Supabase Postgres with `DATABASE_URL`, otherwise in memory. See [Persistence](#persistence) |
 | Config from env, validated at startup | `config.ts`, `agents/agent-config.ts` | working |
 | Review graph (`ReviewGraph`, `ReviewState`) | `graph/review-graph.ts`, `graph/review-state.ts` | working |
 | Parallel fan-out + timeout (FR-ORC-01/02, NFR-02/04) | `graph/fan-out-node.ts` | working |
@@ -47,17 +47,55 @@ Only the gateway calls the orchestrator. Every `/internal/v1` route needs
 
 | Route | Answer |
 | --- | --- |
-| `POST /internal/v1/review-jobs` | 202 + `ReviewJob` (`queued`), and the review runs in the background. 200 + the existing job when `Idempotency-Key` was seen before. 400 `invalid_body` / `invalid_header`, 422 `no_agents_enabled` when `enabledAgents` is empty |
+| `POST /internal/v1/review-jobs` | 202 + `ReviewJob` (`queued`), and the review runs in the background. 200 + the existing job when `Idempotency-Key` was seen before, or when this pull request commit (repository, PR number, head SHA) was already reviewed. 400 `invalid_body` / `invalid_header`, 422 `no_agents_enabled` when `enabledAgents` is empty |
 | `GET /internal/v1/review-jobs/{jobId}` | 200 + `ReviewJob`: `running`, then `completed` / `partial` / `failed` with `report` and `agentRuns`. 404 `not_found` |
 | `POST /internal/v1/review-jobs/{jobId}/cancel` | 200 + `cancelled` job; aborts every agent call in flight. A finished job is returned unchanged. 404 `not_found` |
 | `GET /internal/v1/agents/health` | Each agent's `/healthz`, polled on demand (2 s per agent) and cached 30 s. An agent with no URL or no answer is `unavailable` |
-| `GET /healthz` | `{ status: "ok", version }`, no token needed |
+| `GET /healthz` | `{ status: "ok", version }`, no token needed. With `DATABASE_URL` it adds `checks.database` (`ok` / `unavailable`, `SELECT 1` within 2 s) and is `degraded` when the database is not `ok` |
 | missing or wrong token | 401 `unauthenticated` / `invalid_credentials` |
 
 A job's status follows the report's (see the status rules below). A run that throws is `failed` with
 `error.code: internal_error`, and the error is logged. A cancel always wins: a run that finishes
 after its job was cancelled does not overwrite it. `X-Request-Id` from the gateway is forwarded to
 every agent call, and the request log line carries `jobId`, `reviewId` and `created`.
+
+## Persistence
+
+`server.ts` picks the job store at startup, and the `orchestrator listening` line says which (`stores`):
+
+| `DATABASE_URL` | Store | Jobs |
+| --- | --- | --- |
+| set | `PrismaJobStore` over [`@code-sentinel/db`](../../packages/db/README.md) | one `reviews` row per job (`reviews.id` = `reviewId`, `job_id`, `idempotency_key`); kept as history and readable after a restart |
+| unset | `InMemoryJobStore` | lost on restart; finished jobs are dropped after `JOB_RETENTION_MS` |
+
+When a job finishes, `PrismaJobStore.complete()` writes in one transaction:
+- the status, timestamps and `duration_ms`
+- the full `CombinedReport` as `report` JSON (what the API returns)
+- one row per agent run, with `timeout_ms` = the agent's real budget (`agentBudgetMs()`)
+- one row per finding, with `dedupe_key` from `dedupeKey()`, `severity_rank` from `severityRank()` and `duplicate_count`
+- one `proposed` suggestion per finding that carries a fix
+
+Every write to a finished state is guarded by `status in (queued, running)`, so a cancel and a finishing
+run never overwrite each other.
+
+Both stores pass the same contract suite (`test-support/job-store-contract.ts`): in memory on every
+run, and against Postgres in `prisma-job-store.integration.test.ts` when `TEST_DATABASE_URL` is set
+(CI). The Postgres run creates its own organization and repository with random ids and deletes them,
+and the reviews with them.
+
+Things to know:
+- **Orphaned jobs.** At startup the orchestrator marks every `queued` or `running` review `failed`
+  with `error.code: orchestrator_restarted`, and logs how many. A restart mid-review therefore
+  completes the gateway's Check Run as "Review did not complete" instead of leaving it waiting. This
+  assumes **one orchestrator instance** per database, which is how it's deployed. The integration
+  suite's `failOrphaned` case does the same to any active review in the test database.
+- **One review per pull request commit.** `uq_reviews_pr_head` allows one GitHub review per
+  repository, PR number and head SHA, and `InMemoryJobStore` applies the same rule. Re-opening a PR on
+  an already reviewed commit returns the existing job (the gateway logs `duplicate_ignored`); a new
+  push reviews again.
+- **The repository must exist.** `reviews.repository_id` references `repositories`. With the gateway
+  on memory and `GATEWAY_SEED=dev`, it does, because the db seed uses the same example ids.
+  Otherwise creating the job fails with 500.
 
 ## Graph
 
@@ -156,7 +194,8 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `8080` | Listen port, integer 1..65535 |
-| `JOB_RETENTION_MS` | `3600000` | How long a finished job stays readable, integer 60000..86400000 |
+| `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role), the same value as the gateway's. Set → `PrismaJobStore`; postgres URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
+| `JOB_RETENTION_MS` | `3600000` | In memory only: how long a finished job stays readable, integer 60000..86400000 |
 | `LLM_AGENT_TIMEOUT_MS` | `45000` | Minimum timeout for LLM agents, integer 1000..120000 |
 | `GROQ_*`, `GEMINI_*`, `LLM_*` | see [`packages/llm`](../../packages/llm/README.md) | Provider keys and limits of **this environment's** keys, and the batch sizes |
 | `AGENT_SECURITY_URL` | unset | Security agent base URL |
@@ -173,7 +212,6 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 
 - `callbackUrl`: accepted but not called yet (a warning is logged); the gateway polls instead
 - `agentRuns` while a job is running: they appear only once the job finishes
-- `ReviewRepository` (PostgreSQL persistence), replacing the in-memory job store
 - Chroma `VectorRepository` implementation
 - Gemini embeddings into the vector store (`GeminiEmbedder` exists in `packages/llm`)
 

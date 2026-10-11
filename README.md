@@ -51,7 +51,7 @@ The monorepo uses npm workspaces with [Turborepo](https://turbo.build/) for task
 To run the pipeline locally:
 - Copy each service's `.env.example` to `.env`, all four with the same `SERVICE_TOKEN`.
 - Point the gateway's `ORCHESTRATOR_URL` and the orchestrator's `AGENT_SECURITY_URL` / `AGENT_STYLE_URL` at `http://127.0.0.1:<port>`. An agent without a URL is skipped.
-- The gateway uses Supabase when `DATABASE_URL` is set, and in-memory stores otherwise (see [Persistence](services/gateway/README.md#persistence)).
+- The gateway and the orchestrator use Supabase when `DATABASE_URL` is set (the same value in both), and memory otherwise. See the [gateway](services/gateway/README.md#persistence) and [orchestrator](services/orchestrator/README.md#persistence) Persistence sections.
 
 Then, after `npm run build`, start each service in its own terminal:
 
