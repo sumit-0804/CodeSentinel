@@ -24,6 +24,7 @@ changes for Supabase Auth and job persistence:
 | `sessions` removed | Supabase owns sessions (`auth.sessions`) |
 | `github_user_tokens` added (sealed with AES-256-GCM) | GitHub App user tokens for installation sync (Phase A, A6) |
 | `organizations.account_type` | An installation can be on a personal account or an organization |
+| `repositories.removed_at`; name unique only among active rows (migration `20261011120000`) | A repository that leaves its installation, or whose App is uninstalled, is marked removed rather than deleted, so its review history stays; a recreated repository can reuse the name (A6) |
 | `reviews.job_id`, `idempotency_key`, `report` (JSONB), `error` (JSONB); status `cancelled` | The orchestrator's job store lives in `reviews`, and the API answers from one row |
 
 Prisma can't express the CHECK constraints or row-level security, so they are hand-written at the

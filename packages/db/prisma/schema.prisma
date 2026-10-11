@@ -230,6 +230,8 @@ model Repository {
   isPrivate            Boolean  @default(true) @map("is_private")
   reviewEnabled        Boolean  @default(true) @map("review_enabled")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Set when the repository leaves its installation or the App is uninstalled; the row and its reviews stay.
+  removedAt            DateTime? @map("removed_at") @db.Timestamptz(6)
 
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   installation GithubInstallation      @relation(fields: [githubInstallationId], references: [id], onDelete: Cascade)
@@ -237,8 +239,9 @@ model Repository {
   agentConfig  RepositoryAgentConfig[]
   reviews      Review[]
 
-  @@unique([organizationId, fullName])
-  @@index([organizationId], map: "idx_repositories_org", where: raw("review_enabled"))
+  // Only active rows must have unique names: a removed repository may be recreated on GitHub under the same name.
+  @@unique([organizationId, fullName], map: "uq_repositories_org_name_active", where: raw("removed_at IS NULL"))
+  @@index([organizationId], map: "idx_repositories_org", where: raw("review_enabled AND removed_at IS NULL"))
   @@map("repositories")
 }
 
