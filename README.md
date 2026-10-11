@@ -16,6 +16,8 @@ database schema.
 ## Repository layout
 
 ```
+apps/            User-facing apps
+  dashboard/     Next.js 16 dashboard — Supabase Auth (email, GitHub, Google), app shell, onboarding
 services/        Deployable services (one per SOA component)
   gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
   orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
@@ -72,6 +74,13 @@ npm run start -w @code-sentinel/gateway
 ```
 
 Each service README has a step-by-step manual check.
+
+The dashboard runs on `http://localhost:3001` after copying `apps/dashboard/.env.example` to `.env.local`; see
+[`apps/dashboard/README.md`](apps/dashboard/README.md):
+
+```bash
+npm run dev -w @code-sentinel/dashboard
+```
 
 ## Continuous integration
 
