@@ -7,7 +7,6 @@ const FULL_ENV = {
   ORCHESTRATOR_URL: "http://orchestrator.internal:8080",
   ORCHESTRATOR_TIMEOUT_MS: "7000",
   SERVICE_TOKEN: "service-token",
-  JWT_SECRET: "0123456789abcdef0123456789abcdef",
   GITHUB_WEBHOOK_SECRET: "webhook-secret-16",
   GATEWAY_SEED: "dev",
 };
@@ -29,7 +28,6 @@ describe("loadGatewayConfig", () => {
       orchestratorUrl: "http://orchestrator.internal:8080",
       orchestratorTimeoutMs: 7000,
       serviceToken: "service-token",
-      jwtSecret: "0123456789abcdef0123456789abcdef",
       githubWebhookSecret: "webhook-secret-16",
       seed: "dev",
       reviewPollTimeoutMs: 300_000,
@@ -50,10 +48,10 @@ describe("loadGatewayConfig", () => {
     expect(error.message).toContain("GITHUB_WEBHOOK_SECRET is required");
   });
 
-  it("rejects a JWT_SECRET shorter than 32 characters", () => {
-    const error = configError({ ...FULL_ENV, JWT_SECRET: "too-short" });
-
-    expect(error.message).toContain("JWT_SECRET must be at least 32 characters");
+  it("reads SUPABASE_URL without a trailing slash and rejects a non-http value", () => {
+    expect(loadGatewayConfig({ ...FULL_ENV, SUPABASE_URL: "https://ref.supabase.co/" }).supabaseUrl).toBe("https://ref.supabase.co");
+    expect(loadGatewayConfig(FULL_ENV).supabaseUrl).toBeUndefined();
+    expect(configError({ ...FULL_ENV, SUPABASE_URL: "ref.supabase.co" }).message).toContain("SUPABASE_URL must be an http or https URL");
   });
 
   it("rejects an ORCHESTRATOR_URL that is not http or https", () => {
@@ -75,11 +73,11 @@ describe("loadGatewayConfig", () => {
   });
 
   it("names every problem in one error", () => {
-    const error = configError({ ...FULL_ENV, SERVICE_TOKEN: "", JWT_SECRET: "short", PORT: "70000" });
+    const error = configError({ ...FULL_ENV, SERVICE_TOKEN: "", SUPABASE_URL: "nope", PORT: "70000" });
 
     expect(error.problems).toHaveLength(3);
     expect(error.message).toContain("SERVICE_TOKEN is required");
-    expect(error.message).toContain("JWT_SECRET");
+    expect(error.message).toContain("SUPABASE_URL");
     expect(error.message).toContain("PORT must be between 1 and 65535");
   });
   it("reads the GitHub App settings and the dev repository override", () => {
@@ -122,9 +120,29 @@ describe("loadGatewayConfig", () => {
     });
 
     it("is required in production", () => {
-      const error = configError({ ...FULL_ENV, GATEWAY_SEED: "none", NODE_ENV: "production", GITHUB_APP_ID: "1", GITHUB_PRIVATE_KEY_PATH: "k.pem" });
+      const error = configError({
+        ...FULL_ENV,
+        GATEWAY_SEED: "none",
+        NODE_ENV: "production",
+        GITHUB_APP_ID: "1",
+        GITHUB_PRIVATE_KEY_PATH: "k.pem",
+        SUPABASE_URL: "https://ref.supabase.co",
+      });
 
       expect(error.problems).toEqual(["DATABASE_URL is required when NODE_ENV is production"]);
     });
+  });
+
+  it("requires SUPABASE_URL in production", () => {
+    const error = configError({
+      ...FULL_ENV,
+      GATEWAY_SEED: "none",
+      NODE_ENV: "production",
+      GITHUB_APP_ID: "1",
+      GITHUB_PRIVATE_KEY_PATH: "k.pem",
+      DATABASE_URL: "postgresql://u:p@db.example:5432/postgres",
+    });
+
+    expect(error.problems).toEqual(["SUPABASE_URL is required when NODE_ENV is production"]);
   });
 });

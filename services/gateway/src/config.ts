@@ -9,8 +9,8 @@ export interface GatewayConfig {
   orchestratorTimeoutMs: number;
   /** Sent to the orchestrator as `Authorization: Bearer <token>`. */
   serviceToken: string;
-  /** HS256 key for the `cs_session` JWT. */
-  jwtSecret: string;
+  /** Supabase project URL; dashboard tokens are verified against its JWKS. Unset → only API keys work. */
+  supabaseUrl?: string;
   /** Verifies `X-Hub-Signature-256` on every webhook delivery (FR-GW-03). */
   githubWebhookSecret: string;
   /** `dev` loads in-memory demo data; never set in a deployed environment. */
@@ -57,20 +57,19 @@ const secret = (minLength: number) =>
     z.string().min(minLength, `must be at least ${minLength} characters`),
   );
 
+const httpUrl = z
+  .string()
+  .url("must be an http or https URL")
+  // `.url()` already reports unparseable values; this only rejects other schemes such as ftp:.
+  .refine((value) => !URL.canParse(value) || /^https?:$/.test(new URL(value).protocol), "must be an http or https URL");
+
 const EnvSchema = z.object({
   PORT: integer(1, 65535, 3000),
-  ORCHESTRATOR_URL: z.preprocess(
-    blankAsUndefined,
-    z
-      .string()
-      .url("must be an http or https URL")
-      .refine((value) => /^https?:$/.test(new URL(value).protocol), "must be an http or https URL"),
-  ),
+  ORCHESTRATOR_URL: z.preprocess(blankAsUndefined, httpUrl),
   ORCHESTRATOR_TIMEOUT_MS: integer(1000, 30000, 5000),
   REVIEW_POLL_TIMEOUT_MS: integer(10_000, 1_800_000, 300_000),
   SERVICE_TOKEN: secret(1),
-  // HS256 needs a 256-bit key.
-  JWT_SECRET: secret(32),
+  SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   GITHUB_WEBHOOK_SECRET: secret(16),
   GATEWAY_SEED: z.preprocess(blankAsUndefined, z.enum(["none", "dev"]).default("none")),
   DATABASE_URL: z.preprocess(
@@ -99,7 +98,11 @@ const EnvSchema = z.object({
     message: "is required when NODE_ENV is production",
     path: ["DATABASE_URL"],
   })
-  .refine((values) => (values.GITHUB_APP_ID === undefined) === (values.GITHUB_PRIVATE_KEY_PATH === undefined), {
+  .refine((values) => values.NODE_ENV !== "production" || values.SUPABASE_URL !== undefined, {
+    // Without it nobody can sign in to the dashboard.
+    message: "is required when NODE_ENV is production",
+    path: ["SUPABASE_URL"],
+  })  .refine((values) => (values.GITHUB_APP_ID === undefined) === (values.GITHUB_PRIVATE_KEY_PATH === undefined), {
     message: "must be set together with GITHUB_PRIVATE_KEY_PATH",
     path: ["GITHUB_APP_ID"],
   })
@@ -131,12 +134,12 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     orchestratorUrl: values.ORCHESTRATOR_URL,
     orchestratorTimeoutMs: values.ORCHESTRATOR_TIMEOUT_MS,
     serviceToken: values.SERVICE_TOKEN,
-    jwtSecret: values.JWT_SECRET,
     githubWebhookSecret: values.GITHUB_WEBHOOK_SECRET,
     seed: values.GATEWAY_SEED,
     reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
+  if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };
   }

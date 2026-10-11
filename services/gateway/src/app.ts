@@ -9,6 +9,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { createAuthMiddleware } from "./auth/authenticate.js";
+import { createSupabaseTokenVerifier, type SupabaseTokenVerifier } from "./auth/supabase-token.js";
 import type { GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
 import type { ReviewPublisher } from "./github/review-publisher.js";
@@ -31,8 +32,10 @@ export interface AppDeps {
   database?: DatabaseHealth;
   /** Reported by `/healthz`. */
   version?: string;
-  /** Clock for session and API-key expiry checks. */
+  /** Clock for API-key last use and sign-in records. */
   now?: () => Date;
+  /** Overrides the JWKS-backed verifier built from `config.supabaseUrl` (tests use a local key). */
+  supabaseVerifier?: SupabaseTokenVerifier;
   /** Posts finished reviews to GitHub; without it reviews run but nothing is posted. */
   publisher?: Pick<ReviewPublisher, "follow">;
 }
@@ -42,7 +45,7 @@ export interface AppDeps {
  * globally, so the webhook route receives the exact bytes GitHub signed (FR-GW-03).
  */
 export function createApp(deps: AppDeps): Express {
-  const { config, logger, orchestrator, github, stores, database, version = DEFAULT_VERSION, now, publisher } = deps;
+  const { config, logger, orchestrator, github, stores, database, version = DEFAULT_VERSION, now, publisher, supabaseVerifier } = deps;
   const app = express();
 
   app.disable("x-powered-by");
@@ -57,11 +60,14 @@ export function createApp(deps: AppDeps): Express {
 
   const v1 = express.Router();
   v1.use(express.json({ limit: "1mb" }));
+  const supabase = supabaseVerifier ?? (config.supabaseUrl ? createSupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl }) : undefined);
   v1.use(
     createAuthMiddleware({
-      jwtSecret: config.jwtSecret,
-      sessions: stores.sessions,
       apiKeys: stores.apiKeys,
+      sessions: stores.sessions,
+      users: stores.users,
+      logger,
+      ...(supabase ? { supabase } : {}),
       ...(now ? { now } : {}),
     }),
   );

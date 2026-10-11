@@ -5,17 +5,15 @@ import { noopLogger } from "@code-sentinel/service-kit";
 import { createHmac } from "node:crypto";
 
 import { sha256Hex } from "../auth/hash.js";
-import { signSessionToken } from "../auth/session-token.js";
 import type { AppDeps } from "../app.js";
 import type { GatewayConfig } from "../config.js";
 import { StubGitHubClient } from "../github/stub-github-client.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import { DEV_GITHUB_REPO_ID, DEV_USER_ID, devSeed } from "../persistence/dev-seed.js";
 import { InMemoryStores, type StoreSeed } from "../persistence/in-memory.js";
+import { TEST_SUPABASE_SESSION_ID } from "./supabase-tokens.js";
 
-export const TEST_JWT_SECRET = "test-jwt-secret-0123456789abcdef-0123";
 export const TEST_USER_ID = DEV_USER_ID;
-export const TEST_SESSION_ID = "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b";
 export const TEST_API_KEY = "cs_live_test_0123456789abcdef";
 export const TEST_API_KEY_ID = "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c";
 export const TEST_GITHUB_REPO_ID = DEV_GITHUB_REPO_ID;
@@ -27,7 +25,6 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
     orchestratorUrl: "http://orchestrator.test:8080",
     orchestratorTimeoutMs: 1000,
     serviceToken: "test-service-token",
-    jwtSecret: TEST_JWT_SECRET,
     githubWebhookSecret: TEST_WEBHOOK_SECRET,
     seed: "none",
     reviewPollTimeoutMs: 300_000,
@@ -45,27 +42,15 @@ export interface SeededStores {
   seed: StoreSeed;
   /** Plaintext of the seeded active API key. */
   apiKey: string;
-  /** Plaintext `cs_session` JWT of the seeded active session. */
-  sessionToken: string;
 }
 
 /**
- * The dev seed plus one active session and one active API key whose plaintexts the test knows.
- * `edit` adjusts the seed (revoke a key, disable an agent) before the stores are built.
+ * The dev seed plus one active API key whose plaintext the test knows, and the session that
+ * `testSupabase()` tokens carry marked active. `edit` adjusts the seed (revoke a key, sign out) first.
  */
 export async function seededStores(edit: (seed: StoreSeed) => void = () => {}): Promise<SeededStores> {
   const seed = baseSeed();
-  const sessionToken = await signSessionToken(
-    { userId: TEST_USER_ID, organizationId: EXAMPLE_ORGANIZATION_ID, sessionId: TEST_SESSION_ID },
-    TEST_JWT_SECRET,
-  );
-  seed.sessions.push({
-    sessionId: TEST_SESSION_ID,
-    userId: TEST_USER_ID,
-    organizationId: EXAMPLE_ORGANIZATION_ID,
-    tokenHash: sha256Hex(sessionToken),
-    expiresAt: new Date(Date.now() + 86_400_000),
-  });
+  seed.activeSessionIds.push(TEST_SUPABASE_SESSION_ID);
   seed.apiKeys.push({
     keyId: TEST_API_KEY_ID,
     userId: TEST_USER_ID,
@@ -75,7 +60,7 @@ export async function seededStores(edit: (seed: StoreSeed) => void = () => {}): 
     keyHash: sha256Hex(TEST_API_KEY),
   });
   edit(seed);
-  return { stores: new InMemoryStores(seed), seed, apiKey: TEST_API_KEY, sessionToken };
+  return { stores: new InMemoryStores(seed), seed, apiKey: TEST_API_KEY };
 }
 
 export const TEST_JOB_ID = "0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b";
