@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@code-sentinel/contracts": "*",
     "@dicebear/bottts-neutral": "^9.4.2",
     "@dicebear/core": "^9.4.2",
     "@supabase/ssr": "^0.12.7",

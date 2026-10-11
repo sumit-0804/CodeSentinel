@@ -23,6 +23,16 @@ export function parseEnv(source: Record<string, string | undefined>): DashboardE
   return result.data;
 }
 
+/** `GATEWAY_URL` is server-only (no NEXT_PUBLIC_): the browser never calls the gateway. Unset → undefined. */
+export function parseGatewayUrl(value: string | undefined): string | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const result = httpUrl.safeParse(value.trim());
+  if (!result.success) throw new Error("GATEWAY_URL must be an http or https URL. See apps/dashboard/.env.example.");
+  return result.data.replace(/\/+$/, "");
+}
+
+export const gatewayUrl = () => parseGatewayUrl(process.env.GATEWAY_URL);
+
 let cached: DashboardEnv | undefined;
 
 // Read lazily so `next build` works without env (CI); the literal names let Next inline them.
