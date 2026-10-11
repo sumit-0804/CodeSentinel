@@ -11,10 +11,16 @@ export { filterPullRequestFiles } from "./webhooks/file-filter.js";
 export { buildReviewJobRequest } from "./webhooks/review-job-request.js";
 export type { GitHubClient, PullRequestFile, PullRequestRef } from "./github/github-client.js";
 export { StubGitHubClient } from "./github/stub-github-client.js";
+export { OctokitGitHubUserClient, type GitHubUserClient, type GitHubUserTokens, type UserInstallation } from "./github/github-user-client.js";
+export { StubGitHubUserClient, type StubGitHubUser } from "./github/stub-github-user-client.js";
+export { GithubNotLinkedError, InstallationSync, syncInstallationRepositories } from "./github/installation-sync.js";
 export { InMemoryStores, type StoreSeed } from "./persistence/in-memory.js";
 export { PrismaStores } from "./persistence/prisma-stores.js";
+export { GithubAccountTakenError } from "./persistence/stores.js";
 export type {
   ApiKeyStore,
+  GithubTokenStore,
+  InstallationStore,
   RepositoryConfigStore,
   RepositoryStore,
   SessionStore,

@@ -20,6 +20,7 @@ export const WebhookActionSchema = z.enum([
   "duplicate_ignored",
   "event_ignored",
   "repository_disabled",
+  "installation_synced",
 ]);
 export type WebhookAction = z.infer<typeof WebhookActionSchema>;
 
@@ -126,6 +127,34 @@ export const RepositoryListResponseSchema = z.object({
   items: z.array(RepositorySchema),
 });
 export type RepositoryListResponse = z.infer<typeof RepositoryListResponseSchema>;
+
+/** A GitHub account (personal or organization) where the App is installed, as a member sees it. */
+export const InstallationSchema = z.object({
+  organizationId: z.string().uuid(),
+  accountLogin: z.string(),
+  accountType: z.enum(["user", "organization"]),
+  suspended: z.boolean(),
+  repositoryCount: z.number().int().nonnegative(),
+});
+export type Installation = z.infer<typeof InstallationSchema>;
+
+export const InstallationListResponseSchema = z.object({
+  items: z.array(InstallationSchema),
+});
+export type InstallationListResponse = z.infer<typeof InstallationListResponseSchema>;
+
+/** Body of POST /v1/github/link: the `code` GitHub sent to the dashboard's callback. */
+export const GithubLinkRequestSchema = z.object({
+  code: z.string().min(1).max(200),
+});
+export type GithubLinkRequest = z.infer<typeof GithubLinkRequestSchema>;
+
+/** 200 body of POST /v1/github/link and POST /v1/installations/sync. */
+export const GithubLinkResultSchema = z.object({
+  githubLogin: z.string(),
+  installations: z.array(InstallationSchema.omit({ suspended: true })),
+});
+export type GithubLinkResult = z.infer<typeof GithubLinkResultSchema>;
 
 export const AgentSettingSchema = z.object({
   agent: AgentKindSchema,
