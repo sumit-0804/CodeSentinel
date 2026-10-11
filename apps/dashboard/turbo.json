@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "lint": {
+      "inputs": ["app/**", "components/**", "lib/**", "proxy.ts", "next.config.ts", "eslint.config.mjs"]
+    }
+  }
+}
