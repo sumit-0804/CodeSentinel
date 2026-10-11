@@ -21,7 +21,8 @@ export interface DevSeedOptions {
 /** Demo data for `GATEWAY_SEED=dev`: one repository with all agents on, one user, and three PR files. */
 export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRequestFiles: PullRequestFile[] } {
   const seed: StoreSeed = {
-    organizations: [{ organizationId: EXAMPLE_ORGANIZATION_ID }],
+    organizations: [{ organizationId: EXAMPLE_ORGANIZATION_ID, displayName: "Code Sentinel" }],
+    installations: [],
     repositories: [
       {
         repositoryId: EXAMPLE_REPOSITORY_ID,
@@ -35,6 +36,7 @@ export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRe
     repositorySettings: [],
     repositoryAgentConfig: [],
     activeSessionIds: [],
+    githubTokens: [],
     apiKeys: [
       {
         keyId: "1b2c3d4e-5f60-4718-8293-a4b5c6d7e8f9",

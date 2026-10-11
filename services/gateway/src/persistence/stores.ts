@@ -1,8 +1,8 @@
 import type { AgentKind, OrganizationMembership, ThresholdSource } from "@code-sentinel/contracts";
 
 /**
- * What the gateway reads from PostgreSQL, as interfaces shaped by `docs/design/schema/schema.sql`.
- * `InMemoryStores` implements them until the PostgreSQL stores land.
+ * What the gateway reads and writes in PostgreSQL, as interfaces shaped by `docs/design/schema/schema.sql`.
+ * `PrismaStores` implements them over Supabase; `InMemoryStores` for tests and the dev seed.
  */
 
 /** A `repositories` row. */
@@ -39,10 +39,64 @@ export interface ApiKeyRecord {
   lastUsedAt?: Date;
 }
 
+/** A repository as the dashboard lists it. */
+export interface RepositorySummary {
+  repositoryId: string;
+  fullName: string;
+  defaultBranch: string;
+  isPrivate: boolean;
+  primaryLanguage?: string;
+  reviewEnabled: boolean;
+}
+
+/** A GitHub account (a personal user or an organization) that installed the App; stored as an `organizations` row. */
+export interface InstallationAccount {
+  githubId: number;
+  login: string;
+  type: "user" | "organization";
+}
+
+/** A repository an installation covers, as GitHub reports it. */
+export interface SyncedRepository {
+  githubRepoId: number;
+  fullName: string;
+  defaultBranch: string;
+  isPrivate: boolean;
+  primaryLanguage?: string;
+}
+
+/** An installation as a member of its organization sees it. */
+export interface InstallationSummary {
+  installationId: string;
+  organizationId: string;
+  githubInstallationId: number;
+  accountLogin: string;
+  accountType: "user" | "organization";
+  suspended: boolean;
+  repositoryCount: number;
+}
+
+/** A `github_user_tokens` row. Both tokens are sealed with `SecretBox`; the store never sees plaintext. */
+export interface SealedGithubTokens {
+  accessTokenSealed: string;
+  refreshTokenSealed?: string;
+  expiresAt?: Date;
+  refreshExpiresAt?: Date;
+}
+
+/** Thrown by `linkGithub` when the GitHub account already belongs to another Code Sentinel user. */
+export class GithubAccountTakenError extends Error {
+  constructor() {
+    super("This GitHub account is linked to another user");
+    this.name = "GithubAccountTakenError";
+  }
+}
+
 /** A `users` row with its `organization_members` rows. */
 export interface UserRecord {
   userId: string;
   /** Absent until the user links GitHub. */
+  githubUserId?: number;
   githubLogin?: string;
   email?: string;
   name?: string;
@@ -59,7 +113,29 @@ export interface SignInProfile {
 }
 
 export interface RepositoryStore {
+  /** Skips removed repositories and those whose installation is uninstalled or suspended: their PRs are not reviewed. */
   findByGithubRepoId(githubRepoId: number): Promise<RepositoryRecord | undefined>;
+  /** The organization's active repositories, by name. */
+  listForOrganization(organizationId: string): Promise<RepositorySummary[]>;
+}
+
+export interface InstallationStore {
+  /** Upserts the account's `organizations` row (by GitHub id) and the installation; a re-install clears `uninstalled_at`. */
+  upsert(input: { githubInstallationId: number; account: InstallationAccount; suspendedAt?: Date }): Promise<{ organizationId: string; installationId: string }>;
+  setSuspended(githubInstallationId: number, at: Date | null): Promise<void>;
+  /** Marks the installation uninstalled and all its repositories removed; nothing is deleted. */
+  markUninstalled(githubInstallationId: number, at: Date): Promise<void>;
+  /** Makes `repos` exactly the installation's active repositories: upserts them by GitHub id, marks the rest removed. */
+  syncRepositories(githubInstallationId: number, repos: SyncedRepository[], now: Date): Promise<void>;
+  addRepositories(githubInstallationId: number, repos: SyncedRepository[], now: Date): Promise<void>;
+  removeRepositories(githubInstallationId: number, githubRepoIds: number[], at: Date): Promise<void>;
+  /** Active installations of every organization the user belongs to. */
+  listForUser(userId: string): Promise<InstallationSummary[]>;
+}
+
+export interface GithubTokenStore {
+  get(userId: string): Promise<SealedGithubTokens | undefined>;
+  put(userId: string, tokens: SealedGithubTokens): Promise<void>;
 }
 
 export interface RepositoryConfigStore {
@@ -82,6 +158,13 @@ export interface UserStore {
   findById(userId: string): Promise<UserRecord | undefined>;
   /** Inserts or refreshes the `users` row (replaces Supabase's auth trigger); memberships are untouched. */
   recordSignIn(profile: SignInProfile, now: Date): Promise<void>;
+  /** Records the user's GitHub identity; throws `GithubAccountTakenError` when another user holds it. */
+  linkGithub(userId: string, github: { githubUserId: number; login: string }): Promise<void>;
+  /**
+   * Adds or updates a membership. A known `role` is GitHub's answer and is applied; `undefined` (GitHub
+   * wouldn't say) inserts `member` but never changes an existing role.
+   */
+  setMembership(organizationId: string, userId: string, role: "admin" | "member" | undefined): Promise<void>;
 }
 
 export interface Stores {
@@ -90,4 +173,6 @@ export interface Stores {
   sessions: SessionStore;
   apiKeys: ApiKeyStore;
   users: UserStore;
+  installations: InstallationStore;
+  githubTokens: GithubTokenStore;
 }

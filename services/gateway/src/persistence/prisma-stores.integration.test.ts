@@ -31,8 +31,9 @@ describe.skipIf(!prisma)("PrismaStores (integration)", () => {
     },
     {
       sessions,
-      cleanUp: async (userId) => {
-        await db.user.deleteMany({ where: { id: userId } });
+      cleanUp: async ({ userIds = [], githubOrgIds = [] }) => {
+        await db.user.deleteMany({ where: { id: { in: userIds } } });
+        await db.organization.deleteMany({ where: { githubOrgId: { in: githubOrgIds.map(BigInt) } } });
       },
     },
   );

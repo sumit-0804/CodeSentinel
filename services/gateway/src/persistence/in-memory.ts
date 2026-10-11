@@ -1,21 +1,57 @@
+import { randomUUID } from "node:crypto";
+
 import type { AgentKind } from "@code-sentinel/contracts";
 
 import { resolveEffectiveConfig, type RepositorySettingsInput } from "./effective-config.js";
-import type {
-  ApiKeyRecord,
-  ApiKeyStore,
-  RepositoryConfigStore,
-  RepositoryRecord,
-  RepositoryStore,
-  SessionStore,
-  Stores,
-  UserRecord,
-  UserStore,
+import {
+  GithubAccountTakenError,
+  type ApiKeyRecord,
+  type ApiKeyStore,
+  type GithubTokenStore,
+  type InstallationStore,
+  type RepositoryConfigStore,
+  type RepositoryRecord,
+  type RepositoryStore,
+  type SealedGithubTokens,
+  type SessionStore,
+  type Stores,
+  type SyncedRepository,
+  type UserRecord,
+  type UserStore,
 } from "./stores.js";
 
+export interface SeedOrganization {
+  organizationId: string;
+  defaultConfidenceThreshold?: number;
+  /** GitHub identity of the account; set for organizations created by an installation. */
+  githubOrgId?: number;
+  login?: string;
+  accountType?: "user" | "organization";
+  displayName?: string;
+}
+
+export interface SeedInstallation {
+  installationId: string;
+  organizationId: string;
+  githubInstallationId: number;
+  accountLogin: string;
+  suspendedAt?: Date;
+  uninstalledAt?: Date;
+}
+
+/** A `repositories` row with the columns only the store itself reads. */
+export interface SeedRepository extends RepositoryRecord {
+  defaultBranch?: string;
+  isPrivate?: boolean;
+  primaryLanguage?: string;
+  removedAt?: Date;
+}
+
 export interface StoreSeed {
-  organizations: { organizationId: string; defaultConfidenceThreshold?: number }[];
-  repositories: RepositoryRecord[];
+  organizations: SeedOrganization[];
+  /** Installations the seed knows; a repository pointing at an unknown installation counts as installed. */
+  installations: SeedInstallation[];
+  repositories: SeedRepository[];
   repositorySettings: ({ repositoryId: string } & RepositorySettingsInput)[];
   /** Only rows that exist; an agent without a row is enabled (the column default). */
   repositoryAgentConfig: { repositoryId: string; agent: AgentKind; enabled: boolean }[];
@@ -23,20 +59,23 @@ export interface StoreSeed {
   activeSessionIds: string[];
   apiKeys: ApiKeyRecord[];
   users: UserRecord[];
+  githubTokens: ({ userId: string } & SealedGithubTokens)[];
 }
 
 export const emptySeed = (): StoreSeed => ({
   organizations: [],
+  installations: [],
   repositories: [],
   repositorySettings: [],
   repositoryAgentConfig: [],
   activeSessionIds: [],
   apiKeys: [],
   users: [],
+  githubTokens: [],
 });
 
 /**
- * All five stores over plain arrays, for tests and `GATEWAY_SEED=dev`. Records are copied on the
+ * Every store over plain arrays, for tests and `GATEWAY_SEED=dev`. Records are copied on the
  * way in and out, so callers cannot mutate the stored rows.
  */
 export class InMemoryStores implements Stores {
@@ -45,12 +84,67 @@ export class InMemoryStores implements Stores {
   readonly sessions: SessionStore;
   readonly apiKeys: ApiKeyStore;
   readonly users: UserStore;
+  readonly installations: InstallationStore;
+  readonly githubTokens: GithubTokenStore;
 
   constructor(seed: StoreSeed = emptySeed()) {
     const data: StoreSeed = structuredClone(seed);
 
+    const installationById = (installationId: string) => data.installations.find((i) => i.installationId === installationId);
+    const installationByGithubId = (githubInstallationId: number) =>
+      data.installations.find((i) => i.githubInstallationId === githubInstallationId);
+    const isLive = (repo: SeedRepository) => {
+      const installation = installationById(repo.githubInstallationId);
+      return repo.removedAt === undefined && installation?.uninstalledAt === undefined && installation?.suspendedAt === undefined;
+    };
+    const displayNameOf = (organizationId: string) => {
+      const org = data.organizations.find((o) => o.organizationId === organizationId);
+      return org?.displayName ?? org?.login ?? "Organization";
+    };
+
+    const upsertRepository = (installation: SeedInstallation, repo: SyncedRepository, now: Date) => {
+      // GitHub names are unique, so an active row still holding this name under another id is stale.
+      for (const other of data.repositories) {
+        if (other.organizationId === installation.organizationId && other.fullName === repo.fullName && other.githubRepoId !== repo.githubRepoId && other.removedAt === undefined) {
+          other.removedAt = new Date(now);
+        }
+      }
+      const fields = {
+        organizationId: installation.organizationId,
+        githubInstallationId: installation.installationId,
+        fullName: repo.fullName,
+        defaultBranch: repo.defaultBranch,
+        isPrivate: repo.isPrivate,
+        ...(repo.primaryLanguage !== undefined ? { primaryLanguage: repo.primaryLanguage } : {}),
+      };
+      const existing = data.repositories.find((r) => r.githubRepoId === repo.githubRepoId);
+      if (existing) {
+        Object.assign(existing, fields);
+        delete existing.removedAt;
+      } else {
+        data.repositories.push({ repositoryId: randomUUID(), githubRepoId: repo.githubRepoId, reviewEnabled: true, ...fields });
+      }
+    };
+
     this.repositories = {
-      findByGithubRepoId: async (githubRepoId) => copy(data.repositories.find((r) => r.githubRepoId === githubRepoId)),
+      findByGithubRepoId: async (githubRepoId) => {
+        const repo = data.repositories.find((r) => r.githubRepoId === githubRepoId);
+        if (!repo || !isLive(repo)) return undefined;
+        const { repositoryId, organizationId, githubInstallationId, fullName, reviewEnabled } = repo;
+        return { repositoryId, organizationId, githubInstallationId, githubRepoId, fullName, reviewEnabled };
+      },
+      listForOrganization: async (organizationId) =>
+        data.repositories
+          .filter((r) => r.organizationId === organizationId && r.removedAt === undefined && installationById(r.githubInstallationId)?.uninstalledAt === undefined)
+          .sort((a, b) => a.fullName.localeCompare(b.fullName))
+          .map((r) => ({
+            repositoryId: r.repositoryId,
+            fullName: r.fullName,
+            defaultBranch: r.defaultBranch ?? "main",
+            isPrivate: r.isPrivate ?? true,
+            ...(r.primaryLanguage !== undefined ? { primaryLanguage: r.primaryLanguage } : {}),
+            reviewEnabled: r.reviewEnabled,
+          })),
     };
 
     this.repositoryConfig = {
@@ -99,6 +193,109 @@ export class InMemoryStores implements Stores {
         const existing = data.users.find((u) => u.userId === userId);
         if (existing) Object.assign(existing, fields);
         else data.users.push({ userId, memberships: [], ...fields });
+      },
+      linkGithub: async (userId, { githubUserId, login }) => {
+        if (data.users.some((u) => u.githubUserId === githubUserId && u.userId !== userId)) throw new GithubAccountTakenError();
+        const user = data.users.find((u) => u.userId === userId);
+        if (user) Object.assign(user, { githubUserId, githubLogin: login });
+      },
+      setMembership: async (organizationId, userId, role) => {
+        const user = data.users.find((u) => u.userId === userId);
+        if (!user) return;
+        const existing = user.memberships.find((m) => m.organizationId === organizationId);
+        if (existing) {
+          if (role !== undefined) existing.role = role;
+        } else {
+          user.memberships.push({ organizationId, displayName: displayNameOf(organizationId), role: role ?? "member" });
+        }
+      },
+    };
+
+    this.installations = {
+      upsert: async ({ githubInstallationId, account, suspendedAt }) => {
+        let org = data.organizations.find((o) => o.githubOrgId === account.githubId);
+        if (org) Object.assign(org, { login: account.login, displayName: account.login, accountType: account.type });
+        else {
+          org = { organizationId: randomUUID(), githubOrgId: account.githubId, login: account.login, displayName: account.login, accountType: account.type };
+          data.organizations.push(org);
+        }
+        let installation = installationByGithubId(githubInstallationId);
+        if (installation) {
+          Object.assign(installation, { organizationId: org.organizationId, accountLogin: account.login });
+          delete installation.uninstalledAt;
+        } else {
+          installation = { installationId: randomUUID(), organizationId: org.organizationId, githubInstallationId, accountLogin: account.login };
+          data.installations.push(installation);
+        }
+        if (suspendedAt) installation.suspendedAt = new Date(suspendedAt);
+        else delete installation.suspendedAt;
+        return { organizationId: org.organizationId, installationId: installation.installationId };
+      },
+      setSuspended: async (githubInstallationId, at) => {
+        const installation = installationByGithubId(githubInstallationId);
+        if (!installation) return;
+        if (at) installation.suspendedAt = new Date(at);
+        else delete installation.suspendedAt;
+      },
+      markUninstalled: async (githubInstallationId, at) => {
+        const installation = installationByGithubId(githubInstallationId);
+        if (!installation) return;
+        installation.uninstalledAt = new Date(at);
+        for (const repo of data.repositories) {
+          if (repo.githubInstallationId === installation.installationId && repo.removedAt === undefined) repo.removedAt = new Date(at);
+        }
+      },
+      syncRepositories: async (githubInstallationId, repos, now) => {
+        const installation = installationByGithubId(githubInstallationId);
+        if (!installation) return;
+        for (const repo of repos) upsertRepository(installation, repo, now);
+        const keep = new Set(repos.map((r) => r.githubRepoId));
+        for (const repo of data.repositories) {
+          if (repo.githubInstallationId === installation.installationId && !keep.has(repo.githubRepoId) && repo.removedAt === undefined) {
+            repo.removedAt = new Date(now);
+          }
+        }
+      },
+      addRepositories: async (githubInstallationId, repos, now) => {
+        const installation = installationByGithubId(githubInstallationId);
+        if (installation) for (const repo of repos) upsertRepository(installation, repo, now);
+      },
+      removeRepositories: async (githubInstallationId, githubRepoIds, at) => {
+        const installation = installationByGithubId(githubInstallationId);
+        if (!installation) return;
+        for (const repo of data.repositories) {
+          if (repo.githubInstallationId === installation.installationId && githubRepoIds.includes(repo.githubRepoId) && repo.removedAt === undefined) {
+            repo.removedAt = new Date(at);
+          }
+        }
+      },
+      listForUser: async (userId) => {
+        const orgIds = new Set(data.users.find((u) => u.userId === userId)?.memberships.map((m) => m.organizationId) ?? []);
+        return data.installations
+          .filter((i) => orgIds.has(i.organizationId) && i.uninstalledAt === undefined)
+          .map((i) => ({
+            installationId: i.installationId,
+            organizationId: i.organizationId,
+            githubInstallationId: i.githubInstallationId,
+            accountLogin: i.accountLogin,
+            accountType: data.organizations.find((o) => o.organizationId === i.organizationId)?.accountType ?? "organization",
+            suspended: i.suspendedAt !== undefined,
+            repositoryCount: data.repositories.filter((r) => r.githubInstallationId === i.installationId && r.removedAt === undefined).length,
+          }))
+          .sort((a, b) => a.accountLogin.localeCompare(b.accountLogin));
+      },
+    };
+
+    this.githubTokens = {
+      get: async (userId) => {
+        const row = data.githubTokens.find((t) => t.userId === userId);
+        if (!row) return undefined;
+        const { userId: _userId, ...tokens } = structuredClone(row);
+        return tokens;
+      },
+      put: async (userId, tokens) => {
+        data.githubTokens = data.githubTokens.filter((t) => t.userId !== userId);
+        data.githubTokens.push({ userId, ...structuredClone(tokens) });
       },
     };
   }

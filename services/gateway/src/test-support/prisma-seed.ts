@@ -32,18 +32,32 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
   const displayNames = new Map(seed.users.flatMap((u) => u.memberships).map((m) => [m.organizationId, m.displayName]));
 
   for (const org of seed.organizations) {
-    const githubOrgId = randomInt(1, 2 ** 47);
+    const githubOrgId = org.githubOrgId ?? randomInt(1, 2 ** 47);
     await prisma.organization.create({
       data: {
         id: org.organizationId,
-        githubOrgLogin: `test-org-${githubOrgId}`,
+        githubOrgLogin: org.login ?? `test-org-${githubOrgId}`,
         githubOrgId: BigInt(githubOrgId),
-        displayName: displayNames.get(org.organizationId) ?? "Test Org",
+        ...(org.accountType ? { accountType: org.accountType } : {}),
+        displayName: org.displayName ?? displayNames.get(org.organizationId) ?? "Test Org",
         ...(org.defaultConfidenceThreshold !== undefined ? { defaultConfidenceThreshold: org.defaultConfidenceThreshold } : {}),
       },
     });
   }
+  for (const installation of seed.installations) {
+    await prisma.githubInstallation.create({
+      data: {
+        id: installation.installationId,
+        organizationId: installation.organizationId,
+        githubInstallationId: BigInt(installation.githubInstallationId),
+        accountLogin: installation.accountLogin,
+        suspendedAt: installation.suspendedAt ?? null,
+        uninstalledAt: installation.uninstalledAt ?? null,
+      },
+    });
+  }
   for (const repo of seed.repositories) {
+    // A repository whose installation the seed doesn't list gets a placeholder one.
     await prisma.githubInstallation.upsert({
       where: { id: repo.githubInstallationId },
       update: {},
@@ -62,6 +76,10 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         githubRepoId: BigInt(repo.githubRepoId),
         fullName: repo.fullName,
         reviewEnabled: repo.reviewEnabled,
+        ...(repo.defaultBranch !== undefined ? { defaultBranch: repo.defaultBranch } : {}),
+        ...(repo.isPrivate !== undefined ? { isPrivate: repo.isPrivate } : {}),
+        primaryLanguage: repo.primaryLanguage ?? null,
+        removedAt: repo.removedAt ?? null,
       },
     });
   }
@@ -75,6 +93,7 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
     await prisma.user.create({
       data: {
         id: user.userId,
+        githubUserId: user.githubUserId !== undefined ? BigInt(user.githubUserId) : null,
         githubLogin: user.githubLogin ?? null,
         email: user.email ?? null,
         name: user.name ?? null,
@@ -94,6 +113,17 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         keyHash: Buffer.from(key.keyHash, "hex"),
         revokedAt: key.revokedAt ?? null,
         lastUsedAt: key.lastUsedAt ?? null,
+      },
+    });
+  }
+  for (const { userId, ...tokens } of seed.githubTokens) {
+    await prisma.githubUserToken.create({
+      data: {
+        userId,
+        accessTokenSealed: tokens.accessTokenSealed,
+        refreshTokenSealed: tokens.refreshTokenSealed ?? null,
+        expiresAt: tokens.expiresAt ?? null,
+        refreshExpiresAt: tokens.refreshExpiresAt ?? null,
       },
     });
   }
