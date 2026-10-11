@@ -1,9 +1,9 @@
-import { AgentKindSchema, type AgentKind } from "@code-sentinel/contracts";
+import type { AgentKind } from "@code-sentinel/contracts";
 
+import { resolveEffectiveConfig, type RepositorySettingsInput } from "./effective-config.js";
 import type {
   ApiKeyRecord,
   ApiKeyStore,
-  EffectiveRepositoryConfig,
   RepositoryConfigStore,
   RepositoryRecord,
   RepositoryStore,
@@ -14,23 +14,10 @@ import type {
   UserStore,
 } from "./stores.js";
 
-/** Platform default threshold when neither the repository nor the organization sets one (FR-ORC-06). */
-export const PLATFORM_DEFAULT_CONFIDENCE_THRESHOLD = 0.8;
-
-/** Column defaults from `repository_settings` in `schema.sql`. */
-const SETTINGS_DEFAULTS = { agentTimeoutMs: 20000, autoFixStyle: true, postInlineComments: true };
-
 export interface StoreSeed {
   organizations: { organizationId: string; defaultConfidenceThreshold?: number }[];
   repositories: RepositoryRecord[];
-  repositorySettings: {
-    repositoryId: string;
-    /** `null` or absent means inherit. */
-    confidenceThresholdOverride?: number | null;
-    agentTimeoutMs?: number;
-    autoFixStyle?: boolean;
-    postInlineComments?: boolean;
-  }[];
+  repositorySettings: ({ repositoryId: string } & RepositorySettingsInput)[];
   /** Only rows that exist; an agent without a row is enabled (the column default). */
   repositoryAgentConfig: { repositoryId: string; agent: AgentKind; enabled: boolean }[];
   sessions: SessionRecord[];
@@ -72,24 +59,17 @@ export class InMemoryStores implements Stores {
         if (!repository) return undefined;
         const settings = data.repositorySettings.find((s) => s.repositoryId === repositoryId);
         const organization = data.organizations.find((o) => o.organizationId === repository.organizationId);
-        const disabled = new Set(
+        const disabledAgents = new Set<AgentKind>(
           data.repositoryAgentConfig.filter((row) => row.repositoryId === repositoryId && !row.enabled).map((row) => row.agent),
         );
 
-        const threshold: Pick<EffectiveRepositoryConfig, "confidenceThreshold" | "thresholdSource"> =
-          settings?.confidenceThresholdOverride != null
-            ? { confidenceThreshold: settings.confidenceThresholdOverride, thresholdSource: "repository_override" }
-            : organization?.defaultConfidenceThreshold !== undefined
-              ? { confidenceThreshold: organization.defaultConfidenceThreshold, thresholdSource: "organization_default" }
-              : { confidenceThreshold: PLATFORM_DEFAULT_CONFIDENCE_THRESHOLD, thresholdSource: "platform_default" };
-
-        return {
-          enabledAgents: AgentKindSchema.options.filter((agent) => !disabled.has(agent)),
-          ...threshold,
-          agentTimeoutMs: settings?.agentTimeoutMs ?? SETTINGS_DEFAULTS.agentTimeoutMs,
-          autoFixStyle: settings?.autoFixStyle ?? SETTINGS_DEFAULTS.autoFixStyle,
-          postInlineComments: settings?.postInlineComments ?? SETTINGS_DEFAULTS.postInlineComments,
-        };
+        return resolveEffectiveConfig({
+          ...(settings ? { settings } : {}),
+          ...(organization?.defaultConfidenceThreshold !== undefined
+            ? { organizationThreshold: organization.defaultConfidenceThreshold }
+            : {}),
+          disabledAgents,
+        });
       },
     };
 
