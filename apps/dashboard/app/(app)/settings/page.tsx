@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { PageHead } from "@/components/app/page-parts";
-import { AccountSettings, type SignInMethod } from "@/components/settings/account-settings";
+import { CurrentUserSchema } from "@code-sentinel/contracts";
+import { AccountSettings, type OrganizationsState, type SignInMethod } from "@/components/settings/account-settings";
 import { requireUser } from "@/lib/auth";
+import { gatewayFetch } from "@/lib/gateway";
 import { toShellUser } from "@/lib/shell-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,8 +20,11 @@ const SECTIONS = [
 async function AccountContent() {
   const user = await requireUser();
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.auth.getUserIdentities();
+  const [{ data }, me] = await Promise.all([supabase.auth.getUserIdentities(), gatewayFetch("/v1/me", CurrentUserSchema)]);
   const identities = data?.identities ?? [];
+  const organizations: OrganizationsState = me.ok
+    ? { status: "ok", list: me.data.organizations }
+    : { status: "unavailable", reason: me.reason };
 
   const detail = (provider: string) => {
     const identity = identities.find((item) => item.provider === provider);
@@ -34,7 +39,7 @@ async function AccountContent() {
     { provider: "github", label: "GitHub", detail: detail("github") },
     { provider: "google", label: "Google", detail: detail("google") },
   ];
-  return <AccountSettings user={toShellUser(user)} methods={methods} />;
+  return <AccountSettings user={toShellUser(user)} methods={methods} organizations={organizations} />;
 }
 
 export default function SettingsPage() {

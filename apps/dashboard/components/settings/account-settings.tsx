@@ -42,7 +42,65 @@ function Confirm({ children, onConfirm, confirmLabel, onCancel, cancelLabel, pen
   );
 }
 
-export function AccountSettings({ user, methods }: { user: ShellUser; methods: SignInMethod[] }) {
+/** Memberships from the gateway's `/v1/me`, or why they could not be loaded. */
+export type OrganizationsState =
+  | { status: "ok"; list: { organizationId: string; displayName: string; role: "admin" | "member" }[] }
+  | { status: "unavailable"; reason: "unconfigured" | "unreachable" | "unauthorized" | "error" };
+
+const UNAVAILABLE: Record<Extract<OrganizationsState, { status: "unavailable" }>["reason"], string> = {
+  unconfigured: "The API isn't configured for this dashboard (GATEWAY_URL).",
+  unreachable: "Couldn't reach the API. Try again in a moment.",
+  unauthorized: "The API didn't accept your session. Sign out and in again.",
+  error: "The API answered with an error. Try again in a moment.",
+};
+
+function Organizations({ state }: { state: OrganizationsState }) {
+  if (state.status === "unavailable") {
+    return (
+      <Row>
+        <span className="grid min-w-[180px] flex-1 gap-px">
+          <b className="font-bold">Organizations</b>
+          <span className="text-sm text-warn">{UNAVAILABLE[state.reason]}</span>
+        </span>
+      </Row>
+    );
+  }
+  if (state.list.length === 0) {
+    return (
+      <Row>
+        <span className="grid min-w-[180px] flex-1 gap-px">
+          <b className="font-bold">No organizations yet</b>
+          <span className="text-sm text-ink-2">They appear here when you install the GitHub App on your account or an organization.</span>
+        </span>
+      </Row>
+    );
+  }
+  return (
+    <>
+      {state.list.map((org) => (
+        <Row key={org.organizationId}>
+          <span className="grid size-10 flex-none place-items-center rounded-xl bg-[linear-gradient(135deg,var(--cs-violet),var(--cs-cyan))] font-display text-sm font-bold text-[#070812]">
+            {org.displayName.charAt(0).toUpperCase()}
+          </span>
+          <span className="grid min-w-[180px] flex-1 gap-px">
+            <b className="font-bold">{org.displayName}</b>
+            <span className="text-sm text-ink-2">{org.role === "admin" ? "Admin" : "Member"}</span>
+          </span>
+        </Row>
+      ))}
+    </>
+  );
+}
+
+export function AccountSettings({
+  user,
+  methods,
+  organizations,
+}: {
+  user: ShellUser;
+  methods: SignInMethod[];
+  organizations: OrganizationsState;
+}) {
   const [confirm, setConfirm] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const linkedCount = methods.filter((m) => m.detail).length;
@@ -68,6 +126,13 @@ export function AccountSettings({ user, methods }: { user: ShellUser; methods: S
               <span className="text-sm text-ink-2">{user.email ?? "No email on this account"}</span>
             </span>
           </Row>
+        </ul>
+      </section>
+
+      <section className="grid gap-3.5">
+        <h2 className="text-base font-bold">Organizations</h2>
+        <ul className="panel">
+          <Organizations state={organizations} />
         </ul>
       </section>
 
