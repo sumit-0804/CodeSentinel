@@ -127,6 +127,18 @@ describe.skipIf(!url)("PrismaJobStore (integration)", () => {
     expect(review.report).toEqual(report);
   });
 
+  it("takes the duration from the job's timestamps when the report has none", async () => {
+    const store = new PrismaJobStore(prisma);
+    const job = queuedJob();
+    await store.insert(job, request());
+    await store.markRunning(job.jobId, "2026-10-11T10:00:01.000Z");
+
+    await store.complete({ ...job, status: "failed", startedAt: "2026-10-11T10:00:01.000Z", completedAt: "2026-10-11T10:00:04.500Z" });
+
+    const review = await prisma.review.findUniqueOrThrow({ where: { id: job.reviewId } });
+    expect(review.durationMs).toBe(3500);
+  });
+
   it("serves a finished review to a new process after a restart", async () => {
     const report: CombinedReport = {
       reviewId: "",

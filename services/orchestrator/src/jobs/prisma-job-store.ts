@@ -90,7 +90,7 @@ export class PrismaJobStore implements JobStore {
           status: job.status,
           ...(job.startedAt ? { startedAt: new Date(job.startedAt) } : {}),
           ...(job.completedAt ? { completedAt: new Date(job.completedAt) } : {}),
-          durationMs: job.report?.durationMs ?? null,
+          durationMs: job.report?.durationMs ?? elapsedMs(job.startedAt, job.completedAt),
           ...(job.report ? { report: job.report as unknown as Prisma.InputJsonValue } : {}),
           ...(job.error ? { error: job.error as unknown as Prisma.InputJsonValue, errorMessage: job.error.message } : {}),
         },
@@ -204,6 +204,12 @@ export class PrismaJobStore implements JobStore {
       ),
     });
   }
+}
+
+/** The graph does not always set `report.durationMs`; the job's own timestamps give the same figure. */
+function elapsedMs(startedAt: string | undefined, completedAt: string | undefined): number | null {
+  if (!startedAt || !completedAt) return null;
+  return Math.max(0, Date.parse(completedAt) - Date.parse(startedAt));
 }
 
 function toJob(row: Review): ReviewJob {
