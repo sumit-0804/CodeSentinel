@@ -1,0 +1,175 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* One dark neon theme. Glow is reserved for the logo, the primary action, the current page, focus and the agent lanes. */
+:root {
+  color-scheme: dark;
+  --cs-void: #090a12;
+  --cs-panel: #0f111c;
+  --cs-panel-2: #151827;
+  --cs-panel-3: #1c2034;
+  --cs-line: #232842;
+  --cs-line-2: #323a5e;
+  --cs-ink: #eef0ff;
+  --cs-ink-2: #a6acca;
+  --cs-ink-3: #6f7598;
+  --cs-cyan: #3df0ff;
+  --cs-cyan-ink: #031319;
+  --cs-violet: #9b6cff;
+  --cs-pass: #39f5a6;
+  --cs-crit: #ff4d73;
+  --cs-warn: #ffb84d;
+  --cs-info: #8b92b8;
+
+  --background: var(--cs-void);
+  --foreground: var(--cs-ink);
+  --card: var(--cs-panel);
+  --card-foreground: var(--cs-ink);
+  --popover: var(--cs-panel-2);
+  --popover-foreground: var(--cs-ink);
+  --primary: var(--cs-cyan);
+  --primary-foreground: var(--cs-cyan-ink);
+  --secondary: var(--cs-panel-2);
+  --secondary-foreground: var(--cs-ink);
+  --muted: var(--cs-panel-3);
+  --muted-foreground: var(--cs-ink-2);
+  --accent: var(--cs-panel-3);
+  --accent-foreground: var(--cs-ink);
+  --destructive: var(--cs-crit);
+  --border: var(--cs-line);
+  --input: var(--cs-line-2);
+  --ring: var(--cs-cyan);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-void: var(--cs-void);
+  --color-panel: var(--cs-panel);
+  --color-panel-2: var(--cs-panel-2);
+  --color-panel-3: var(--cs-panel-3);
+  --color-line: var(--cs-line);
+  --color-line-2: var(--cs-line-2);
+  --color-ink: var(--cs-ink);
+  --color-ink-2: var(--cs-ink-2);
+  --color-ink-3: var(--cs-ink-3);
+  --color-cyan: var(--cs-cyan);
+  --color-cyan-ink: var(--cs-cyan-ink);
+  --color-violet: var(--cs-violet);
+  --color-pass: var(--cs-pass);
+  --color-crit: var(--cs-crit);
+  --color-warn: var(--cs-warn);
+  --color-info: var(--cs-info);
+
+  --font-display: var(--font-unbounded), "Segoe UI", system-ui, sans-serif;
+  --font-sans: var(--font-manrope), "Segoe UI", system-ui, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-heading: var(--font-display);
+
+  --shadow-glow: 0 0 0 1px rgb(61 240 255 / 0.45), 0 0 22px -2px rgb(61 240 255 / 0.45);
+  --shadow-glow-btn: 0 0 24px -4px rgb(61 240 255 / 0.6);
+  --shadow-lift: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 18px 40px -24px rgb(0 0 0 / 0.8);
+  --shadow-ring: 0 0 0 1px var(--cs-line), 0 1px 2px rgb(0 0 0 / 0.4), 0 24px 60px -24px rgb(0 0 0 / 0.85);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 15px;
+    line-height: 1.6;
+    background-image:
+      radial-gradient(900px 500px at 8% -10%, rgb(155 108 255 / 0.14), transparent 60%),
+      radial-gradient(800px 500px at 100% 110%, rgb(61 240 255 / 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 2px solid var(--cs-cyan);
+    outline-offset: 2px;
+    box-shadow: 0 0 16px rgb(61 240 255 / 0.5);
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  kbd {
+    @apply rounded-[5px] border border-line-2 bg-panel-2 px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink-2;
+  }
+}
+
+@utility panel {
+  border-radius: 16px;
+  border: 1px solid var(--cs-line);
+  background: linear-gradient(180deg, rgb(21 24 39 / 0.85), rgb(15 17 28 / 0.85));
+  box-shadow: var(--shadow-lift);
+  min-width: 0;
+  overflow: hidden;
+}
+
+@utility text-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+/* Sign-in hero: scan the diff, light the hits, raise the lanes, land the verdict. Played once. */
+@keyframes cs-beam {
+  0% { opacity: 1; transform: translateY(-40px); }
+  90% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(260px); }
+}
+@keyframes cs-light {
+  from { background: transparent; box-shadow: none; color: var(--cs-ink-2); opacity: 0.4; }
+}
+@keyframes cs-rise {
+  from { transform: scaleY(0); }
+}
+@keyframes cs-land {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+}
+@keyframes cs-pulse {
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
