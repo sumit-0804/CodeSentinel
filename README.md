@@ -76,7 +76,8 @@ npm run start -w @code-sentinel/gateway
 Each service README has a step-by-step manual check.
 
 The dashboard runs on `http://localhost:3001` after copying `apps/dashboard/.env.example` to `.env.local`; see
-[`apps/dashboard/README.md`](apps/dashboard/README.md):
+[`apps/dashboard/README.md`](apps/dashboard/README.md). It calls the gateway from its server, so start the
+gateway first with `DATABASE_URL` and `SUPABASE_URL` set (the gateway README's sign-in check):
 
 ```bash
 npm run dev -w @code-sentinel/dashboard

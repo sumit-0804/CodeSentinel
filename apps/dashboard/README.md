@@ -24,6 +24,7 @@ npm run dev -w @code-sentinel/dashboard
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The publishable key (safe in the browser; never the secret key) |
 | `NEXT_PUBLIC_SITE_URL` | This app's origin. Every auth redirect is built from it, never from the `Host` header |
+| `GATEWAY_URL` | The API gateway (`http://localhost:3000` locally). Server-only, never `NEXT_PUBLIC_`. Unset → pages say the API isn't configured |
 
 Env is validated with zod the first time it's read (`lib/env.ts`), so `next build` works without it, as in CI.
 
@@ -56,6 +57,12 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 - **`safeNextPath()`** accepts only same-origin paths (`/x`, not `//x`, `/\x`, or URLs with control characters), so
   `next` can't become an open redirect.
 - Supabase error codes are mapped to plain sentences (`lib/auth-errors.ts`); raw server messages never reach the page.
+- **Calling the gateway:** `gatewayFetch(path, schema)` (`lib/gateway.ts`, server-only) verifies the
+  user first, then sends their Supabase access token as `Authorization: Bearer`, with a 5 s timeout,
+  and checks the JSON against a schema from `@code-sentinel/contracts`. The browser never talks to the
+  gateway (backend-for-frontend), so there is no CORS and no token in client code. It returns
+  `{ ok: true, data }` or `{ ok: false, reason }` (`unconfigured`, `unreachable`, `unauthorized`,
+  `error`), so a page names what failed. Settings → Organizations is the first caller (`/v1/me`).
 - With Cache Components on, anything that reads the session sits behind `<Suspense>`: the sidebar and page frames are
   prerendered, and the parts that name the user stream in.
 

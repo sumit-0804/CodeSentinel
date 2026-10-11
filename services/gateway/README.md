@@ -19,8 +19,8 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Config from env, validated at startup | `config.ts`, `loadEnvFile` from `@code-sentinel/service-kit` | working |
 | Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
 | `GET /healthz` | `routes/healthz.ts` | working; reports the orchestrator and, with `DATABASE_URL`, the database |
-| Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `routes/me.ts` | working |
-| Session token (HS256 JWT) | `auth/session-token.ts` | working; nothing mints it outside tests until OAuth login lands |
+| Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `auth/supabase-token.ts`, `routes/me.ts` | working: `cs_live_` API keys and Supabase access tokens; see [Authentication](#authentication) |
+| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`) | ready for the account and repository routes (A6, A9) |
 | Stores | `persistence/stores.ts`, `persistence/prisma-stores.ts` (Supabase Postgres), `persistence/in-memory.ts` + `persistence/dev-seed.ts` | working; see [Persistence](#persistence) |
 | GitHub client (FR-GH-01..03) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files, Check Runs, reviews), `github/stub-github-client.ts` | working; the stub records every call and is used when no App is configured |
 | Publishing the review to the PR (FR-GH-02/03/04) | `github/review-publisher.ts`, `github/review-output.ts` | working |
@@ -113,27 +113,47 @@ posted and the failure is logged with the request id.
 
 ## Authentication
 
-`/v1` routes pass through `createAuthMiddleware`, which sets `res.locals.principal`
-(`userId`, `organizationId`, `method`). Two schemes, as in `gateway.yaml`:
+`/v1` routes pass through `createAuthMiddleware`, which reads `Authorization: Bearer <token>` and
+sets `res.locals.principal`: `userId`, `method`, `organizationId?`, and for Supabase sessions also
+`sessionId`, `aal`, `amr` and `providers`. Two schemes, as in `gateway.yaml`. Cookies are never read.
 
 | Scheme | Client | Check |
 | --- | --- | --- |
-| `Authorization: Bearer cs_live_…` | VS Code | SHA-256 of the key matches an active (not revoked) row in `api_keys`; `lastUsedAt` is updated |
-| `cs_session` cookie | Dashboard | HS256 JWT (`sub` = user, `org` = organization, `jti` = session, `iss` = `code-sentinel`, `exp`) signed with `JWT_SECRET`, then its SHA-256 matches an active, unexpired session with the same ids (in-memory stores only; replaced by Supabase sign-in in Phase A5) |
+| `Bearer cs_live_…` (`apiKey`) | VS Code | SHA-256 of the key matches an active (not revoked) row in `api_keys`; `lastUsedAt` is updated. The key's organization is the principal's |
+| `Bearer <Supabase access token>` (`supabaseBearer`) | Dashboard (server side, `gatewayFetch`) | See below |
 
-The session store is consulted even after the JWT verifies, so logging out or revoking a session
-takes effect immediately instead of at `exp`. API keys are opaque and never parsed as JWTs: a
-bearer token without the `cs_live_` prefix is rejected outright. Credentials are stored only as
-SHA-256 hashes; a salted hash such as bcrypt would prevent the unique-hash lookup `schema.sql` uses,
-and the keys are high-entropy random strings, not passwords.
+A Supabase access token is checked in this order (`auth/supabase-token.ts`, then the middleware):
+1. **Signature and claims:** ES256 against the project's JWKS
+   (`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, fetched once and cached by `jose`), issuer
+   `<SUPABASE_URL>/auth/v1`, audience `authenticated`, `exp` with 5 s tolerance, `role` must be
+   `authenticated` (anon and service-role tokens are refused), and `sub` / `session_id` must be UUIDs.
+   HS256 and unsigned tokens never verify. The reason for a rejection is logged, never returned.
+2. **Session still live:** `private.session_is_active(session_id)`, so signing out (here or "on all
+   devices") takes effect immediately, not when the token expires.
+3. **User row:** the `users` row is inserted or refreshed from the claims (email, name, avatar,
+   `last_seen_at`), at most once every 5 minutes per user. An email another row already holds is
+   skipped rather than failing the sign-in.
+4. **Organization:** the `X-Organization-Id` header, which must be one of the user's memberships;
+   without it, the user's only membership. A new user has none until GitHub onboarding (A6).
+
+API keys are opaque and never parsed as JWTs. Credentials are stored only as SHA-256 hashes; a
+salted hash such as bcrypt would prevent the unique-hash lookup `schema.sql` uses, and the keys are
+high-entropy random strings, not passwords. Without `SUPABASE_URL`, every non-`cs_live_` bearer is
+`invalid_credentials`.
+
+**Guards** (`auth/guards.ts`) for the routes that A6, A9 and A7 add: `requireUserSession` refuses API
+keys on account and configuration routes, and `requireOrganization` refuses a caller with no
+resolved organization.
 
 | `code` | HTTP | When |
 | --- | --- | --- |
-| `unauthenticated` | 401 | No `Authorization` header and no `cs_session` cookie |
-| `invalid_credentials` | 401 | A credential is present but unknown, revoked, expired, badly signed, or its user no longer exists |
+| `unauthenticated` | 401 | No `Authorization` header |
+| `invalid_credentials` | 401 | The bearer is not a known active API key or a valid Supabase token, or its user no longer exists |
+| `session_revoked` | 401 | The token is valid but its Supabase session was signed out |
+| `organization_forbidden` | 403 | `X-Organization-Id` names an organization the user is not a member of |
+| `session_required` | 403 | An API key on a route that needs a signed-in session (`requireUserSession`) |
+| `organization_required` | 403 | No organization could be resolved (`requireOrganization`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
-
-`signSessionToken()` is exported for the GitHub OAuth login step; until then only tests call it.
 
 ## Configuration
 
@@ -158,7 +178,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `ORCHESTRATOR_TIMEOUT_MS` | `5000` | Timeout for each orchestrator call | integer 1000..30000 |
 | `REVIEW_POLL_TIMEOUT_MS` | `300000` | How long to wait for a review job before completing its Check Run as timed out | integer 10000..1800000 |
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
-| `JWT_SECRET` | required | HS256 key for the `cs_session` JWT | at least 32 characters |
+| `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → only API keys work | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
 | `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role). Set → Prisma stores; unset → in-memory stores | `postgres://` or `postgresql://` URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
@@ -194,8 +214,13 @@ with fresh random ids and deletes them afterwards, so it can also run against Su
 Differences to know:
 - `organizations.default_confidence_threshold` is `NOT NULL DEFAULT 0.800`, so with a database the
   threshold source is never `platform_default`; only the in-memory stores reach it.
-- There's no `sessions` table (Supabase owns sessions), so `PrismaStores` accepts no `cs_session`
-  cookie. API keys work. Supabase sign-in replaces the cookie in Phase A5.
+- Sessions belong to Supabase (`auth.sessions`). `PrismaStores.sessions.isActive` calls
+  `private.session_is_active(uuid)`, a `security definer` function created by hand in each Supabase
+  project (only `prisma` may run it; see `packages/db`). A test database has no `auth` schema, so the
+  integration test installs a stand-in backed by `private.test_sessions`. It never replaces a real
+  function, and against Supabase the session cases are skipped. In memory, `activeSessionIds` lists
+  the live sessions, so without a database a real dashboard session is never accepted.
+- `users.recordSignIn` upserts by id and leaves memberships alone.
 - `/healthz` adds `dependencies.database` (`ok` or `unavailable`, from `SELECT 1` within 2 s); anything
   but `ok` makes the gateway `degraded`.
 
@@ -206,7 +231,6 @@ Differences to know:
 - Repositories and config routes (`/v1/repositories`, admin-role check)
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
-- GitHub OAuth login that mints the session cookie
 - Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`); the orchestrator writes `reviews` in Phase A3
 - Accept / reject tracking of posted suggestions (UC-3)
 - Cancelling a superseded job when a new commit is pushed
@@ -224,20 +248,20 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-105 tests in 16 files. They run the real app on an ephemeral port (`withServer` from
-`@code-sentinel/service-kit/testing`) with global `fetch`, stub the orchestrator and GitHub, and never need a real
-secret, port 3000 or the network.
+151 tests in 16 files (14 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set). They run
+the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
+`fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
+(`test-support/supabase-tokens.ts`), and never need a real secret, port 3000 or the network.
 
 **Manual check** (Git Bash, from `services/gateway/` after `npm run build` at the root):
 
 1. Start the real orchestrator on port 8080 with `SERVICE_TOKEN=local-service-token` (see the
    orchestrator README's manual check), or any fake that answers `202` with a `ReviewJob` and
    `200 {"status":"ok"}` on `/healthz`.
-2. Start the gateway. These variables override `.env`, so the signing secret below is known:
+2. Start the gateway. These variables override `.env`, so the webhook secret below is known:
    ```bash
    PORT=3000 ORCHESTRATOR_URL=http://127.0.0.1:8080 SERVICE_TOKEN=local-service-token \
-   JWT_SECRET=0123456789abcdef0123456789abcdef GITHUB_WEBHOOK_SECRET=local-webhook-secret \
-   GATEWAY_SEED=dev node dist/server.js
+   GITHUB_WEBHOOK_SECRET=local-webhook-secret GATEWAY_SEED=dev node dist/server.js
    ```
 3. Write a `pull_request.opened` payload for repository id 123456789 to a file, sign it with
    `sha256=` + HMAC-SHA256(`local-webhook-secret`, file bytes), and `curl --data-binary @file`
@@ -247,6 +271,12 @@ secret, port 3000 or the network.
    each is 401 `invalid_signature` and the orchestrator receives nothing.
 5. `curl /v1/me` is 401 `unauthenticated`; with `Authorization: Bearer cs_live_dev_00000000` it is
    200. `curl /healthz` is `ok`, and `degraded` / `unavailable` once the orchestrator stops.
+
+**Sign-in check with the dashboard** (Supabase dev project): start the gateway with `DATABASE_URL`
+(the `prisma` role) and `SUPABASE_URL=https://<project-ref>.supabase.co`, and the dashboard with
+`GATEWAY_URL=http://localhost:3000`. Sign in, open **Settings**: the Organizations section comes
+from `/v1/me` through the gateway, and the `users` row now exists. Sign out of all devices in
+another browser; this browser's next gateway call is 401 `session_revoked`.
 
 ## End to end with a real GitHub repository
 

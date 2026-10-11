@@ -1,0 +1,33 @@
+%%{init: {"theme":"base","themeVariables":{"primaryColor":"#dce7f7","primaryBorderColor":"#4a6fa5","lineColor":"#6b7280","primaryTextColor":"#1a1a1a","actorBkg":"#dce7f7","actorBorder":"#4a6fa5","noteBkgColor":"#fffdf2","noteBorderColor":"#e0cf92"},"sequence":{"actorMargin":46,"width":170,"boxMargin":10}} }%%
+sequenceDiagram
+    autonumber
+    actor U as User (browser)
+    participant DB as Dashboard (Next.js server)
+    participant SA as Supabase Auth
+    participant GW as API Gateway
+    participant PG as Supabase Postgres
+
+    U->>DB: sign in (email + password, or GitHub / Google)
+    DB->>SA: signInWithPassword / OAuth code exchange
+    SA-->>DB: access token (ES256, 10 min) + refresh token
+    DB-->>U: httpOnly session cookies (the browser never holds a gateway credential)
+
+    U->>DB: open Settings
+    DB->>DB: proxy refreshes the session, page calls getClaims() (verified)
+    DB->>GW: GET /v1/me, Authorization: Bearer <access token>
+    GW->>SA: JWKS (fetched once, then cached)
+    GW->>GW: verify ES256, issuer, audience authenticated, exp, role
+    GW->>PG: select private.session_is_active(session_id)
+
+    alt session signed out (here or on all devices)
+        PG-->>GW: false
+        GW-->>DB: 401 session_revoked
+        DB-->>U: "The API didn't accept your session"
+    else session live
+        PG-->>GW: true
+        GW->>PG: upsert users row (at most every 5 min)
+        GW->>PG: memberships → organization (X-Organization-Id or the only one)
+        GW-->>DB: 200 CurrentUser { name, providers, organizations }
+        DB-->>U: Settings with the user's organizations
+    end
+    Note over DB,GW: Server to server only (BFF), so no CORS and no token in the browser
