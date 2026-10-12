@@ -265,6 +265,9 @@ export const RepositoryConfigSchema = z.object({
 });
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;
 
+/** Configuration writes need an authenticator code entered this many minutes ago at most (A7, 403 `mfa_required`). */
+export const DEFAULT_MFA_STEP_UP_MINUTES = 10;
+
 /**
  * A partial update: omitted fields keep their value. Turning every agent off is rejected with 400
  * `no_agents_enabled` (UC-4 exception flow); switch `reviewEnabled` off instead.
