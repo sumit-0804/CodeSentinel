@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     githubLink = { githubUsers, sync };
   }
 
-  const publisher = new ReviewPublisher({ github, orchestrator, logger, timeoutMs: config.reviewPollTimeoutMs });
+  const publisher = new ReviewPublisher({ github, orchestrator, logger, reviews: stores.reviews, timeoutMs: config.reviewPollTimeoutMs });
   const app = createApp({
     config,
     logger,

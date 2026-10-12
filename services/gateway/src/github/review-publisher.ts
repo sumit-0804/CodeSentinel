@@ -1,15 +1,21 @@
-import type { AgentKind, ReviewJob } from "@code-sentinel/contracts";
+import type { AgentKind, CheckConclusion as StoredConclusion, ReviewJob } from "@code-sentinel/contracts";
 import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
-import { githubStatus, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
+import type { ReviewStore } from "../persistence/stores.js";
+import { githubStatus, type CheckConclusion, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
 import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, reviewComments } from "./review-output.js";
+
+/** `reviews.check_conclusion` uses its own words for GitHub's conclusions. */
+const STORED_CONCLUSION: Record<CheckConclusion, StoredConclusion> = { success: "pass", failure: "fail", neutral: "neutral" };
 
 export interface ReviewPublisherDeps {
   github: Pick<GitHubClient, "createCheckRun" | "completeCheckRun" | "createReview">;
   orchestrator: Pick<OrchestratorClientLike, "getReviewJob">;
   logger: Logger;
+  /** Where the Check Run's conclusion is kept for the dashboard; omitted in tests that don't check it. */
+  reviews?: Pick<ReviewStore, "recordCheckRun">;
   pollIntervalMs?: number;
   /** Give up waiting after this long and complete the Check Run as `neutral`. */
   timeoutMs?: number;
@@ -38,6 +44,7 @@ export class ReviewPublisher {
   private readonly github: ReviewPublisherDeps["github"];
   private readonly orchestrator: ReviewPublisherDeps["orchestrator"];
   private readonly logger: Logger;
+  private readonly reviews: ReviewPublisherDeps["reviews"];
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
   private readonly now: () => number;
@@ -47,6 +54,7 @@ export class ReviewPublisher {
     this.github = deps.github;
     this.orchestrator = deps.orchestrator;
     this.logger = deps.logger;
+    this.reviews = deps.reviews;
     this.pollIntervalMs = deps.pollIntervalMs ?? 2_000;
     this.timeoutMs = deps.timeoutMs ?? 300_000;
     this.now = deps.now ?? Date.now;
@@ -87,6 +95,12 @@ export class ReviewPublisher {
       : { title: "Review timed out", summary: notes.join("\n\n"), annotations: [] };
     await this.github.completeCheckRun(ref, checkRunId, { conclusion, output });
     log.info("review published to GitHub", { checkRunId, conclusion, annotations: output.annotations.length });
+    try {
+      await this.reviews?.recordCheckRun(input.reviewId, { checkRunId, conclusion: STORED_CONCLUSION[conclusion] });
+    } catch (error) {
+      // The Check Run is already on GitHub; only the dashboard's verdict is missing.
+      log.warn("could not store the Check Run's conclusion", { checkRunId, error });
+    }
   }
 
   /** Polls until the job is finished; undefined if it is still running at the deadline or gone. */

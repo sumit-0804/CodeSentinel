@@ -60,10 +60,12 @@ function publisher(jobs: Array<ReviewJob | Error>, github = new StubGitHubClient
     if (next instanceof Error) throw next;
     return next;
   });
+  const recordCheckRun = vi.fn(async () => {});
   const p = new ReviewPublisher({
     github,
     orchestrator: { getReviewJob },
     logger,
+    reviews: { recordCheckRun },
     pollIntervalMs: 2_000,
     timeoutMs,
     now: () => now,
@@ -71,10 +73,26 @@ function publisher(jobs: Array<ReviewJob | Error>, github = new StubGitHubClient
       now += ms;
     },
   });
-  return { p, github, getReviewJob };
+  return { p, github, getReviewJob, recordCheckRun };
 }
 
 describe("ReviewPublisher", () => {
+  it("stores the Check Run's conclusion on the review for the dashboard", async () => {
+    const { p, github, recordCheckRun } = publisher([job("completed")]);
+
+    await p.follow(INPUT);
+
+    expect(recordCheckRun).toHaveBeenCalledWith(INPUT.reviewId, { checkRunId: github.checkRuns[0]!.id, conclusion: "fail" });
+  });
+
+  it("still finishes when storing the conclusion fails", async () => {
+    const { p, github, recordCheckRun } = publisher([job("completed", [])]);
+    recordCheckRun.mockRejectedValueOnce(new Error("database down"));
+
+    await expect(p.follow(INPUT)).resolves.toBeUndefined();
+    expect(github.checkRuns[0]).toMatchObject({ status: "completed", conclusion: "success" });
+  });
+
   it("opens a Check Run, polls the job, posts one review, then completes the Check Run", async () => {
     const { p, github, getReviewJob } = publisher([job("queued"), job("running"), job("completed")]);
 
