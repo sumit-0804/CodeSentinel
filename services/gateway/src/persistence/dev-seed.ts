@@ -36,6 +36,7 @@ export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRe
     repositorySettings: [],
     repositoryAgentConfig: [],
     organizationAgentDefaults: [],
+    reviews: [],
     activeSessionIds: [],
     githubTokens: [],
     apiKeys: [

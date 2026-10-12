@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { sha256Hex } from "../auth/hash.js";
-import type { StoreSeed } from "../persistence/in-memory.js";
+import type { SeedReview, StoreSeed } from "../persistence/in-memory.js";
 import { GithubAccountTakenError, type Stores } from "../persistence/stores.js";
 
 /** A seed with fresh ids, so the contract can run against a shared database without touching other rows. */
@@ -41,6 +41,7 @@ export function uniqueSeed() {
     repositorySettings: [],
     repositoryAgentConfig: [],
     organizationAgentDefaults: [],
+    reviews: [],
     activeSessionIds: [],
     githubTokens: [],
     apiKeys: [
@@ -248,6 +249,70 @@ export function describeStoresContract(
         modes: { security: "comment", logic: "block" },
         reviewBranches: ["main", "release/*"],
       });
+    });
+  });
+
+  describe("reviews", () => {
+    const review = (ids: UniqueSeed["ids"], prNumber: number, minutesAgo: number, overrides: Partial<SeedReview> = {}): SeedReview => ({
+      reviewId: randomUUID(),
+      organizationId: ids.organizationId,
+      repositoryId: ids.repositoryId,
+      trigger: "github_pull_request",
+      prNumber,
+      prTitle: `PR ${prNumber}`,
+      headSha: randomUUID().replaceAll("-", "").slice(0, 40),
+      status: "completed",
+      confidenceThreshold: 0.8,
+      createdAt: new Date(Date.now() - minutesAgo * 60_000),
+      ...overrides,
+    });
+
+    it("lists the organization's reviews newest first, pages them, and keeps each PR's newest with latest", async () => {
+      let reviews: SeedReview[] = [];
+      const { stores, ids, seed } = await build(({ seed, ids }) => {
+        reviews = [review(ids, 7, 30), review(ids, 7, 10, { prTitle: "PR 7 again" }), review(ids, 8, 20, { status: "running" })];
+        seed.reviews.push(...reviews);
+      });
+
+      const all = await stores.reviews.list(ids.organizationId, { latest: false, limit: 2, offset: 0 });
+      expect(all.total).toBe(3);
+      expect(all.rows.map((r) => r.reviewId)).toEqual([reviews[1]!.reviewId, reviews[2]!.reviewId]);
+      expect(all.rows[0]).toMatchObject({ repositoryFullName: seed.repositories[0]!.fullName, prTitle: "PR 7 again", confidenceThreshold: 0.8 });
+
+      const latest = await stores.reviews.list(ids.organizationId, { latest: true, limit: 25, offset: 0 });
+      expect(latest.total).toBe(2);
+      expect(latest.rows.map((r) => r.prNumber)).toEqual([7, 8]);
+
+      const running = await stores.reviews.list(ids.organizationId, { status: ["running"], latest: false, limit: 25, offset: 0 });
+      expect(running.rows.map((r) => r.prNumber)).toEqual([8]);
+    });
+
+    it("never shows another organization's reviews", async () => {
+      let theirId = "";
+      const theirs = await build(({ seed, ids }) => {
+        const r = review(ids, 1, 1);
+        theirId = r.reviewId;
+        seed.reviews.push(r);
+      });
+      const mine = await build();
+
+      await expect(theirs.stores.reviews.get(mine.ids.organizationId, theirId)).resolves.toBeUndefined();
+      await expect(theirs.stores.reviews.list(mine.ids.organizationId, { latest: false, limit: 25, offset: 0 })).resolves.toEqual({ rows: [], total: 0 });
+      await expect(theirs.stores.reviews.get(theirs.ids.organizationId, theirId)).resolves.toMatchObject({ prNumber: 1 });
+    });
+
+    it("records the Check Run's conclusion, and ignores an unknown review", async () => {
+      let reviewId = "";
+      const { stores, ids } = await build(({ seed, ids }) => {
+        const r = review(ids, 3, 1);
+        reviewId = r.reviewId;
+        seed.reviews.push(r);
+      });
+
+      await stores.reviews.recordCheckRun(reviewId, { checkRunId: 4242, conclusion: "fail" });
+      await stores.reviews.recordCheckRun(randomUUID(), { checkRunId: 1, conclusion: "pass" });
+
+      await expect(stores.reviews.get(ids.organizationId, reviewId)).resolves.toMatchObject({ checkConclusion: "fail" });
     });
   });
 

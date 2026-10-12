@@ -1,13 +1,17 @@
+import { CombinedReportSchema } from "@code-sentinel/contracts";
 import type { Prisma, PrismaClient } from "@code-sentinel/db";
 
 import { modesOf, resolveEffectiveConfig, type RepositoryConfigInputs } from "./effective-config.js";
 import {
   GithubAccountTakenError,
+  storedStatuses,
   type ApiKeyStore,
   type GithubTokenStore,
   type InstallationStore,
   type RepositoryConfigStore,
   type RepositoryStore,
+  type ReviewRecord,
+  type ReviewStore,
   type SessionStore,
   type Stores,
   type SyncedRepository,
@@ -15,6 +19,31 @@ import {
 } from "./stores.js";
 
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
+
+const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
+
+function toReviewRecord(row: Prisma.ReviewGetPayload<{ include: typeof REVIEW_INCLUDE }>): ReviewRecord {
+  // The orchestrator writes `report`; a row that doesn't parse is shown without one rather than failing the list.
+  const report = row.report === null ? undefined : CombinedReportSchema.safeParse(row.report);
+  return {
+    reviewId: row.id,
+    organizationId: row.organizationId,
+    repositoryId: row.repositoryId,
+    repositoryFullName: row.repository.fullName,
+    trigger: row.trigger,
+    ...(row.prNumber !== null ? { prNumber: row.prNumber } : {}),
+    ...(row.prTitle !== null ? { prTitle: row.prTitle } : {}),
+    headSha: row.headSha,
+    ...(row.headRef !== null ? { headRef: row.headRef } : {}),
+    ...(row.baseRef !== null ? { baseRef: row.baseRef } : {}),
+    status: row.status,
+    ...(row.checkConclusion !== null ? { checkConclusion: row.checkConclusion } : {}),
+    confidenceThreshold: row.confidenceThreshold.toNumber(),
+    ...(row.durationMs !== null ? { durationMs: row.durationMs } : {}),
+    createdAt: row.createdAt,
+    ...(report?.success ? { report: report.data } : {}),
+  };
+}
 /** Upserts one repository by GitHub id into an installation; a stale active row holding the same name is marked removed first. */
 async function upsertRepository(
   tx: Prisma.TransactionClient,
@@ -45,6 +74,7 @@ async function upsertRepository(
 export class PrismaStores implements Stores {
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
+  readonly reviews: ReviewStore;
   readonly sessions: SessionStore;
   readonly apiKeys: ApiKeyStore;
   readonly users: UserStore;
@@ -183,6 +213,32 @@ export class PrismaStores implements Stores {
             });
           }
         });
+      },
+    };
+
+    this.reviews = {
+      list: async (organizationId, { repositoryId, status, latest, limit, offset }) => {
+        const where: Prisma.ReviewWhereInput = {
+          organizationId,
+          ...(repositoryId ? { repositoryId } : {}),
+          ...(status ? { status: { in: storedStatuses(status) } } : {}),
+          ...(latest ? { trigger: "github_pull_request" } : {}),
+        };
+        const distinct: Prisma.ReviewScalarFieldEnum[] | undefined = latest ? ["repositoryId", "prNumber"] : undefined;
+        const [rows, total] = await Promise.all([
+          prisma.review.findMany({ where, orderBy: { createdAt: "desc" }, skip: offset, take: limit, ...(distinct ? { distinct } : {}), include: REVIEW_INCLUDE }),
+          latest
+            ? prisma.review.groupBy({ by: ["repositoryId", "prNumber"], where }).then((groups) => groups.length)
+            : prisma.review.count({ where }),
+        ]);
+        return { rows: rows.map(toReviewRecord), total };
+      },
+      get: async (organizationId, reviewId) => {
+        const row = await prisma.review.findFirst({ where: { id: reviewId, organizationId }, include: REVIEW_INCLUDE });
+        return row ? toReviewRecord(row) : undefined;
+      },
+      recordCheckRun: async (reviewId, { checkRunId, conclusion }) => {
+        await prisma.review.updateMany({ where: { id: reviewId }, data: { githubCheckRunId: BigInt(checkRunId), checkConclusion: conclusion } });
       },
     };
 

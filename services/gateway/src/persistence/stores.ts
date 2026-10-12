@@ -1,9 +1,13 @@
 import type {
   AgentKind,
   AgentMode,
+  CheckConclusion,
+  CombinedReport,
   OrganizationMembership,
   RepositoryConfigUpdate,
   ReviewDefaultsUpdate,
+  ReviewStatus,
+  ReviewTrigger,
   ThresholdSource,
 } from "@code-sentinel/contracts";
 
@@ -164,6 +168,50 @@ export interface RepositoryConfigStore {
   updateReviewDefaults(organizationId: string, update: ReviewDefaultsUpdate, updatedBy: string): Promise<void>;
 }
 
+/** A `reviews` row, written by the orchestrator, as the history API reads it. */
+export interface ReviewRecord {
+  reviewId: string;
+  organizationId: string;
+  repositoryId: string;
+  repositoryFullName: string;
+  trigger: ReviewTrigger;
+  prNumber?: number;
+  prTitle?: string;
+  headSha: string;
+  headRef?: string;
+  baseRef?: string;
+  /** `cancelled` only a job can reach; the API reports it as `failed`. */
+  status: ReviewStatus | "cancelled";
+  checkConclusion?: CheckConclusion;
+  confidenceThreshold: number;
+  durationMs?: number;
+  createdAt: Date;
+  /** Absent while the review runs, or when the stored report doesn't parse. */
+  report?: CombinedReport;
+}
+
+export interface ReviewListFilter {
+  repositoryId?: string;
+  status?: ReviewStatus[];
+  /** Each pull request's newest review only. */
+  latest: boolean;
+  limit: number;
+  offset: number;
+}
+
+export interface ReviewStore {
+  /** The organization's reviews, newest first (NFR-13). */
+  list(organizationId: string, filter: ReviewListFilter): Promise<{ rows: ReviewRecord[]; total: number }>;
+  /** `undefined` for an unknown review or one in another organization. */
+  get(organizationId: string, reviewId: string): Promise<ReviewRecord | undefined>;
+  /** Stores the Check Run's id and conclusion; a review that doesn't exist (yet) is left alone. */
+  recordCheckRun(reviewId: string, checkRun: { checkRunId: number; conclusion: CheckConclusion }): Promise<void>;
+}
+
+/** The API's `failed` also covers the jobs the database records as `cancelled`. */
+export const storedStatuses = (statuses: ReviewStatus[]): (ReviewStatus | "cancelled")[] =>
+  statuses.includes("failed") ? [...statuses, "cancelled"] : statuses;
+
 /** Supabase owns sessions; the gateway only asks whether one is still live, so sign-out applies before `exp`. */
 export interface SessionStore {
   isActive(sessionId: string): Promise<boolean>;
@@ -191,6 +239,7 @@ export interface UserStore {
 export interface Stores {
   repositories: RepositoryStore;
   repositoryConfig: RepositoryConfigStore;
+  reviews: ReviewStore;
   sessions: SessionStore;
   apiKeys: ApiKeyStore;
   users: UserStore;

@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 
-import type { PrismaClient } from "@code-sentinel/db";
+import type { Prisma, PrismaClient } from "@code-sentinel/db";
 
 import type { StoreSeed } from "../persistence/in-memory.js";
 
@@ -93,6 +93,28 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
   }
   for (const config of seed.repositoryAgentConfig) {
     await prisma.repositoryAgentConfig.create({ data: config });
+  }
+  for (const review of seed.reviews) {
+    await prisma.review.create({
+      data: {
+        id: review.reviewId,
+        organizationId: review.organizationId,
+        repositoryId: review.repositoryId,
+        trigger: review.trigger,
+        prNumber: review.prNumber ?? null,
+        prTitle: review.prTitle ?? null,
+        headSha: review.headSha,
+        headRef: review.headRef ?? null,
+        baseRef: review.baseRef ?? null,
+        status: review.status,
+        checkConclusion: review.checkConclusion ?? null,
+        githubCheckRunId: review.githubCheckRunId !== undefined ? BigInt(review.githubCheckRunId) : null,
+        confidenceThreshold: review.confidenceThreshold,
+        durationMs: review.durationMs ?? null,
+        createdAt: review.createdAt,
+        ...(review.report ? { report: review.report as unknown as Prisma.InputJsonValue } : {}),
+      },
+    });
   }
   for (const user of seed.users) {
     await prisma.user.create({

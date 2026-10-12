@@ -11,6 +11,7 @@ import {
 } from "./effective-config.js";
 import {
   GithubAccountTakenError,
+  storedStatuses,
   type ApiKeyRecord,
   type ApiKeyStore,
   type GithubTokenStore,
@@ -18,6 +19,8 @@ import {
   type RepositoryConfigStore,
   type RepositoryRecord,
   type RepositoryStore,
+  type ReviewRecord,
+  type ReviewStore,
   type SealedGithubTokens,
   type SessionStore,
   type Stores,
@@ -70,9 +73,14 @@ export interface StoreSeed {
   apiKeys: ApiKeyRecord[];
   users: UserRecord[];
   githubTokens: ({ userId: string } & SealedGithubTokens)[];
+  /** `reviews` rows; the repository's name is looked up, as the database joins it. */
+  reviews: SeedReview[];
 }
 
+export type SeedReview = Omit<ReviewRecord, "repositoryFullName"> & { githubCheckRunId?: number };
+
 export const emptySeed = (): StoreSeed => ({
+  reviews: [],
   organizations: [],
   installations: [],
   repositories: [],
@@ -92,6 +100,7 @@ export const emptySeed = (): StoreSeed => ({
 export class InMemoryStores implements Stores {
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
+  readonly reviews: ReviewStore;
   readonly sessions: SessionStore;
   readonly apiKeys: ApiKeyStore;
   readonly users: UserStore;
@@ -227,6 +236,45 @@ export class InMemoryStores implements Stores {
           if (row) row.mode = mode;
           else data.organizationAgentDefaults.push({ organizationId, agent, mode });
         }
+      },
+    };
+
+    const toRecord = ({ githubCheckRunId: _checkRunId, ...review }: SeedReview): ReviewRecord =>
+      structuredClone({
+        ...review,
+        repositoryFullName: data.repositories.find((r) => r.repositoryId === review.repositoryId)?.fullName ?? "unknown/unknown",
+      });
+
+    this.reviews = {
+      list: async (organizationId, { repositoryId, status, latest, limit, offset }) => {
+        const statuses = status ? storedStatuses(status) : undefined;
+        let rows = data.reviews
+          .filter(
+            (r) =>
+              r.organizationId === organizationId &&
+              (!repositoryId || r.repositoryId === repositoryId) &&
+              (!statuses || statuses.includes(r.status)) &&
+              (!latest || r.trigger === "github_pull_request"),
+          )
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        if (latest) {
+          const seen = new Set<string>();
+          rows = rows.filter((r) => {
+            const key = `${r.repositoryId}#${r.prNumber}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+        return { rows: rows.slice(offset, offset + limit).map(toRecord), total: rows.length };
+      },
+      get: async (organizationId, reviewId) => {
+        const review = data.reviews.find((r) => r.reviewId === reviewId && r.organizationId === organizationId);
+        return review ? toRecord(review) : undefined;
+      },
+      recordCheckRun: async (reviewId, { checkRunId, conclusion }) => {
+        const review = data.reviews.find((r) => r.reviewId === reviewId);
+        if (review) Object.assign(review, { githubCheckRunId: checkRunId, checkConclusion: conclusion });
       },
     };
 
