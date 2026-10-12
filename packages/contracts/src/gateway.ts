@@ -268,6 +268,16 @@ export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;
 /** Configuration writes need an authenticator code entered this many minutes ago at most (A7, 403 `mfa_required`). */
 export const DEFAULT_MFA_STEP_UP_MINUTES = 10;
 
+/** The step-up rule shared by the gateway and the dashboard: `aal2` with a `totp` entry in `amr` (Unix seconds) at most `minutes` old. */
+export function isStepUpFresh(
+  claims: { aal?: string; amr?: readonly { method: string; timestamp: number }[] },
+  nowMs: number,
+  minutes: number = DEFAULT_MFA_STEP_UP_MINUTES,
+): boolean {
+  const totpAt = claims.aal === "aal2" ? claims.amr?.find((entry) => entry.method === "totp")?.timestamp : undefined;
+  return totpAt !== undefined && nowMs - totpAt * 1000 <= minutes * 60_000;
+}
+
 /**
  * A partial update: omitted fields keep their value. Turning every agent off is rejected with 400
  * `no_agents_enabled` (UC-4 exception flow); switch `reviewEnabled` off instead.

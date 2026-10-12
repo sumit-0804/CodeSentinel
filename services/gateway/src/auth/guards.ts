@@ -1,3 +1,4 @@
+import { isStepUpFresh } from "@code-sentinel/contracts";
 import { forbidden, unauthorized } from "@code-sentinel/service-kit";
 import type { NextFunction, Request } from "express";
 
@@ -25,9 +26,7 @@ export interface StepUpPolicy {
  * (A7): `aal2` plus a fresh `totp` entry in `amr`. Anything else is 403 `mfa_required`.
  */
 export function assertStepUp(principal: Principal, { minutes, now }: StepUpPolicy): void {
-  const totpAt = principal.aal === "aal2" ? principal.amr?.find((entry) => entry.method === "totp")?.timestamp : undefined;
-  const ageMs = totpAt === undefined ? Infinity : now().getTime() - totpAt * 1000;
-  if (!(ageMs <= minutes * 60_000)) {
+  if (!isStepUpFresh(principal, now().getTime(), minutes)) {
     throw forbidden("mfa_required", `Enter a code from your authenticator app; it counts for ${minutes} minutes`);
   }
 }
