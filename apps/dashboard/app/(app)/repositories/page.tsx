@@ -7,7 +7,9 @@ import { EmptyState, PageHead, PageSkeleton } from "@/components/app/page-parts"
 import { RepositoryList } from "@/components/app/repository-list";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth";
+import type { ReviewListItem } from "@code-sentinel/contracts";
 import { getRepositories } from "@/lib/repositories";
+import { getReviews } from "@/lib/reviews";
 import { toShellUser } from "@/lib/shell-user";
 
 export const metadata: Metadata = { title: "Repositories" };
@@ -28,14 +30,19 @@ async function Banner({ searchParams }: { searchParams: PageProps<"/repositories
 }
 
 async function RepositoriesContent() {
-  const [user, result] = await Promise.all([requireUser(), getRepositories()]);
+  const [user, result, reviews] = await Promise.all([requireUser(), getRepositories(), getReviews(true)]);
   if (!result.ok) {
     return <EmptyState title="Repositories aren't available">{UNAVAILABLE[result.reason]}</EmptyState>;
   }
   if (result.repositories.length === 0) {
     return <Onboarding signedInWith={toShellUser(user).signedInWith} />;
   }
-  return <RepositoryList repositories={result.repositories} />;
+  // Newest first, so the first review seen for a repository is its latest; without reviews the column says so.
+  const latest: Record<string, ReviewListItem> = {};
+  for (const review of reviews.ok ? reviews.reviews : []) {
+    if (review.repositoryId && !latest[review.repositoryId]) latest[review.repositoryId] = review;
+  }
+  return <RepositoryList repositories={result.repositories} latest={latest} />;
 }
 
 export default function RepositoriesPage({ searchParams }: PageProps<"/repositories">) {

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { EmptyState, PageSkeleton } from "@/components/app/page-parts";
 import { RepositorySettings, type RepositoryTab } from "@/components/config/repository-settings";
 import { getRepositoryPageData } from "@/lib/repository-config";
+import { getReview, getReviews } from "@/lib/reviews";
 
 type Props = PageProps<"/repositories/[owner]/[name]">;
 
@@ -26,9 +27,26 @@ async function RepositoryContent({ params, searchParams }: Props) {
     if (data.reason === "not_found") notFound();
     return <EmptyState title="This repository isn't available">{UNAVAILABLE[data.reason]}</EmptyState>;
   }
-  const initialTab: RepositoryTab = tab === "advanced" ? "advanced" : "agents";
+  const initialTab: RepositoryTab = tab === "advanced" || tab === "pull-requests" ? tab : "agents";
+  // The newest review's confidences drive the threshold preview; without reviews it's simply left out.
+  const reviews = await getReviews(true, data.config.repositoryId);
+  const pullRequests = reviews.ok ? reviews.reviews : [];
+  const newest = pullRequests.find((review) => review.status !== "queued" && review.status !== "running");
+  const last = newest ? await getReview(newest.reviewId) : undefined;
+  const lastConfidences = last?.ok ? last.review.findings.map((finding) => finding.confidence) : undefined;
+
   // Keyed by repository so moving between repositories starts a fresh draft.
-  return <RepositorySettings key={data.config.repositoryId} config={data.config} defaults={data.defaults} isAdmin={data.isAdmin} initialTab={initialTab} />;
+  return (
+    <RepositorySettings
+      key={data.config.repositoryId}
+      config={data.config}
+      defaults={data.defaults}
+      isAdmin={data.isAdmin}
+      initialTab={initialTab}
+      pullRequests={pullRequests}
+      {...(lastConfidences ? { lastConfidences } : {})}
+    />
+  );
 }
 
 export default function RepositoryPage(props: Props) {

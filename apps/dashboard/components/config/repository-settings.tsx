@@ -5,12 +5,13 @@ import Link from "next/link";
 import { ExternalLink, GitBranch, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { toast } from "sonner";
-import type { RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
+import type { RepositoryConfig, ReviewDefaults, ReviewListItem } from "@code-sentinel/contracts";
 import { saveRepositoryConfig } from "@/app/(app)/repositories/actions";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
 import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
 import { UnsavedBar } from "@/components/config/unsaved-bar";
+import { ReviewTable } from "@/components/reviews/review-table";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -23,7 +24,7 @@ import {
   type RepositoryDraft,
 } from "@/lib/config-draft";
 
-export type RepositoryTab = "agents" | "advanced";
+export type RepositoryTab = "agents" | "pull-requests" | "advanced";
 
 const TAB_CLASS =
   "inline-flex h-8 cursor-pointer items-center gap-[7px] rounded-[9px] px-3 text-[13.5px] font-semibold text-ink-2 outline-none hover:text-ink focus-visible:ring-2 focus-visible:ring-cyan/60 disabled:cursor-not-allowed disabled:opacity-50 data-[state=active]:bg-panel-3 data-[state=active]:text-ink data-[state=active]:shadow-[inset_0_0_0_1px_var(--cs-line-2)]";
@@ -46,11 +47,17 @@ export function RepositorySettings({
   defaults,
   isAdmin,
   initialTab,
+  pullRequests,
+  lastConfidences,
 }: {
   config: RepositoryConfig;
   defaults: ReviewDefaults;
   isAdmin: boolean;
   initialTab: RepositoryTab;
+  /** Each pull request's newest review in this repository. */
+  pullRequests: ReviewListItem[];
+  /** Finding confidences of the newest finished review, for the threshold preview. */
+  lastConfidences?: number[];
 }) {
   const [saved, setSaved] = useState(config);
   const [draft, setDraft] = useState<RepositoryDraft>(() => repositoryDraftFrom(config));
@@ -161,8 +168,9 @@ export function RepositorySettings({
           <Tabs.Trigger value="agents" className={TAB_CLASS}>
             Agents
           </Tabs.Trigger>
-          <Tabs.Trigger value="pull-requests" disabled className={TAB_CLASS} title="Coming in the next update">
+          <Tabs.Trigger value="pull-requests" className={TAB_CLASS}>
             Pull requests
+            <span className="font-semibold text-ink-3 tabular-nums">{pullRequests.length}</span>
           </Tabs.Trigger>
           <Tabs.Trigger value="advanced" className={TAB_CLASS}>
             Advanced
@@ -201,8 +209,17 @@ export function RepositorySettings({
               inherited={defaults.confidenceThreshold}
               locked={!isAdmin}
               onChange={(value) => setDraft((current) => ({ ...current, thresholdOverride: value }))}
+              {...(lastConfidences?.length ? { lastConfidences } : {})}
             />
           </Section>
+        </Tabs.Content>
+
+        <Tabs.Content value="pull-requests" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
+          {pullRequests.length > 0 ? (
+            <ReviewTable reviews={pullRequests} showRepository={false} />
+          ) : (
+            <p className="panel p-6 text-ink-2">No pull requests reviewed yet. Open or update a pull request in {name} and its review appears here.</p>
+          )}
         </Tabs.Content>
 
         <Tabs.Content value="advanced" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">

@@ -43,15 +43,20 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/auth/error` | Names what failed and offers one next action |
 | `/overview` | First-run checklist; step 2 is done once the organization has a repository |
 | `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`). Each name opens its repository page |
-| `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: branches to review, and Manage on GitHub. The Pull requests tab arrives in A4b-2 |
+| `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: branches to review, and Manage on GitHub; **Pull requests**: the repository's reviewed pull requests. The threshold shows how many findings of the last review it would post, live as the slider moves |
 | `/onboarding/github/install` | Sets a random `state` cookie and sends you to install the App on GitHub |
 | `/onboarding/github/connect` | Same, through GitHub's authorize page: links GitHub and joins organizations the App is already on |
 | `/onboarding/github/callback` | GitHub's Callback and Setup URL. A `code` with a matching `state` is sent to `POST /v1/github/link`; without our `state` the code is never used and you confirm instead; an installation updated on GitHub (no code) triggers a sync |
-| `/pull-requests` | Empty state until reviews exist |
+| `/pull-requests` | Each pull request's newest review (`GET /v1/reviews?latest=true`): verdict lanes, verdict, severity counts, filters by verdict. Empty state until reviews exist |
+| `/pull-requests/[reviewId]` | One review: verdict and why, commit, threshold, View on GitHub, the gauge; findings by file with severity filters, each expanding to its description and fix (before/after); findings below the threshold dimmed as not posted; agent runs |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
 | `/settings?section=defaults` | **Review defaults**: the organization's agent modes, threshold and branches, used by repositories that follow them |
 
 `/` redirects to `/overview` until the public landing page (A4c) replaces it.
+
+**Verdicts.** A review's verdict (`lib/review-view.ts`) follows the GitHub Check Run conclusion the gateway stores:
+`fail` is **Blocked**. Reviews from before that was stored fall back to "any critical finding blocks". Running
+reviews show as **Reviewing**, and a review that didn't finish as **Partial** or **Failed**.
 
 **Saving configuration.** The repository page and Review defaults read and write the gateway's
 `/v1/repositories/{id}/config` and `/v1/organizations/{id}/review-defaults` through server actions

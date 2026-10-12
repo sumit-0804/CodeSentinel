@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { GitBranch, Lock, Search } from "lucide-react";
+import type { ReviewListItem } from "@code-sentinel/contracts";
+import { Lanes } from "@/components/brand/verdict";
+import { VerdictPill, verdictWord } from "@/components/brand/verdict-pill";
 import { Input } from "@/components/ui/input";
+import { lanesOf, verdictOf } from "@/lib/review-view";
 
 export type RepositoryRow = {
   repositoryId: string;
@@ -14,8 +18,8 @@ export type RepositoryRow = {
   reviewEnabled: boolean;
 };
 
-/** The organization's repositories with a name filter; each name opens its repository page. Review history joins in A4b-2. */
-export function RepositoryList({ repositories }: { repositories: RepositoryRow[] }) {
+/** The organization's repositories with a name filter; each name opens its repository page, each verdict its latest review. */
+export function RepositoryList({ repositories, latest }: { repositories: RepositoryRow[]; latest: Record<string, ReviewListItem> }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -74,7 +78,20 @@ export function RepositoryList({ repositories }: { repositories: RepositoryRow[]
                       {repo.defaultBranch ?? "main"}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-sm text-ink-3">No pull requests yet</td>
+                  <td className="px-5 py-3.5 text-sm text-ink-3">
+                    {latest[repo.repositoryId] ? (
+                      <Link
+                        href={`/pull-requests/${latest[repo.repositoryId]!.reviewId}`}
+                        className="inline-flex items-center gap-3"
+                        aria-label={`Latest review: ${verdictWord(verdictOf(latest[repo.repositoryId]!))}`}
+                      >
+                        <Lanes lanes={lanesOf(latest[repo.repositoryId]!.agentResults)} />
+                        <VerdictPill verdict={verdictOf(latest[repo.repositoryId]!)} />
+                      </Link>
+                    ) : (
+                      "No pull requests yet"
+                    )}
+                  </td>
                   <td className="px-5 py-3.5">
                     <span
                       className={
