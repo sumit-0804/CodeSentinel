@@ -51,6 +51,8 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/pull-requests/[reviewId]` | One review: verdict and why, commit, threshold, View on GitHub, the gauge; findings by file with severity filters, each expanding to its description and fix (before/after); findings below the threshold dimmed as not posted; agent runs |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
 | `/settings?section=defaults` | **Review defaults**: the organization's agent modes, threshold and branches, used by repositories that follow them |
+| `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code |
+| `/step-up` | Asks for an authenticator code, then continues to `?next=` (a safe same-origin path). Install and Connect send you here when your code is too old |
 
 `/` redirects to `/overview` until the public landing page (A4c) replaces it.
 
@@ -63,7 +65,23 @@ reviews show as **Reviewing**, and a review that didn't finish as **Partial** or
 (`app/(app)/repositories/actions.ts`). Edits stay in a draft until **Save changes** in the sticky bar; only what
 changed is sent (`lib/config-draft.ts`), and the browser asks before leaving with unsaved changes. Only
 organization admins can save: members see the settings read-only, and the gateway checks the role again. Turning
-every agent off is caught before Save. A7 adds the authenticator-code step before Save.
+every agent off is caught before Save.
+
+**Authenticator codes (A7).** Saving repository settings and review defaults, and connecting repositories, need a
+code from an authenticator app entered in the last 10 minutes (the gateway's `MFA_STEP_UP_MINUTES`):
+- **Saves** go through `useStepUp()` (`components/auth/step-up.tsx`). When the gateway answers `mfa_required`, one
+  dialog asks for the code, then saves again. Without an authenticator, it links to Settings → Security instead.
+- **Install and Connect** check first (`hasFreshStepUp()` in `lib/mfa.ts`, the same rule as the gateway, shared
+  from `@code-sentinel/contracts`) and send you to `/step-up` when needed. If GitHub took too long and the code ran
+  out, the callback shows "Your authenticator code ran out" with a way back.
+- Codes are checked with `mfa.challengeAndVerify` in Server Actions (`app/(app)/settings/security-actions.ts`).
+  The session's new token is `aal2` with a fresh `totp` time, and `gatewayFetch` sends it on.
+- Signing in doesn't ask for a code; only these changes do.
+
+**Locked out?** Supabase has no recovery codes turned on here, so the backup is a second authenticator. If both are
+lost, an admin confirms who the person is and runs `scripts/mfa-reset.mjs <user-id>` from their own shell with
+`SUPABASE_URL` and `SUPABASE_SECRET_KEY`. It lists the user's authenticators, and removes them only with `--yes`.
+The secret key is never put in a file or deployed.
 
 ## How auth works
 
@@ -72,8 +90,8 @@ every agent off is caught before Save. A7 adds the authenticator-code step befor
   users on sign-in / sign-up go to `/overview`.
 - **Every app page, layout and Server Action checks again** with `requireUser()` (`lib/auth.ts`), so nothing relies on
   the proxy alone and nothing trusts `getSession()`.
-- **There is no browser Supabase client.** Every auth call is a Server Action or a Route Handler, so the browser only
-  talks to this origin. (A7 adds a browser client for TOTP enrolment.)
+- **There is no browser Supabase client.** Every auth call is a Server Action or a Route Handler, including
+  authenticator enrolment and codes, so the browser only talks to this origin.
 - **`safeNextPath()`** accepts only same-origin paths (`/x`, not `//x`, `/\x`, or URLs with control characters), so
   `next` can't become an open redirect.
 - Supabase error codes are mapped to plain sentences (`lib/auth-errors.ts`); raw server messages never reach the page.
