@@ -13,7 +13,7 @@ import { defaultsDraftFrom, defaultsUpdateFrom, everyAgentOff, isEmptyUpdate, ty
 
 function Section({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3.5">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-3.5">
       <div>
         <h2 className="font-display text-lg font-semibold">{title}</h2>
         {sub ? <p className="mt-1.5 text-[14.5px] text-ink-2">{sub}</p> : null}
@@ -53,7 +53,7 @@ export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: 
     });
 
   return (
-    <div className="grid gap-[30px] pb-24">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-[30px] pb-24">
       <p className="text-[15px] text-ink-2">
         New repositories in <b className="text-ink">{organizationName}</b>, and every repository set to &ldquo;Use organization defaults&rdquo;, run with these settings.
       </p>

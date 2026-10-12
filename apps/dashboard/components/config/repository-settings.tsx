@@ -30,7 +30,7 @@ const TAB_CLASS =
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="grid gap-3.5">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-3.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-lg font-semibold">{title}</h2>
         {aside}
@@ -108,7 +108,8 @@ export function RepositorySettings({
     });
 
   return (
-    <div className="grid gap-[30px] pb-24">
+    // minmax(0,1fr) columns let long names and wide rows shrink instead of pushing past a phone screen.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-[30px] pb-24">
       <div>
         <nav aria-label="Breadcrumb" className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[13.5px] text-ink-3">
           <Link href="/repositories" className="font-semibold text-ink-2 hover:text-cyan">
@@ -117,13 +118,13 @@ export function RepositorySettings({
           <span aria-hidden="true">/</span>
           <span aria-current="page">{name}</span>
         </nav>
-        <div className="grid items-end gap-x-8 gap-y-[18px] sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-end gap-x-8 gap-y-[18px] sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="flex flex-wrap items-center gap-3.5">
             <span className="grid size-[52px] flex-none place-items-center rounded-[14px] border border-cyan/30 bg-[linear-gradient(135deg,rgb(155_108_255/0.35),rgb(61_240_255/0.25))] font-display text-xl font-bold">
               {(name ?? saved.fullName).charAt(0).toUpperCase()}
             </span>
             <div className="min-w-0">
-              <h1 className="text-display truncate text-[clamp(24px,2.8vw,32px)]">{name}</h1>
+              <h1 className="text-display text-[clamp(24px,2.8vw,32px)] [overflow-wrap:anywhere]">{name}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
                 <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full border border-line-2 px-2.5 text-[12.5px] font-semibold text-ink-2">
                   <GitBranch className="size-3.5" aria-hidden="true" />
@@ -155,7 +156,7 @@ export function RepositorySettings({
         </p>
       )}
 
-      <Tabs.Root value={tab} onValueChange={chooseTab} className="grid gap-[30px]">
+      <Tabs.Root value={tab} onValueChange={chooseTab} className="grid grid-cols-[minmax(0,1fr)] gap-[30px]">
         <Tabs.List aria-label="Repository sections" className="inline-flex flex-wrap gap-0.5 justify-self-start rounded-xl border border-line bg-panel p-[3px]">
           <Tabs.Trigger value="agents" className={TAB_CLASS}>
             Agents
@@ -168,7 +169,7 @@ export function RepositorySettings({
           </Tabs.Trigger>
         </Tabs.List>
 
-        <Tabs.Content value="agents" className="grid gap-[30px] outline-none">
+        <Tabs.Content value="agents" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
           <Section title="Which agents run on pull requests">
             <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line px-5 py-4">
               <div>
@@ -204,7 +205,7 @@ export function RepositorySettings({
           </Section>
         </Tabs.Content>
 
-        <Tabs.Content value="advanced" className="grid gap-[30px] outline-none">
+        <Tabs.Content value="advanced" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
           <Section
             title="Branches to review"
             aside={draft.useOrgDefaults ? <span className="text-[13px] text-ink-3">From organization defaults</span> : undefined}
