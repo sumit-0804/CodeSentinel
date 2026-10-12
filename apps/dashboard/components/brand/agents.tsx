@@ -1,11 +1,12 @@
 import type { SVGProps } from "react";
 
+/** `agent` is the API's name for it; `live` is false until the agent is deployed. */
 export const AGENTS = [
-  { key: "SEC", name: "Security", what: "Leaked secrets, injection and unsafe input." },
-  { key: "STY", name: "Style", what: "ESLint, Prettier, Ruff and Black, with exact fixes." },
-  { key: "PRF", name: "Performance", what: "Slow loops, repeated queries, needless allocations." },
-  { key: "LGC", name: "Logic", what: "Wrong conditions, off-by-one errors, missed edge cases." },
-  { key: "DOC", name: "Documentation", what: "Missing or outdated docstrings and READMEs." },
+  { key: "SEC", agent: "security", name: "Security", what: "Leaked secrets, injection and unsafe input.", live: true },
+  { key: "STY", agent: "style", name: "Style", what: "ESLint, Prettier, Ruff and Black, with exact fixes.", live: true },
+  { key: "PRF", agent: "performance", name: "Performance", what: "Slow loops, repeated queries, needless allocations.", live: false },
+  { key: "LGC", agent: "logic", name: "Logic", what: "Wrong conditions, off-by-one errors, missed edge cases.", live: false },
+  { key: "DOC", agent: "documentation", name: "Documentation", what: "Missing or outdated docstrings and READMEs.", live: false },
 ] as const;
 
 export type AgentKey = (typeof AGENTS)[number]["key"];
