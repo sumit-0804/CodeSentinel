@@ -5,6 +5,7 @@ import { Lock } from "lucide-react";
 import { toast } from "sonner";
 import type { ReviewDefaults } from "@code-sentinel/contracts";
 import { saveReviewDefaults } from "@/app/(app)/repositories/actions";
+import { useStepUp } from "@/components/auth/step-up";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
 import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
@@ -28,6 +29,7 @@ export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: 
   const [saved, setSaved] = useState(defaults);
   const [draft, setDraft] = useState<DefaultsDraft>(() => defaultsDraftFrom(defaults));
   const [pending, startTransition] = useTransition();
+  const withStepUp = useStepUp();
 
   const update = defaultsUpdateFrom(saved, draft);
   const dirty = !isEmptyUpdate(update);
@@ -42,7 +44,8 @@ export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: 
 
   const save = () =>
     startTransition(async () => {
-      const result = await saveReviewDefaults(update);
+      const result = await withStepUp(() => saveReviewDefaults(update));
+      if (!result) return;
       if (!result.ok) {
         toast.error(result.message);
         return;

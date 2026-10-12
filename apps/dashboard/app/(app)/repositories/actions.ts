@@ -13,10 +13,12 @@ import {
 import { gatewayFetch, type GatewayResult } from "@/lib/gateway";
 import { getAccount } from "@/lib/organization";
 
-export type SaveResult<T> = { ok: true; saved: T } | { ok: false; message: string };
+/** `code: "mfa_required"` makes the client ask for an authenticator code and save again (`useStepUp`). */
+export type SaveResult<T> = { ok: true; saved: T } | { ok: false; message: string; code?: string };
 
 const MESSAGES: Record<string, string> = {
   admin_required: "Only organization admins can change this.",
+  mfa_required: "Enter a code from your authenticator app to save this.",
   session_required: "Sign in again to change this.",
   no_agents_enabled: "Keep at least one agent on, or switch reviews off instead.",
   invalid_body: "Some of these settings aren't valid. Check the branches and try again.",
@@ -24,8 +26,8 @@ const MESSAGES: Record<string, string> = {
   organization_not_found: "This organization isn't available any more.",
 };
 
-function failure(result: Extract<GatewayResult<unknown>, { ok: false }>): { ok: false; message: string } {
-  if (result.code && MESSAGES[result.code]) return { ok: false, message: MESSAGES[result.code]! };
+function failure(result: Extract<GatewayResult<unknown>, { ok: false }>): { ok: false; message: string; code?: string } {
+  if (result.code && MESSAGES[result.code]) return { ok: false, message: MESSAGES[result.code]!, code: result.code };
   if (result.reason === "unreachable" || result.reason === "unconfigured") return { ok: false, message: "Couldn't reach the API. Try again in a moment." };
   return { ok: false, message: "The API couldn't save this. Try again in a moment." };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectUrl, installUrl, newState, outcomeForGatewayError, stateMatches } from "./github-onboarding";
+import { connectUrl, installUrl, newState, outcomeForGatewayError, stateMatches, stepUpUrl } from "./github-onboarding";
 import { pickOrganization } from "./organization-choice";
 import { parseGithubApp } from "./env";
 
@@ -31,7 +31,14 @@ describe("GitHub onboarding state", () => {
     expect(outcomeForGatewayError("github_account_taken")).toBe("account_taken");
     expect(outcomeForGatewayError("github_code_invalid")).toBe("code_invalid");
     expect(outcomeForGatewayError("github_link_unconfigured")).toBe("unconfigured");
+    expect(outcomeForGatewayError("mfa_required")).toBe("step_up");
     expect(outcomeForGatewayError(undefined)).toBe("failed");
+  });
+
+  it("sends a stale session to the code page, then back to the same route", () => {
+    expect(stepUpUrl("http://localhost:3001", "/onboarding/github/install")).toBe(
+      "http://localhost:3001/step-up?next=%2Fonboarding%2Fgithub%2Finstall",
+    );
   });
 });
 

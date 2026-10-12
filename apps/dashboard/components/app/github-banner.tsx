@@ -1,3 +1,4 @@
+import { DEFAULT_MFA_STEP_UP_MINUTES } from "@code-sentinel/contracts";
 import type { OnboardingOutcome } from "@/lib/github-onboarding";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,12 @@ const MESSAGES: Record<OnboardingOutcome, { tone: Tone; title: string; body: str
     title: "GitHub didn't answer",
     body: "Nothing changed. Try again in a moment.",
     action: { href: "/onboarding/github/connect", label: "Try again" },
+  },
+  step_up: {
+    tone: "warn",
+    title: "Your authenticator code ran out",
+    body: `Changes to repositories need a code from the last ${DEFAULT_MFA_STEP_UP_MINUTES} minutes. Enter a new one and connect again.`,
+    action: { href: "/onboarding/github/connect", label: "Enter a code and connect" },
   },
   failed: {
     tone: "crit",

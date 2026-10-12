@@ -7,6 +7,7 @@ import { Tabs } from "radix-ui";
 import { toast } from "sonner";
 import type { RepositoryConfig, ReviewDefaults, ReviewListItem } from "@code-sentinel/contracts";
 import { saveRepositoryConfig } from "@/app/(app)/repositories/actions";
+import { useStepUp } from "@/components/auth/step-up";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
 import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
@@ -64,6 +65,7 @@ export function RepositorySettings({
   const [tab, setTab] = useState<RepositoryTab>(initialTab);
   const [pending, startTransition] = useTransition();
   const [toggling, startToggle] = useTransition();
+  const withStepUp = useStepUp();
 
   const update = repositoryUpdateFrom(saved, draft);
   const dirty = !isEmptyUpdate(update);
@@ -91,7 +93,8 @@ export function RepositorySettings({
 
   const save = () =>
     startTransition(async () => {
-      const result = await saveRepositoryConfig(saved.repositoryId, update);
+      const result = await withStepUp(() => saveRepositoryConfig(saved.repositoryId, update));
+      if (!result) return;
       if (!result.ok) {
         toast.error(result.message);
         return;
@@ -103,7 +106,8 @@ export function RepositorySettings({
 
   const setReviews = (on: boolean, undoable = true) =>
     startToggle(async () => {
-      const result = await saveRepositoryConfig(saved.repositoryId, { reviewEnabled: on });
+      const result = await withStepUp(() => saveRepositoryConfig(saved.repositoryId, { reviewEnabled: on }));
+      if (!result) return;
       if (!result.ok) {
         toast.error(result.message);
         return;

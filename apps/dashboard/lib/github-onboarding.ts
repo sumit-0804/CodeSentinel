@@ -27,6 +27,9 @@ export function connectUrl(clientId: string, state: string, siteUrl: string): st
   return url.toString();
 }
 
+/** The page that asks for an authenticator code, then continues to `next` (a route on this site). */
+export const stepUpUrl = (siteUrl: string, next: string) => `${siteUrl}/step-up?next=${encodeURIComponent(next)}`;
+
 /** Where the callback sends the user, by what happened; the page explains each case in plain words. */
 export type OnboardingOutcome =
   | "connected"
@@ -38,6 +41,7 @@ export type OnboardingOutcome =
   | "account_taken"
   | "not_linked"
   | "github_unavailable"
+  | "step_up"
   | "failed";
 
 /** Maps a gateway error code from `/v1/github/link` or `/v1/installations/sync` to an outcome. */
@@ -53,6 +57,8 @@ export function outcomeForGatewayError(code: string | undefined): OnboardingOutc
       return "unconfigured";
     case "github_unavailable":
       return "github_unavailable";
+    case "mfa_required":
+      return "step_up";
     default:
       return "failed";
   }
