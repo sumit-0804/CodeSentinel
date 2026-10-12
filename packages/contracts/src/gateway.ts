@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AgentKindSchema,
   ChangedFileSchema,
+  CombinedReportSchema,
   ConfidenceSchema,
   PageInfoSchema,
   ReviewStatusSchema,
@@ -56,19 +57,56 @@ export type ReviewAccepted = z.infer<typeof ReviewAcceptedSchema>;
 export const CheckConclusionSchema = z.enum(["pass", "fail", "neutral"]);
 export type CheckConclusion = z.infer<typeof CheckConclusionSchema>;
 
+/** An agent's worst finding at or above the review's threshold; drives the dashboard's verdict lanes. */
+export const AgentResultSchema = z.enum(["critical", "warning", "info", "clean", "not_run", "running"]);
+export type AgentResult = z.infer<typeof AgentResultSchema>;
+
 export const ReviewListItemSchema = z.object({
   reviewId: z.string().uuid(),
+  repositoryId: z.string().uuid().optional(),
   repositoryFullName: z.string(),
   trigger: ReviewTriggerSchema.optional(),
   pullRequestNumber: z.number().int().optional(),
   pullRequestTitle: z.string().optional(),
+  headSha: z.string().optional(),
   status: ReviewStatusSchema,
+  /** The GitHub Check Run's result; absent until it completes, and for reviews without one. */
   checkConclusion: CheckConclusionSchema.optional(),
   summary: ReviewSummarySchema,
+  /** One entry per agent, in contract order. */
+  agentResults: z.array(z.object({ agent: AgentKindSchema, result: AgentResultSchema })).optional(),
   durationMs: z.number().int().min(0).optional(),
   createdAt: z.string().datetime(),
 });
 export type ReviewListItem = z.infer<typeof ReviewListItemSchema>;
+
+/** Query of GET /v1/reviews. `latest` keeps each pull request's newest review only. */
+export const ReviewListQuerySchema = z.object({
+  repositoryId: z.string().uuid().optional(),
+  status: z
+    .string()
+    .transform((value) => value.split(","))
+    .pipe(z.array(ReviewStatusSchema))
+    .optional(),
+  latest: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ReviewListQuery = z.infer<typeof ReviewListQuerySchema>;
+
+/** 200 body of GET /v1/reviews/{reviewId}: the combined report plus where it came from, so it still reads as a CombinedReport. */
+export const ReviewDetailSchema = CombinedReportSchema.extend({
+  repositoryId: z.string().uuid(),
+  repositoryFullName: z.string(),
+  trigger: ReviewTriggerSchema,
+  pullRequestTitle: z.string().optional(),
+  headRef: z.string().optional(),
+  baseRef: z.string().optional(),
+  checkConclusion: CheckConclusionSchema.optional(),
+  agentResults: z.array(z.object({ agent: AgentKindSchema, result: AgentResultSchema })),
+  createdAt: z.string().datetime(),
+});
+export type ReviewDetail = z.infer<typeof ReviewDetailSchema>;
 
 /** 200 body of GET /v1/reviews, newest first. An empty list is a normal result (UC-5). */
 export const ReviewListResponseSchema = z.object({

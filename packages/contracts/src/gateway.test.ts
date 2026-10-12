@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CombinedReportSchema } from "./common.js";
 import { exampleChangedFile, exampleCombinedReport } from "./examples.js";
 import {
   AcceptSuggestionRequestSchema,
@@ -13,6 +14,8 @@ import {
   RepositoryConfigUpdateSchema,
   RepositorySchema,
   ReviewAcceptedSchema,
+  ReviewDetailSchema,
+  ReviewListQuerySchema,
   ReviewListResponseSchema,
   StyleFixesResponseSchema,
   SuggestionDecisionSchema,
@@ -87,6 +90,38 @@ describe("ReviewListResponseSchema", () => {
     const { summary: _ignored, ...withoutSummary } = item;
     const result = ReviewListResponseSchema.safeParse({ items: [withoutSummary], pageInfo: { total: 1, limit: 25, offset: 0 } });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("ReviewListQuerySchema", () => {
+  it("defaults the page, splits statuses and reads latest", () => {
+    expect(ReviewListQuerySchema.parse({})).toEqual({ limit: 25, offset: 0 });
+    expect(ReviewListQuerySchema.parse({ status: "running,failed", latest: "true", limit: "10" })).toMatchObject({
+      status: ["running", "failed"],
+      latest: true,
+      limit: 10,
+    });
+  });
+
+  it("rejects an unknown status, a limit over 100 and a bad repository id", () => {
+    expect(ReviewListQuerySchema.safeParse({ status: "done" }).success).toBe(false);
+    expect(ReviewListQuerySchema.safeParse({ limit: "101" }).success).toBe(false);
+    expect(ReviewListQuerySchema.safeParse({ repositoryId: "abc" }).success).toBe(false);
+  });
+});
+
+describe("ReviewDetailSchema", () => {
+  it("is a CombinedReport with where it came from", () => {
+    const detail = ReviewDetailSchema.parse({
+      ...exampleCombinedReport,
+      repositoryId: REPOSITORY_ID,
+      repositoryFullName: "code-sentinel/consumer-api",
+      trigger: "github_pull_request",
+      checkConclusion: "fail",
+      agentResults: [{ agent: "security", result: "critical" }],
+      createdAt: "2026-09-15T10:29:40Z",
+    });
+    expect(CombinedReportSchema.parse(detail).findings).toHaveLength(exampleCombinedReport.findings.length);
   });
 });
 
