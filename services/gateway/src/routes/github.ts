@@ -6,7 +6,7 @@ import {
 import { badGateway, badRequest, HttpError, type Logger } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { requireUserSession } from "../auth/guards.js";
+import { assertStepUp, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubUserClient, GitHubUserTokens } from "../github/github-user-client.js";
 import { GithubNotLinkedError, type InstallationSync, type SyncedInstallation } from "../github/installation-sync.js";
@@ -18,6 +18,7 @@ export interface GithubRouterDeps {
   /** Absent when the App's OAuth credentials or `FIELD_ENCRYPTION_KEY` are not configured. */
   link?: { githubUsers: GitHubUserClient; sync: InstallationSync };
   logger: Pick<Logger, "warn">;
+  stepUp: StepUpPolicy;
 }
 
 const unconfigured = () =>
@@ -30,12 +31,13 @@ const summary = (items: SyncedInstallation[]) =>
 /**
  * GitHub onboarding (A6): link the signed-in user's GitHub account from the App's callback `code`, sync
  * the installations they reach, and list them. Account routes: API keys are refused (`requireUserSession`).
- * A7 adds a TOTP step-up to `link` and `sync`, which change what Code Sentinel can access.
+ * `link` and `sync` change what Code Sentinel can access, so they need a TOTP step-up (A7).
  */
-export function createGithubRouter({ users, installations, link, logger }: GithubRouterDeps): Router {
+export function createGithubRouter({ users, installations, link, logger, stepUp }: GithubRouterDeps): Router {
   const router = Router();
 
   router.post("/github/link", requireUserSession, async (req: Request, res: GatewayResponse) => {
+    assertStepUp(res.locals.principal!, stepUp);
     if (!link) throw unconfigured();
     const parsed = GithubLinkRequestSchema.safeParse(req.body);
     if (!parsed.success) throw badRequest("invalid_body", "Send { code } from GitHub's redirect");
@@ -73,6 +75,7 @@ export function createGithubRouter({ users, installations, link, logger }: Githu
   });
 
   router.post("/installations/sync", requireUserSession, async (_req: Request, res: GatewayResponse) => {
+    assertStepUp(res.locals.principal!, stepUp);
     if (!link) throw unconfigured();
     const userId = res.locals.principal!.userId;
     const githubLogin = (await users.findById(userId))?.githubLogin;

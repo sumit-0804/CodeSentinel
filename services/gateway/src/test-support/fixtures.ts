@@ -28,6 +28,7 @@ export function testConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfi
     githubWebhookSecret: TEST_WEBHOOK_SECRET,
     seed: "none",
     reviewPollTimeoutMs: 300_000,
+    mfaStepUpMinutes: 10,
     ...overrides,
   };
 }

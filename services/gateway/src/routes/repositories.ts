@@ -2,7 +2,7 @@ import { RepositoryConfigUpdateSchema, type RepositoryConfig, type RepositoryLis
 import { badRequest, notFound } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { assertOrgAdmin, requireOrganization, requireUserSession } from "../auth/guards.js";
+import { assertOrgAdmin, assertStepUp, requireOrganization, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyRepositoryConfigUpdate, resolveEffectiveConfig, toRepositoryConfig } from "../persistence/effective-config.js";
 import type { RepositoryConfigStore, RepositoryStore, UserStore } from "../persistence/stores.js";
@@ -11,10 +11,11 @@ export interface RepositoriesRouterDeps {
   repositories: RepositoryStore;
   repositoryConfig: RepositoryConfigStore;
   users: Pick<UserStore, "findById">;
+  stepUp: StepUpPolicy;
 }
 
 /** `GET /v1/repositories` and each repository's configuration (UC-4, A9), scoped to the caller's organization (NFR-13). */
-export function createRepositoriesRouter({ repositories, repositoryConfig, users }: RepositoriesRouterDeps): Router {
+export function createRepositoriesRouter({ repositories, repositoryConfig, users, stepUp }: RepositoriesRouterDeps): Router {
   const router = Router();
 
   router.get("/repositories", requireOrganization, async (req: Request, res: GatewayResponse) => {
@@ -49,6 +50,7 @@ export function createRepositoriesRouter({ repositories, repositoryConfig, users
       const inputs = await loadOwn(req, res);
       const { userId } = res.locals.principal!;
       await assertOrgAdmin(users, userId, inputs.organizationId);
+      assertStepUp(res.locals.principal!, stepUp);
 
       if (resolveEffectiveConfig(applyRepositoryConfigUpdate(inputs, parsed.data)).enabledAgents.length === 0) {
         throw badRequest("no_agents_enabled", "At least one agent must stay on; switch reviews off instead");

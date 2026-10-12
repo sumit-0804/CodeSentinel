@@ -8,18 +8,22 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
 import type { StoreSeed } from "../persistence/in-memory.js";
 import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
-import { testSupabase } from "../test-support/supabase-tokens.js";
+import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
 type Caller = "admin" | "member" | "apiKey";
 
-/** Calls the gateway as the seeded admin (Supabase session), as a plain member, or with the seeded API key. */
-async function call(method: string, path: string, { as = "admin", body, edit }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void } = {}) {
+/** Calls the gateway as the seeded admin (Supabase session, stepped up unless `stepUp: false`), as a plain member, or with the seeded API key. */
+async function call(
+  method: string,
+  path: string,
+  { as = "admin", body, edit, stepUp = true }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void; stepUp?: boolean } = {},
+) {
   const seeded = await seededStores((seed) => {
     if (as === "member") seed.users[0]!.memberships[0]!.role = "member";
     edit?.(seed);
   });
   const supabase = await testSupabase();
-  const authorization = as === "apiKey" ? seeded.apiKey : await supabase.sign(TEST_USER_ID);
+  const authorization = as === "apiKey" ? seeded.apiKey : await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {});
   let result!: { status: number; body: Record<string, unknown> };
   await withServer(createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier })), async (baseUrl) => {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -84,11 +88,19 @@ describe("PUT /v1/repositories/{id}/config", () => {
   });
 
   it("refuses a member with 403 admin_required and an API key with 403 session_required", async () => {
-    const member = await call("PUT", CONFIG_PATH, { as: "member", body: { reviewEnabled: false } });
+    // A member is told about the role first, without being asked for a code.
+    const member = await call("PUT", CONFIG_PATH, { as: "member", body: { reviewEnabled: false }, stepUp: false });
     const apiKey = await call("PUT", CONFIG_PATH, { as: "apiKey", body: { reviewEnabled: false } });
 
     expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
     expect([apiKey.status, apiKey.body.code]).toEqual([403, "session_required"]);
+  });
+
+  it("needs a TOTP step-up: an admin without one gets 403 mfa_required and nothing changes", async () => {
+    const { status, body, stores } = await call("PUT", CONFIG_PATH, { body: { reviewEnabled: false }, stepUp: false });
+
+    expect([status, body.code]).toEqual([403, "mfa_required"]);
+    await expect(stores.repositoryConfig.getConfigInputs(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({ reviewEnabled: true });
   });
 
   it("rejects turning every agent off with 400 no_agents_enabled", async () => {
@@ -124,9 +136,15 @@ describe("/v1/organizations/{id}/review-defaults", () => {
 
   it("answers 404 to a non-member and 403 to a member who isn't an admin", async () => {
     expect((await call("GET", `/v1/organizations/${randomUUID()}/review-defaults`)).status).toBe(404);
-    const member = await call("PUT", DEFAULTS_PATH, { as: "member", body: { confidenceThreshold: 0.5 } });
+    const member = await call("PUT", DEFAULTS_PATH, { as: "member", body: { confidenceThreshold: 0.5 }, stepUp: false });
     expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
     expect((await call("GET", DEFAULTS_PATH, { as: "member" })).status).toBe(200);
+  });
+
+  it("needs a TOTP step-up to save, but not to read", async () => {
+    const put = await call("PUT", DEFAULTS_PATH, { body: { confidenceThreshold: 0.5 }, stepUp: false });
+    expect([put.status, put.body.code]).toEqual([403, "mfa_required"]);
+    expect((await call("GET", DEFAULTS_PATH, { stepUp: false })).status).toBe(200);
   });
 
   it("rejects defaults with every agent off", async () => {

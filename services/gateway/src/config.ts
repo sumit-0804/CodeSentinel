@@ -1,3 +1,4 @@
+import { DEFAULT_MFA_STEP_UP_MINUTES } from "@code-sentinel/contracts";
 import { z } from "zod";
 
 export type GatewaySeed = "none" | "dev";
@@ -25,6 +26,8 @@ export interface GatewayConfig {
   devRepository?: { fullName: string; githubRepoId: number };
   /** How long to wait for a review job before completing its Check Run as timed out. */
   reviewPollTimeoutMs: number;
+  /** How recent the TOTP code on a token must be for configuration writes (A7). */
+  mfaStepUpMinutes: number;
 }
 
 /** Thrown by `loadGatewayConfig` with every invalid variable listed at once. */
@@ -70,6 +73,7 @@ const EnvSchema = z.object({
   ORCHESTRATOR_URL: z.preprocess(blankAsUndefined, httpUrl),
   ORCHESTRATOR_TIMEOUT_MS: integer(1000, 30000, 5000),
   REVIEW_POLL_TIMEOUT_MS: integer(10_000, 1_800_000, 300_000),
+  MFA_STEP_UP_MINUTES: integer(1, 60, DEFAULT_MFA_STEP_UP_MINUTES),
   SERVICE_TOKEN: secret(1),
   SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   GITHUB_WEBHOOK_SECRET: secret(16),
@@ -161,6 +165,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     githubWebhookSecret: values.GITHUB_WEBHOOK_SECRET,
     seed: values.GATEWAY_SEED,
     reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
+    mfaStepUpMinutes: values.MFA_STEP_UP_MINUTES,
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");

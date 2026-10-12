@@ -23,6 +23,12 @@ export interface TestSupabase {
   signWithForeignKey(userId: string): Promise<string>;
 }
 
+/** Claims of a session that just entered a TOTP code `ageSeconds` ago, as after `mfa.verify` (A7 step-up). */
+export function stepUpClaims(ageSeconds = 0, now: Date = new Date()): JWTPayload {
+  const at = Math.floor(now.getTime() / 1000);
+  return { aal: "aal2", amr: [{ method: "totp", timestamp: at - ageSeconds }, { method: "password", timestamp: at - 3600 }] };
+}
+
 export async function testSupabase(now: () => Date = () => new Date()): Promise<TestSupabase> {
   const { privateKey, publicKey } = await generateKeyPair("ES256");
   const foreign = await generateKeyPair("ES256");

@@ -87,10 +87,11 @@ export function createApp(deps: AppDeps): Express {
       ...(now ? { now } : {}),
     }),
   );
+  const stepUp = { minutes: config.mfaStepUpMinutes, now: now ?? (() => new Date()) };
   v1.use(createMeRouter({ users: stores.users }));
-  v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, ...(githubLink ? { link: githubLink } : {}) }));
-  v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users }));
-  v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users }));
+  v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, stepUp, ...(githubLink ? { link: githubLink } : {}) }));
+  v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
+  v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
   v1.use(createReviewsRouter({ reviews: stores.reviews }));
   app.use("/v1", v1);
 

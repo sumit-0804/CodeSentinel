@@ -2,7 +2,7 @@ import { ReviewDefaultsUpdateSchema, type ReviewDefaults } from "@code-sentinel/
 import { badRequest, notFound } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { assertOrgAdmin, requireUserSession } from "../auth/guards.js";
+import { assertOrgAdmin, assertStepUp, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyReviewDefaultsUpdate, resolveAgentSettings, toReviewDefaults } from "../persistence/effective-config.js";
 import type { RepositoryConfigStore, UserStore } from "../persistence/stores.js";
@@ -10,10 +10,11 @@ import type { RepositoryConfigStore, UserStore } from "../persistence/stores.js"
 export interface OrganizationsRouterDeps {
   repositoryConfig: RepositoryConfigStore;
   users: Pick<UserStore, "findById">;
+  stepUp: StepUpPolicy;
 }
 
 /** `GET` / `PUT /v1/organizations/{id}/review-defaults` (A9): what repositories following the defaults use. */
-export function createOrganizationsRouter({ repositoryConfig, users }: OrganizationsRouterDeps): Router {
+export function createOrganizationsRouter({ repositoryConfig, users, stepUp }: OrganizationsRouterDeps): Router {
   const router = Router();
 
   // A signed-in user reads any organization they belong to; an API key only its own. Others answer 404.
@@ -44,6 +45,7 @@ export function createOrganizationsRouter({ repositoryConfig, users }: Organizat
       const defaults = await loadDefaults(req, res);
       const { userId } = res.locals.principal!;
       await assertOrgAdmin(users, userId, organizationId);
+      assertStepUp(res.locals.principal!, stepUp);
 
       const next = applyReviewDefaultsUpdate(defaults, parsed.data);
       if (resolveAgentSettings({ useOrgDefaults: true, repositoryModes: {}, organization: next }).every(({ mode }) => mode === "off")) {

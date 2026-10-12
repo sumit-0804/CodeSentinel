@@ -38,7 +38,13 @@ describe("loadGatewayConfig", () => {
       githubWebhookSecret: "webhook-secret-16",
       seed: "dev",
       reviewPollTimeoutMs: 300_000,
+      mfaStepUpMinutes: 10,
     });
+  });
+
+  it("reads MFA_STEP_UP_MINUTES and rejects values outside 1–60", () => {
+    expect(loadGatewayConfig({ ...FULL_ENV, MFA_STEP_UP_MINUTES: "5" }).mfaStepUpMinutes).toBe(5);
+    expect(configError({ ...FULL_ENV, MFA_STEP_UP_MINUTES: "0" }).problems).toEqual(["MFA_STEP_UP_MINUTES must be between 1 and 60"]);
   });
 
   it("defaults PORT, ORCHESTRATOR_TIMEOUT_MS and GATEWAY_SEED", () => {

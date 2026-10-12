@@ -10,7 +10,7 @@ import { StubGitHubClient } from "../github/stub-github-client.js";
 import { StubGitHubUserClient, type StubGitHubUser } from "../github/stub-github-user-client.js";
 import type { InMemoryStores } from "../persistence/in-memory.js";
 import { seededStores, testAppDeps } from "../test-support/fixtures.js";
-import { testSupabase } from "../test-support/supabase-tokens.js";
+import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
 const ME = "4a5b6c7d-8e9f-4a0b-8c1d-2e3f4a5b6c7d";
 const SOMEONE_ELSE = "5b6c7d8e-9f0a-4b1c-9d2e-3f4a5b6c7d8e";
@@ -61,10 +61,14 @@ async function setup({
     }),
   );
 
-  async function call(method: string, path: string, { as = ME, body, headers = {} }: { as?: string; body?: unknown; headers?: Record<string, string> } = {}) {
+  async function call(
+    method: string,
+    path: string,
+    { as = ME, body, headers = {}, stepUp = true }: { as?: string; body?: unknown; headers?: Record<string, string>; stepUp?: boolean } = {},
+  ) {
     let result!: { status: number; body: Record<string, unknown> };
-    // A signed-in session per call; the test seed marks the token's session active.
-    const token = as.startsWith("cs_live_") ? as : await supabase.sign(as);
+    // A signed-in session per call, stepped up unless asked not to; the test seed marks the token's session active.
+    const token = as.startsWith("cs_live_") ? as : await supabase.sign(as, stepUp ? stepUpClaims() : {});
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}${path}`, {
         method,
@@ -143,6 +147,17 @@ describe("POST /v1/github/link", () => {
     const { status, body } = await unconfigured.call("POST", "/v1/github/link", { body: { code: "code-1" } });
     expect(status).toBe(503);
     expect(body.code).toBe("github_link_unconfigured");
+  });
+
+  it("needs a TOTP step-up before using the code, and so does sync", async () => {
+    const { call, stores } = await setup();
+
+    const linked = await call("POST", "/v1/github/link", { body: { code: "code-1" }, stepUp: false });
+    const synced = await call("POST", "/v1/installations/sync", { stepUp: false });
+
+    expect([linked.status, linked.body.code]).toEqual([403, "mfa_required"]);
+    expect([synced.status, synced.body.code]).toEqual([403, "mfa_required"]);
+    expect((await stores.users.findById(ME))?.githubLogin).toBeUndefined();
   });
 });
 
