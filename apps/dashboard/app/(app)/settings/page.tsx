@@ -1,21 +1,40 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import { PageHead } from "@/components/app/page-parts";
+import Link from "next/link";
+import { EmptyState, PageHead } from "@/components/app/page-parts";
 import { CurrentUserSchema } from "@code-sentinel/contracts";
+import { ReviewDefaultsSettings } from "@/components/config/review-defaults-settings";
 import { AccountSettings, type OrganizationsState, type SignInMethod } from "@/components/settings/account-settings";
 import { requireUser } from "@/lib/auth";
 import { gatewayFetch } from "@/lib/gateway";
+import { getDefaultsPageData } from "@/lib/repository-config";
 import { toShellUser } from "@/lib/shell-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Settings" };
 
-const SECTIONS = [
-  { label: "Account", current: true },
-  { label: "Review defaults", note: "soon" },
+type Section = "account" | "defaults";
+
+const SECTIONS: { label: string; section?: Section; note?: string }[] = [
+  { label: "Account", section: "account" },
+  { label: "Review defaults", section: "defaults" },
   { label: "Two-factor", note: "soon" },
   { label: "API keys", note: "later" },
 ];
+
+const UNAVAILABLE = {
+  unconfigured: "The API isn't configured for this dashboard (GATEWAY_URL).",
+  unreachable: "Couldn't reach the API. Try again in a moment.",
+  unauthorized: "The API didn't accept your session. Sign out and in again.",
+  error: "The API answered with an error. Try again in a moment.",
+  no_organization: "Connect GitHub first: review defaults belong to an organization.",
+} as const;
+
+async function DefaultsContent() {
+  const data = await getDefaultsPageData();
+  if (!data.ok) return <EmptyState title="Review defaults aren't available">{UNAVAILABLE[data.reason]}</EmptyState>;
+  return <ReviewDefaultsSettings defaults={data.defaults} organizationName={data.organizationName} isAdmin={data.isAdmin} />;
+}
 
 async function AccountContent() {
   const user = await requireUser();
@@ -42,32 +61,50 @@ async function AccountContent() {
   return <AccountSettings user={toShellUser(user)} methods={methods} organizations={organizations} />;
 }
 
-export default function SettingsPage() {
+const ITEM = "flex h-[38px] items-center justify-between gap-2 rounded-[10px] px-3 text-[14.5px] font-semibold whitespace-nowrap";
+
+async function SettingsBody({ searchParams }: { searchParams: PageProps<"/settings">["searchParams"] }) {
+  const { section } = await searchParams;
+  const current: Section = section === "defaults" ? "defaults" : "account";
   return (
-    <>
-      <PageHead title="Settings" />
-      <div className="grid items-start gap-[18px] min-[1041px]:grid-cols-[210px_minmax(0,1fr)] min-[1041px]:gap-10">
-        <nav aria-label="Settings sections" className="flex gap-[3px] overflow-x-auto min-[1041px]:sticky min-[1041px]:top-[74px] min-[1041px]:grid">
-          {SECTIONS.map(({ label, current, note }) => (
-            <span
+    <div className="grid items-start gap-[18px] min-[1041px]:grid-cols-[210px_minmax(0,1fr)] min-[1041px]:gap-10">
+      <nav aria-label="Settings sections" className="flex gap-[3px] overflow-x-auto min-[1041px]:sticky min-[1041px]:top-[74px] min-[1041px]:grid">
+        {SECTIONS.map(({ label, section: target, note }) =>
+          target ? (
+            <Link
               key={label}
-              aria-current={current ? "page" : undefined}
-              aria-disabled={current ? undefined : true}
+              href={target === "account" ? "/settings" : `/settings?section=${target}`}
+              aria-current={target === current ? "page" : undefined}
               className={
-                current
-                  ? "flex h-[38px] items-center rounded-[10px] border border-line-2 bg-panel-2 px-3 text-[14.5px] font-semibold whitespace-nowrap text-ink"
-                  : "flex h-[38px] cursor-not-allowed items-center justify-between gap-2 rounded-[10px] px-3 text-[14.5px] font-semibold whitespace-nowrap text-ink-3"
+                target === current
+                  ? `${ITEM} border border-line-2 bg-panel-2 text-ink`
+                  : `${ITEM} border border-transparent text-ink-2 hover:bg-panel-2 hover:text-ink`
               }
             >
               {label}
+            </Link>
+          ) : (
+            <span key={label} aria-disabled="true" className={`${ITEM} cursor-not-allowed text-ink-3`}>
+              {label}
               {note ? <small className="text-[11.5px]">{note}</small> : null}
             </span>
-          ))}
-        </nav>
-        <Suspense fallback={<div className="h-[420px] animate-pulse rounded-2xl bg-panel" />}>
-          <AccountContent />
-        </Suspense>
-      </div>
+          ),
+        )}
+      </nav>
+      <Suspense key={current} fallback={<div className="h-[420px] animate-pulse rounded-2xl bg-panel" />}>
+        {current === "defaults" ? <DefaultsContent /> : <AccountContent />}
+      </Suspense>
+    </div>
+  );
+}
+
+export default function SettingsPage({ searchParams }: PageProps<"/settings">) {
+  return (
+    <>
+      <PageHead title="Settings" />
+      <Suspense fallback={<div className="h-[420px] animate-pulse rounded-2xl bg-panel" />}>
+        <SettingsBody searchParams={searchParams} />
+      </Suspense>
     </>
   );
 }
