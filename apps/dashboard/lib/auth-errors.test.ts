@@ -7,6 +7,11 @@ describe("authErrorMessage", () => {
     expect(authErrorMessage({ code: "email_not_confirmed" })).toMatch(/Confirm your email/);
   });
 
+  it("explains authenticator code errors", () => {
+    expect(authErrorMessage({ code: "mfa_verification_failed" })).toMatch(/didn't match/);
+    expect(authErrorMessage({ code: "insufficient_aal" })).toMatch(/authenticator app first/);
+  });
+
   it("treats any 429 as a rate limit", () => {
     expect(authErrorMessage({ status: 429, code: "something_new" })).toMatch(/Too many attempts/);
   });

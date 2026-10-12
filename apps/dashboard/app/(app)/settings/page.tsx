@@ -5,22 +5,29 @@ import { EmptyState, PageHead } from "@/components/app/page-parts";
 import { CurrentUserSchema } from "@code-sentinel/contracts";
 import { ReviewDefaultsSettings } from "@/components/config/review-defaults-settings";
 import { AccountSettings, type OrganizationsState, type SignInMethod } from "@/components/settings/account-settings";
+import { SecuritySettings } from "@/components/settings/security-settings";
 import { requireUser } from "@/lib/auth";
 import { gatewayFetch } from "@/lib/gateway";
+import { listAuthenticators } from "@/lib/mfa";
 import { getDefaultsPageData } from "@/lib/repository-config";
 import { toShellUser } from "@/lib/shell-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Settings" };
 
-type Section = "account" | "defaults";
+type Section = "account" | "defaults" | "security";
 
 const SECTIONS: { label: string; section?: Section; note?: string }[] = [
   { label: "Account", section: "account" },
   { label: "Review defaults", section: "defaults" },
-  { label: "Two-factor", note: "soon" },
+  { label: "Security", section: "security" },
   { label: "API keys", note: "later" },
 ];
+
+async function SecurityContent() {
+  await requireUser();
+  return <SecuritySettings authenticators={await listAuthenticators()} />;
+}
 
 const UNAVAILABLE = {
   unconfigured: "The API isn't configured for this dashboard (GATEWAY_URL).",
@@ -65,7 +72,7 @@ const ITEM = "flex h-[38px] items-center justify-between gap-2 rounded-[10px] px
 
 async function SettingsBody({ searchParams }: { searchParams: PageProps<"/settings">["searchParams"] }) {
   const { section } = await searchParams;
-  const current: Section = section === "defaults" ? "defaults" : "account";
+  const current: Section = section === "defaults" || section === "security" ? section : "account";
   return (
     <div className="grid items-start gap-[18px] min-[1041px]:grid-cols-[210px_minmax(0,1fr)] min-[1041px]:gap-10">
       <nav aria-label="Settings sections" className="flex gap-[3px] overflow-x-auto min-[1041px]:sticky min-[1041px]:top-[74px] min-[1041px]:grid">
@@ -92,7 +99,7 @@ async function SettingsBody({ searchParams }: { searchParams: PageProps<"/settin
         )}
       </nav>
       <Suspense key={current} fallback={<div className="h-[420px] animate-pulse rounded-2xl bg-panel" />}>
-        {current === "defaults" ? <DefaultsContent /> : <AccountContent />}
+        {current === "defaults" ? <DefaultsContent /> : current === "security" ? <SecurityContent /> : <AccountContent />}
       </Suspense>
     </div>
   );

@@ -1,5 +1,6 @@
 import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
+import { StepUpProvider } from "@/components/auth/step-up";
 import { Logo } from "@/components/brand/logo";
 import { OrgSwitcher, UserMenu } from "@/components/shell/account-menus";
 import { AppFrame } from "@/components/shell/app-frame";
@@ -31,28 +32,30 @@ async function SignedInUser() {
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <CommandPalette>
-      <AppFrame
-        sidebar={
-          <>
-            <Link href="/overview" className="self-start rounded-md px-2 pt-0.5 pb-3">
-              <Logo />
-            </Link>
-            <Suspense fallback={<PickerSkeleton />}>
-              <SignedInOrg />
-            </Suspense>
-            <PaletteTrigger />
-            <NavLinks group="main" />
-            <div className="px-3 pt-3.5 pb-1 text-[11.5px] font-semibold tracking-[0.02em] text-ink-3">Workspace</div>
-            <NavLinks group="workspace" />
-            <div className="flex-1" />
-            <Suspense fallback={<PickerSkeleton />}>
-              <SignedInUser />
-            </Suspense>
-          </>
-        }
-      >
-        {children}
-      </AppFrame>
+      <StepUpProvider>
+        <AppFrame
+          sidebar={
+            <>
+              <Link href="/overview" className="self-start rounded-md px-2 pt-0.5 pb-3">
+                <Logo />
+              </Link>
+              <Suspense fallback={<PickerSkeleton />}>
+                <SignedInOrg />
+              </Suspense>
+              <PaletteTrigger />
+              <NavLinks group="main" />
+              <div className="px-3 pt-3.5 pb-1 text-[11.5px] font-semibold tracking-[0.02em] text-ink-3">Workspace</div>
+              <NavLinks group="workspace" />
+              <div className="flex-1" />
+              <Suspense fallback={<PickerSkeleton />}>
+                <SignedInUser />
+              </Suspense>
+            </>
+          }
+        >
+          {children}
+        </AppFrame>
+      </StepUpProvider>
     </CommandPalette>
   );
 }

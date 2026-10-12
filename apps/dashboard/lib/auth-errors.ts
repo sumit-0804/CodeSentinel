@@ -15,6 +15,14 @@ const MESSAGES: Record<string, string> = {
   provider_disabled: "This sign-in method is turned off right now.",
   session_not_found: "Your session has ended. Sign in again.",
   otp_expired: "This link has expired or was already used. Ask for a new one.",
+  mfa_verification_failed: "That code didn't match. Codes change every 30 seconds: enter the one showing now.",
+  mfa_challenge_expired: "That took too long. Enter the code showing now.",
+  mfa_factor_name_conflict: "You already have an authenticator with that name. Choose another.",
+  mfa_factor_not_found: "That authenticator wasn't found. Reload the page and try again.",
+  too_many_enrolled_mfa_factors: "You have the most authenticators allowed. Remove one first.",
+  insufficient_aal: "Enter a code from your authenticator app first.",
+  mfa_totp_enroll_not_enabled: "Authenticator apps are turned off on the server.",
+  mfa_totp_verify_not_enabled: "Authenticator apps are turned off on the server.",
 };
 
 const FALLBACK = "Something went wrong on our side. Try again in a moment.";
