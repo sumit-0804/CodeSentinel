@@ -115,7 +115,8 @@ its installation is **marked removed, never deleted**, and comes back with its h
 | `github_unavailable` | 502 | GitHub did not answer during the exchange or the sync |
 | `github_link_unconfigured` | 503 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` or `FIELD_ENCRYPTION_KEY` not set |
 
-These are account routes: API keys get 403 `session_required`. A7 adds a TOTP step-up to `link` and `sync`.
+These are account routes: API keys get 403 `session_required`. `link` and `sync` also need a TOTP
+step-up (403 `mfa_required`, see [Authentication](#authentication)).
 
 ## Repository configuration
 
@@ -151,8 +152,8 @@ Both `PUT`s are partial updates (omitted fields keep their value) and answer wit
 configuration. The repository `PUT` also takes `reviewEnabled` and `useOrgDefaults`, and
 `confidenceThresholdOverride: null` restores inheritance. Errors: 400 `invalid_body` (with zod's
 `issues`), 400 `no_agents_enabled` when every agent would end up `off` (switch reviews off instead),
-403 `session_required` for an API key, 403 `admin_required` for a member. A7 adds a TOTP step-up to
-both `PUT`s. Each row written records `updated_by`.
+403 `session_required` for an API key, 403 `admin_required` for a member, and 403 `mfa_required`
+without a recent authenticator code (see [Step-up](#authentication)). Each row written records `updated_by`.
 
 **File filter** (`filterPullRequestFiles`), applied to GitHub's PR file list in GitHub's order:
 
@@ -262,9 +263,27 @@ salted hash such as bcrypt would prevent the unique-hash lookup `schema.sql` use
 high-entropy random strings, not passwords. Without `SUPABASE_URL`, every non-`cs_live_` bearer is
 `invalid_credentials`.
 
-**Guards** (`auth/guards.ts`) for the routes that A6, A9 and A7 add: `requireUserSession` refuses API
-keys on account and configuration routes, and `requireOrganization` refuses a caller with no
-resolved organization.
+**Guards** (`auth/guards.ts`):
+- `requireUserSession` refuses API keys on account and configuration routes.
+- `requireOrganization` refuses a caller with no resolved organization.
+- `assertOrgAdmin` needs the organization's admin role on configuration writes.
+- `assertStepUp` is the TOTP step-up (A7), described below.
+
+**Step-up (A7).** These writes change what Code Sentinel reviews or can access, so they need an
+authenticator code entered within `MFA_STEP_UP_MINUTES` (10):
+- `PUT /v1/repositories/{id}/config`
+- `PUT /v1/organizations/{id}/review-defaults`
+- `POST /v1/github/link`
+- `POST /v1/installations/sync`
+
+The check reads only the token:
+- it must be `aal2`
+- its `amr` must have a `totp` entry whose `timestamp` is no older than the limit
+
+Entering a code (`mfa.challenge` + `mfa.verify` in the dashboard) gives the session a new token like
+that. The admin check runs first, so members aren't asked for a code they can't use. The gateway has
+no Supabase admin key, so it can't tell "no authenticator yet" from "code too old". Both are
+`mfa_required`; the dashboard knows the user's factors and shows the right step.
 
 | `code` | HTTP | When |
 | --- | --- | --- |
@@ -274,6 +293,8 @@ resolved organization.
 | `organization_forbidden` | 403 | `X-Organization-Id` names an organization the user is not a member of |
 | `session_required` | 403 | An API key on a route that needs a signed-in session (`requireUserSession`) |
 | `organization_required` | 403 | No organization could be resolved (`requireOrganization`) |
+| `admin_required` | 403 | A configuration write by someone who isn't an admin of the organization (`assertOrgAdmin`) |
+| `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
 ## Configuration
@@ -299,6 +320,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `ORCHESTRATOR_TIMEOUT_MS` | `5000` | Timeout for each orchestrator call | integer 1000..30000 |
 | `REVIEW_POLL_TIMEOUT_MS` | `300000` | How long to wait for a review job before completing its Check Run as timed out | integer 10000..1800000 |
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
+| `MFA_STEP_UP_MINUTES` | `10` | How long an authenticator code counts for on step-up routes | integer 1..60 |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → only API keys work | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
@@ -374,7 +396,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-241 tests in 23 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+248 tests in 24 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
