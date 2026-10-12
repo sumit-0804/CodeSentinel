@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -8,13 +9,14 @@ import { isCurrent, MAIN_NAV, WORKSPACE_NAV } from "./nav";
 // Picked by name: icon components can't cross from the server layout to this client component.
 const GROUPS = { main: MAIN_NAV, workspace: WORKSPACE_NAV };
 
-export function NavLinks({ group }: { group: keyof typeof GROUPS }) {
-  const pathname = usePathname();
+type Group = keyof typeof GROUPS;
+
+function Links({ group, pathname }: { group: Group; pathname: string | null }) {
   const items = GROUPS[group];
   return (
     <div className="grid gap-[3px]">
       {items.map(({ href, label, icon: Icon }) => {
-        const current = isCurrent(pathname, href);
+        const current = pathname !== null && isCurrent(pathname, href);
         return (
           <Link
             key={href}
@@ -35,5 +37,18 @@ export function NavLinks({ group }: { group: keyof typeof GROUPS }) {
         );
       })}
     </div>
+  );
+}
+
+function CurrentLinks({ group }: { group: Group }) {
+  return <Links group={group} pathname={usePathname()} />;
+}
+
+/** On dynamic routes the path is only known at request time, so the links render unhighlighted until it is. */
+export function NavLinks({ group }: { group: Group }) {
+  return (
+    <Suspense fallback={<Links group={group} pathname={null} />}>
+      <CurrentLinks group={group} />
+    </Suspense>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { GitBranch, Lock, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
@@ -13,7 +14,7 @@ export type RepositoryRow = {
   reviewEnabled: boolean;
 };
 
-/** The organization's repositories with a name filter; review history and agent modes join in A4b and A9. */
+/** The organization's repositories with a name filter; each name opens its repository page. Review history joins in A4b-2. */
 export function RepositoryList({ repositories }: { repositories: RepositoryRow[] }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
@@ -56,7 +57,9 @@ export function RepositoryList({ repositories }: { repositories: RepositoryRow[]
                         {(name ?? repo.fullName).charAt(0).toUpperCase()}
                       </span>
                       <span className="grid min-w-0 gap-0.5">
-                        <b className="truncate font-bold">{name ?? repo.fullName}</b>
+                        <Link href={`/repositories/${repo.fullName}`} className="truncate font-bold hover:text-cyan focus-visible:text-cyan">
+                          {name ?? repo.fullName}
+                        </Link>
                         <span className="flex items-center gap-1.5 text-[13px] text-ink-3">
                           {repo.isPrivate ? <Lock className="size-3" aria-label="Private" /> : null}
                           {owner}
