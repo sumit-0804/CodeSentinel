@@ -20,9 +20,10 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
 | `GET /healthz` | `routes/healthz.ts` | working; reports the orchestrator and, with `DATABASE_URL`, the database |
 | Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `auth/supabase-token.ts`, `routes/me.ts` | working: `cs_live_` API keys and Supabase access tokens; see [Authentication](#authentication) |
-| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`) | used by the GitHub and repository routes |
+| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`, `assertOrgAdmin`) | used by the GitHub, repository and organization routes |
 | Connecting GitHub (A6) | `routes/github.ts`, `github/github-user-client.ts`, `github/installation-sync.ts` | working; see [Connecting GitHub](#connecting-github) |
-| `GET /v1/repositories` | `routes/repositories.ts` | working: the organization's active repositories; toggles and agent config are A9 |
+| `GET /v1/repositories` | `routes/repositories.ts` | working: the organization's active repositories |
+| Repository configuration (A9) | `routes/repositories.ts`, `routes/organizations.ts`, `persistence/effective-config.ts`, `webhooks/branch-match.ts` | working: agent modes, organization defaults, branches to review; see [Repository configuration](#repository-configuration) |
 | Installation webhooks | `webhooks/installation-events.ts` | working: install, uninstall, suspend, repositories added or removed |
 | Stores | `persistence/stores.ts`, `persistence/prisma-stores.ts` (Supabase Postgres), `persistence/in-memory.ts` + `persistence/dev-seed.ts` | working; see [Persistence](#persistence) |
 | GitHub client (FR-GH-01..03) | `github/octokit-github-client.ts` (GitHub App, installation tokens, paginated PR files, Check Runs, reviews), `github/stub-github-client.ts` | working; the stub records every call and is used when no App is configured |
@@ -48,11 +49,12 @@ exact bytes GitHub signed. Checks run in this order and stop at the first that a
 | 5 | Payload fails the minimal `pull_request` schema | 400 | `invalid_payload` | `invalid_payload` |
 | 6 | `repository.id` not known, removed from its installation, or its installation uninstalled or suspended | 202 | `event_ignored` | `repository_unknown` |
 | 6 | Repository has `reviewEnabled: false` | 202 | `repository_disabled` | `repository_disabled` |
-| 7 | Every agent disabled (the orchestrator would answer 422) | 202 | `repository_disabled` | `repository_disabled` |
-| 8 | Every PR file filtered out; no orchestrator call | 202 | `event_ignored` | `no_reviewable_files` |
-| 9 | Orchestrator answers 202 | 202 | `review_started` + `reviewId` | `review_started` |
-| 9 | Orchestrator answers 200 (job exists for this delivery) | 202 | `duplicate_ignored` + `reviewId` | `duplicate_ignored` |
-| 9 | Orchestrator timed out, unreachable, non-2xx or invalid body | 502 | `orchestrator_unavailable` (`details.kind`, `details.status`) | `orchestrator_unavailable` |
+| 7 | Every agent `off` (the orchestrator would answer 422) | 202 | `repository_disabled` | `repository_disabled` |
+| 8 | `pull_request.base.ref` matches none of the [branches to review](#repository-configuration) | 202 | `branch_ignored` | `branch_ignored` (+ `baseRef`) |
+| 9 | Every PR file filtered out; no orchestrator call | 202 | `event_ignored` | `no_reviewable_files` |
+| 10 | Orchestrator answers 202 | 202 | `review_started` + `reviewId` | `review_started` |
+| 10 | Orchestrator answers 200 (job exists for this delivery) | 202 | `duplicate_ignored` + `reviewId` | `duplicate_ignored` |
+| 10 | Orchestrator timed out, unreachable, non-2xx or invalid body | 502 | `orchestrator_unavailable` (`details.kind`, `details.status`) | `orchestrator_unavailable` |
 
 The job is sent with `Idempotency-Key` = the delivery id and `X-Request-Id` = the request id, so a
 GitHub redelivery after a 502 cannot start a second review. The gateway never looks at the PR
@@ -114,6 +116,43 @@ its installation is **marked removed, never deleted**, and comes back with its h
 
 These are account routes: API keys get 403 `session_required`. A7 adds a TOTP step-up to `link` and `sync`.
 
+## Repository configuration
+
+How each repository is reviewed (A9, UC-4). Every agent has a **mode**:
+
+| Mode | Runs | Posts findings | Fails the Check Run on a critical finding |
+| --- | --- | --- | --- |
+| `off` | no | no | no |
+| `comment` | yes | yes | no (the Check Run is `neutral`) |
+| `block` | yes | yes | yes |
+
+**Where values come from** (`resolveEffectiveConfig()`, `persistence/effective-config.ts`):
+- **Agent modes and branches:** while `repositories.use_org_defaults` is true (the default), from the
+  organization's review defaults (`organization_agent_defaults`, `organizations.default_review_branches`);
+  otherwise from the repository's own rows (`repository_agent_config`, `repository_settings.review_branches`).
+  An agent with nothing set uses the **platform default: `block` for Security, `comment` for the rest**.
+- **Confidence threshold:** the repository override, then the organization default, then 0.8 (unchanged).
+- **Branches to review:** names or globs a pull request must merge **into** (`main`, `release/*`,
+  `hotfix/**`), matched with `picomatch`: case-sensitive, `*` is one path segment and `**` any number
+  (so `**` means every branch). Nothing set means the repository's default branch only. Up to 20
+  patterns of 1–100 characters, no spaces or `..`.
+
+**API** (`gateway.yaml`):
+
+| Route | Who |
+| --- | --- |
+| `GET /v1/repositories/{id}/config` | any member (or the organization's API key); another organization's repository is 404 |
+| `PUT /v1/repositories/{id}/config` | a signed-in **admin** of the repository's organization |
+| `GET /v1/organizations/{id}/review-defaults` | any member (or the organization's API key) |
+| `PUT /v1/organizations/{id}/review-defaults` | a signed-in **admin** of that organization |
+
+Both `PUT`s are partial updates (omitted fields keep their value) and answer with the new
+configuration. The repository `PUT` also takes `reviewEnabled` and `useOrgDefaults`, and
+`confidenceThresholdOverride: null` restores inheritance. Errors: 400 `invalid_body` (with zod's
+`issues`), 400 `no_agents_enabled` when every agent would end up `off` (switch reviews off instead),
+403 `session_required` for an API key, 403 `admin_required` for a member. A7 adds a TOTP step-up to
+both `PUT`s. Each row written records `updated_by`.
+
 **File filter** (`filterPullRequestFiles`), applied to GitHub's PR file list in GitHub's order:
 
 | GitHub file | Result |
@@ -157,11 +196,12 @@ there is never a second Check Run or review.
 
    | Conclusion | When |
    | --- | --- |
-   | `failure` | a finding at or above the threshold is `critical` (even on a partial review) |
-   | `neutral` | otherwise, the review is `partial`, `failed`, `cancelled`, or did not finish in time |
+   | `failure` | a finding at or above the threshold is `critical` and its agent is in `block` mode (even on a partial review) |
+   | `neutral` | otherwise, a `critical` finding from a `comment` agent, or the review is `partial`, `failed`, `cancelled`, or did not finish in time |
    | `success` | otherwise |
 
-   The summary has the counts by severity, coverage (files and changed lines), one line per agent
+   The summary says which agents blocked the merge (or which comment-only agents found critical
+   issues), then the counts by severity, coverage (files and changed lines), one line per agent
    (✅ findings and provider, ⚠️ no result, ⏸️ LLM analysis deferred, ➖ not configured), skipped
    files with reasons, how many findings fell below the threshold, and any posting problems.
    Every finding at or above the threshold is an annotation on its lines (`failure` / `warning` /
@@ -253,8 +293,8 @@ An empty value (`PORT=`) means "use the default". With `GITHUB_APP_ID` and
 (dev seed files, or none). Without `DATABASE_URL`, `GATEWAY_SEED=none` starts with empty stores.
 
 `GATEWAY_SEED=dev` is for the local manual check without a database. It seeds one organization, the repository
-`code-sentinel/consumer-api` (`githubRepoId` 123456789, all five agents enabled, platform threshold
-0.8), the user `octo-dev` with the API key **`cs_live_dev_00000000`** (`DEV_API_KEY`), and a GitHub
+`code-sentinel/consumer-api` (`githubRepoId` 123456789, every agent on its platform default mode,
+platform threshold 0.8, default branch `main`), the user `octo-dev` with the API key **`cs_live_dev_00000000`** (`DEV_API_KEY`), and a GitHub
 stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-lock.json`
 (`generated_file`) and `logo.png` (`binary`).
 
@@ -294,7 +334,6 @@ Differences to know:
 
 - `/v1/reviews`: create (on-demand), list, get, SSE events, style fixes
 - Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
-- Repository toggles and config (`PATCH /v1/repositories/{id}`, `/config`, admin-role check): A9
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`); the orchestrator writes `reviews` in Phase A3
@@ -313,7 +352,8 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-197 tests in 19 files (25 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set). They run
+223 tests in 21 files (29 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
 (`test-support/supabase-tokens.ts`), and never need a real secret, port 3000 or the network.
