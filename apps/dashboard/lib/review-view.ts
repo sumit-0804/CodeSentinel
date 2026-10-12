@@ -59,3 +59,8 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
   const days = Math.floor(hours / 24);
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
+
+const EXACT = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+
+/** "12 Oct 2026, 07:03 UTC": fixed locale and zone, so server and browser render the same text. */
+export const exactTime = (iso: string) => `${EXACT.format(new Date(iso))} UTC`;

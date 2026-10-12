@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "@code-sentinel/contracts";
-import { groupByFile, lanesOf, postedCount, timeAgo, verdictOf, verdictSentence } from "./review-view";
+import { exactTime, groupByFile, lanesOf, postedCount, timeAgo, verdictOf, verdictSentence } from "./review-view";
 
 const summary = (criticalCount: number) => ({ criticalCount, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 0 });
 
@@ -63,5 +63,9 @@ describe("groupByFile / postedCount / timeAgo", () => {
     expect(timeAgo("2026-10-12T11:56:00Z", now)).toBe("4 min ago");
     expect(timeAgo("2026-10-12T09:00:00Z", now)).toBe("3 h ago");
     expect(timeAgo("2026-10-10T12:00:00Z", now)).toBe("2 days ago");
+  });
+
+  it("formats the exact time the same everywhere", () => {
+    expect(exactTime("2026-10-12T07:03:16.392Z")).toBe("12 Oct 2026, 07:03 UTC");
   });
 });

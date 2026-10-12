@@ -6,7 +6,7 @@ import type { ReviewListItem } from "@code-sentinel/contracts";
 import { Lanes } from "@/components/brand/verdict";
 import { SeverityCounts, VerdictPill, verdictWord } from "@/components/brand/verdict-pill";
 import { cn } from "@/lib/utils";
-import { lanesOf, timeAgo, verdictOf, type Verdict } from "@/lib/review-view";
+import { exactTime, lanesOf, timeAgo, verdictOf, type Verdict } from "@/lib/review-view";
 
 const FILTERS: ("all" | Verdict)[] = ["all", "blocked", "running", "partial", "passed"];
 
@@ -74,7 +74,7 @@ export function ReviewTable({ reviews, filters = false, showRepository = true }:
                   <SeverityCounts critical={review.summary.criticalCount} warning={review.summary.warningCount} info={review.summary.infoCount} />
                 </td>
                 <td className="px-5 py-3.5 text-right text-sm whitespace-nowrap text-ink-3 tabular-nums">
-                  <time dateTime={review.createdAt} title={new Date(review.createdAt).toLocaleString()}>
+                  <time dateTime={review.createdAt} title={exactTime(review.createdAt)} suppressHydrationWarning>
                     {timeAgo(review.createdAt)}
                   </time>
                 </td>
