@@ -8,7 +8,10 @@ import { PullRequestEventSchema } from "./github-payload.js";
 import { buildReviewJobRequest } from "./review-job-request.js";
 
 const CONFIG: EffectiveRepositoryConfig = {
+  agentModes: { security: "block", style: "off", performance: "off", logic: "comment", documentation: "off" },
   enabledAgents: ["security", "logic"],
+  blockingAgents: ["security"],
+  reviewBranches: ["main"],
   confidenceThreshold: 0.9,
   thresholdSource: "repository_override",
   agentTimeoutMs: 30000,

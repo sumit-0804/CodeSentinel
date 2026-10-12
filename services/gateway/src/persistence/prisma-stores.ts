@@ -1,7 +1,6 @@
-import type { AgentKind } from "@code-sentinel/contracts";
 import type { Prisma, PrismaClient } from "@code-sentinel/db";
 
-import { resolveEffectiveConfig } from "./effective-config.js";
+import { modesOf, resolveEffectiveConfig, type RepositoryConfigInputs } from "./effective-config.js";
 import {
   GithubAccountTakenError,
   type ApiKeyStore,
@@ -16,7 +15,6 @@ import {
 } from "./stores.js";
 
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
-
 /** Upserts one repository by GitHub id into an installation; a stale active row holding the same name is marked removed first. */
 async function upsertRepository(
   tx: Prisma.TransactionClient,
@@ -89,31 +87,101 @@ export class PrismaStores implements Stores {
       },
     };
 
+    const loadConfigInputs = async (where: Prisma.RepositoryWhereInput): Promise<RepositoryConfigInputs | undefined> => {
+      const row = await prisma.repository.findFirst({
+        where,
+        include: {
+          settings: true,
+          agentConfig: true,
+          organization: { select: { defaultConfidenceThreshold: true, defaultReviewBranches: true, agentDefaults: true } },
+        },
+      });
+      if (!row) return undefined;
+      const { settings, agentConfig, organization } = row;
+      const latest = [settings, ...agentConfig].reduce<{ updatedAt: Date; updatedBy: string | null } | undefined>(
+        (best, audited) => (audited && (!best || audited.updatedAt > best.updatedAt) ? audited : best),
+        undefined,
+      );
+      return {
+        repositoryId: row.id,
+        organizationId: row.organizationId,
+        fullName: row.fullName,
+        defaultBranch: row.defaultBranch,
+        reviewEnabled: row.reviewEnabled,
+        useOrgDefaults: row.useOrgDefaults,
+        ...(settings
+          ? {
+              settings: {
+                confidenceThresholdOverride: settings.confidenceThresholdOverride?.toNumber() ?? null,
+                agentTimeoutMs: settings.agentTimeoutMs,
+                autoFixStyle: settings.autoFixStyle,
+                postInlineComments: settings.postInlineComments,
+                reviewBranches: settings.reviewBranches,
+              },
+            }
+          : {}),
+        repositoryModes: modesOf(agentConfig),
+        organization: {
+          threshold: organization.defaultConfidenceThreshold.toNumber(),
+          modes: modesOf(organization.agentDefaults),
+          reviewBranches: organization.defaultReviewBranches,
+        },
+        ...(latest ? { updatedAt: latest.updatedAt } : {}),
+        ...(latest?.updatedBy ? { updatedBy: latest.updatedBy } : {}),
+      };
+    };
+
     this.repositoryConfig = {
       getEffectiveConfig: async (repositoryId) => {
-        const row = await prisma.repository.findUnique({
-          where: { id: repositoryId },
-          select: {
-            settings: true,
-            agentConfig: { where: { enabled: false }, select: { agent: true } },
-            organization: { select: { defaultConfidenceThreshold: true } },
-          },
+        const inputs = await loadConfigInputs({ id: repositoryId });
+        return inputs ? resolveEffectiveConfig(inputs) : undefined;
+      },
+      getConfigInputs: (repositoryId) => loadConfigInputs({ id: repositoryId, removedAt: null }),
+      updateConfig: async (repositoryId, update, updatedBy) => {
+        const { reviewEnabled, useOrgDefaults, agents, ...settings } = update;
+        await prisma.$transaction(async (tx) => {
+          if (reviewEnabled !== undefined || useOrgDefaults !== undefined) {
+            await tx.repository.update({ where: { id: repositoryId }, data: { reviewEnabled, useOrgDefaults } });
+          }
+          for (const { agent, mode } of agents ?? []) {
+            await tx.repositoryAgentConfig.upsert({
+              where: { repositoryId_agent: { repositoryId, agent } },
+              create: { repositoryId, agent, mode, updatedBy },
+              update: { mode, updatedBy },
+            });
+          }
+          if (Object.keys(settings).length > 0) {
+            await tx.repositorySetting.upsert({
+              where: { repositoryId },
+              create: { repositoryId, ...settings, updatedBy },
+              update: { ...settings, updatedBy },
+            });
+          }
         });
-        if (!row) return undefined;
-        const { settings } = row;
-        return resolveEffectiveConfig({
-          ...(settings
-            ? {
-                settings: {
-                  confidenceThresholdOverride: settings.confidenceThresholdOverride?.toNumber() ?? null,
-                  agentTimeoutMs: settings.agentTimeoutMs,
-                  autoFixStyle: settings.autoFixStyle,
-                  postInlineComments: settings.postInlineComments,
-                },
-              }
-            : {}),
-          organizationThreshold: row.organization.defaultConfidenceThreshold.toNumber(),
-          disabledAgents: new Set<AgentKind>(row.agentConfig.map((config) => config.agent)),
+      },
+      getReviewDefaults: async (organizationId) => {
+        const org = await prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { defaultConfidenceThreshold: true, defaultReviewBranches: true, agentDefaults: true },
+        });
+        if (!org) return undefined;
+        return { threshold: org.defaultConfidenceThreshold.toNumber(), modes: modesOf(org.agentDefaults), reviewBranches: org.defaultReviewBranches };
+      },
+      updateReviewDefaults: async (organizationId, update, updatedBy) => {
+        await prisma.$transaction(async (tx) => {
+          if (update.confidenceThreshold !== undefined || update.reviewBranches !== undefined) {
+            await tx.organization.update({
+              where: { id: organizationId },
+              data: { defaultConfidenceThreshold: update.confidenceThreshold, defaultReviewBranches: update.reviewBranches },
+            });
+          }
+          for (const { agent, mode } of update.agents ?? []) {
+            await tx.organizationAgentDefault.upsert({
+              where: { organizationId_agent: { organizationId, agent } },
+              create: { organizationId, agent, mode, updatedBy },
+              update: { mode, updatedBy },
+            });
+          }
         });
       },
     };

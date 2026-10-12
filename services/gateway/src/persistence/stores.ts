@@ -1,4 +1,13 @@
-import type { AgentKind, OrganizationMembership, ThresholdSource } from "@code-sentinel/contracts";
+import type {
+  AgentKind,
+  AgentMode,
+  OrganizationMembership,
+  RepositoryConfigUpdate,
+  ReviewDefaultsUpdate,
+  ThresholdSource,
+} from "@code-sentinel/contracts";
+
+import type { OrganizationDefaultsInput, RepositoryConfigInputs } from "./effective-config.js";
 
 /**
  * What the gateway reads and writes in PostgreSQL, as interfaces shaped by `docs/design/schema/schema.sql`.
@@ -18,8 +27,13 @@ export interface RepositoryRecord {
 
 /** Repository settings resolved against the organization and platform defaults (UC-4). */
 export interface EffectiveRepositoryConfig {
-  /** In `AgentKindSchema` order. */
+  agentModes: Record<AgentKind, AgentMode>;
+  /** Agents whose mode isn't `off`, in `AgentKindSchema` order. */
   enabledAgents: AgentKind[];
+  /** Agents in `block` mode: only their critical findings fail the Check Run. */
+  blockingAgents: AgentKind[];
+  /** Base-branch patterns a pull request must merge into to be reviewed; never empty. */
+  reviewBranches: string[];
   confidenceThreshold: number;
   thresholdSource: ThresholdSource;
   agentTimeoutMs: number;
@@ -141,6 +155,13 @@ export interface GithubTokenStore {
 export interface RepositoryConfigStore {
   /** `undefined` when the repository does not exist. */
   getEffectiveConfig(repositoryId: string): Promise<EffectiveRepositoryConfig | undefined>;
+  /** `undefined` when the repository does not exist or was removed. */
+  getConfigInputs(repositoryId: string): Promise<RepositoryConfigInputs | undefined>;
+  /** Applies a partial update in one transaction; `updatedBy` is recorded on every row written. */
+  updateConfig(repositoryId: string, update: RepositoryConfigUpdate, updatedBy: string): Promise<void>;
+  /** `undefined` when the organization does not exist. */
+  getReviewDefaults(organizationId: string): Promise<OrganizationDefaultsInput | undefined>;
+  updateReviewDefaults(organizationId: string, update: ReviewDefaultsUpdate, updatedBy: string): Promise<void>;
 }
 
 /** Supabase owns sessions; the gateway only asks whether one is still live, so sign-out applies before `exp`. */

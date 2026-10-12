@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentKind } from "@code-sentinel/contracts";
+import type { AgentKind, AgentMode } from "@code-sentinel/contracts";
 
-import { resolveEffectiveConfig, type RepositorySettingsInput } from "./effective-config.js";
+import {
+  modesOf,
+  resolveEffectiveConfig,
+  type OrganizationDefaultsInput,
+  type RepositoryConfigInputs,
+  type RepositorySettingsInput,
+} from "./effective-config.js";
 import {
   GithubAccountTakenError,
   type ApiKeyRecord,
@@ -23,6 +29,7 @@ import {
 export interface SeedOrganization {
   organizationId: string;
   defaultConfidenceThreshold?: number;
+  defaultReviewBranches?: string[];
   /** GitHub identity of the account; set for organizations created by an installation. */
   githubOrgId?: number;
   login?: string;
@@ -42,6 +49,8 @@ export interface SeedInstallation {
 /** A `repositories` row with the columns only the store itself reads. */
 export interface SeedRepository extends RepositoryRecord {
   defaultBranch?: string;
+  /** Defaults to true, like the column. */
+  useOrgDefaults?: boolean;
   isPrivate?: boolean;
   primaryLanguage?: string;
   removedAt?: Date;
@@ -52,9 +61,10 @@ export interface StoreSeed {
   /** Installations the seed knows; a repository pointing at an unknown installation counts as installed. */
   installations: SeedInstallation[];
   repositories: SeedRepository[];
-  repositorySettings: ({ repositoryId: string } & RepositorySettingsInput)[];
-  /** Only rows that exist; an agent without a row is enabled (the column default). */
-  repositoryAgentConfig: { repositoryId: string; agent: AgentKind; enabled: boolean }[];
+  repositorySettings: ({ repositoryId: string; updatedAt?: Date; updatedBy?: string } & RepositorySettingsInput)[];
+  /** Only rows that exist; an agent without a row falls back to the platform default. */
+  repositoryAgentConfig: { repositoryId: string; agent: AgentKind; mode: AgentMode; updatedAt?: Date; updatedBy?: string }[];
+  organizationAgentDefaults: { organizationId: string; agent: AgentKind; mode: AgentMode }[];
   /** Supabase session ids that are still signed in; like `auth.sessions`, any other id is not active. */
   activeSessionIds: string[];
   apiKeys: ApiKeyRecord[];
@@ -68,6 +78,7 @@ export const emptySeed = (): StoreSeed => ({
   repositories: [],
   repositorySettings: [],
   repositoryAgentConfig: [],
+  organizationAgentDefaults: [],
   activeSessionIds: [],
   apiKeys: [],
   users: [],
@@ -147,23 +158,75 @@ export class InMemoryStores implements Stores {
           })),
     };
 
+    const organizationDefaults = (organizationId: string): OrganizationDefaultsInput | undefined => {
+      const org = data.organizations.find((o) => o.organizationId === organizationId);
+      if (!org) return undefined;
+      return {
+        ...(org.defaultConfidenceThreshold !== undefined ? { threshold: org.defaultConfidenceThreshold } : {}),
+        modes: modesOf(data.organizationAgentDefaults.filter((row) => row.organizationId === organizationId)),
+        reviewBranches: [...(org.defaultReviewBranches ?? [])],
+      };
+    };
+    const configInputs = (repository: SeedRepository): RepositoryConfigInputs => {
+      const { repositoryId } = repository;
+      const stored = data.repositorySettings.find((s) => s.repositoryId === repositoryId);
+      const agentRows = data.repositoryAgentConfig.filter((row) => row.repositoryId === repositoryId);
+      const latest = latestUpdate([stored, ...agentRows]);
+      const { repositoryId: _id, updatedAt: _at, updatedBy: _by, ...settings } = stored ?? { repositoryId };
+      return structuredClone({
+        repositoryId,
+        organizationId: repository.organizationId,
+        fullName: repository.fullName,
+        defaultBranch: repository.defaultBranch ?? "main",
+        reviewEnabled: repository.reviewEnabled,
+        useOrgDefaults: repository.useOrgDefaults ?? true,
+        ...(stored ? { settings } : {}),
+        repositoryModes: modesOf(agentRows),
+        organization: organizationDefaults(repository.organizationId) ?? { modes: {}, reviewBranches: [] },
+        ...(latest?.updatedAt ? { updatedAt: latest.updatedAt } : {}),
+        ...(latest?.updatedBy ? { updatedBy: latest.updatedBy } : {}),
+      });
+    };
+
     this.repositoryConfig = {
       getEffectiveConfig: async (repositoryId) => {
         const repository = data.repositories.find((r) => r.repositoryId === repositoryId);
-        if (!repository) return undefined;
-        const settings = data.repositorySettings.find((s) => s.repositoryId === repositoryId);
-        const organization = data.organizations.find((o) => o.organizationId === repository.organizationId);
-        const disabledAgents = new Set<AgentKind>(
-          data.repositoryAgentConfig.filter((row) => row.repositoryId === repositoryId && !row.enabled).map((row) => row.agent),
-        );
-
-        return resolveEffectiveConfig({
-          ...(settings ? { settings } : {}),
-          ...(organization?.defaultConfidenceThreshold !== undefined
-            ? { organizationThreshold: organization.defaultConfidenceThreshold }
-            : {}),
-          disabledAgents,
-        });
+        return repository ? resolveEffectiveConfig(configInputs(repository)) : undefined;
+      },
+      getConfigInputs: async (repositoryId) => {
+        const repository = data.repositories.find((r) => r.repositoryId === repositoryId && r.removedAt === undefined);
+        return repository ? configInputs(repository) : undefined;
+      },
+      updateConfig: async (repositoryId, update, updatedBy) => {
+        const repository = data.repositories.find((r) => r.repositoryId === repositoryId);
+        if (!repository) return;
+        const { reviewEnabled, useOrgDefaults, agents, ...settings } = update;
+        if (reviewEnabled !== undefined) repository.reviewEnabled = reviewEnabled;
+        if (useOrgDefaults !== undefined) repository.useOrgDefaults = useOrgDefaults;
+        const updatedAt = new Date();
+        for (const { agent, mode } of agents ?? []) {
+          const row = data.repositoryAgentConfig.find((r) => r.repositoryId === repositoryId && r.agent === agent);
+          if (row) Object.assign(row, { mode, updatedAt, updatedBy });
+          else data.repositoryAgentConfig.push({ repositoryId, agent, mode, updatedAt, updatedBy });
+        }
+        if (Object.keys(settings).length > 0) {
+          const row = data.repositorySettings.find((s) => s.repositoryId === repositoryId);
+          const fields = { ...structuredClone(settings), updatedAt, updatedBy };
+          if (row) Object.assign(row, fields);
+          else data.repositorySettings.push({ repositoryId, ...fields });
+        }
+      },
+      getReviewDefaults: async (organizationId) => organizationDefaults(organizationId),
+      updateReviewDefaults: async (organizationId, update) => {
+        const org = data.organizations.find((o) => o.organizationId === organizationId);
+        if (!org) return;
+        if (update.confidenceThreshold !== undefined) org.defaultConfidenceThreshold = update.confidenceThreshold;
+        if (update.reviewBranches !== undefined) org.defaultReviewBranches = [...update.reviewBranches];
+        for (const { agent, mode } of update.agents ?? []) {
+          const row = data.organizationAgentDefaults.find((r) => r.organizationId === organizationId && r.agent === agent);
+          if (row) row.mode = mode;
+          else data.organizationAgentDefaults.push({ organizationId, agent, mode });
+        }
       },
     };
 
@@ -299,6 +362,16 @@ export class InMemoryStores implements Stores {
       },
     };
   }
+}
+
+type Audited = { updatedAt?: Date; updatedBy?: string };
+
+function latestUpdate(rows: (Audited | undefined)[]): Audited | undefined {
+  let latest: Audited | undefined;
+  for (const row of rows) {
+    if (row?.updatedAt && (!latest?.updatedAt || row.updatedAt > latest.updatedAt)) latest = row;
+  }
+  return latest;
 }
 
 function copy<T>(value: T | undefined): T | undefined {

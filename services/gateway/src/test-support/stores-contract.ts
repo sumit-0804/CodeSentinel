@@ -40,6 +40,7 @@ export function uniqueSeed() {
     ],
     repositorySettings: [],
     repositoryAgentConfig: [],
+    organizationAgentDefaults: [],
     activeSessionIds: [],
     githubTokens: [],
     apiKeys: [
@@ -130,7 +131,10 @@ export function describeStoresContract(
       });
 
       await expect(stores.repositoryConfig.getEffectiveConfig(ids.repositoryId)).resolves.toEqual({
+        agentModes: { security: "block", style: "comment", performance: "comment", logic: "comment", documentation: "comment" },
         enabledAgents: ["security", "style", "performance", "logic", "documentation"],
+        blockingAgents: ["security"],
+        reviewBranches: ["main"],
         confidenceThreshold: 0.75,
         thresholdSource: "organization_default",
         agentTimeoutMs: 20000,
@@ -156,23 +160,94 @@ export function describeStoresContract(
       });
     });
 
-    it("drops a disabled agent and keeps the rest in contract order", async () => {
+    it("uses the repository's own modes and branches when it doesn't follow the defaults", async () => {
       const { stores, ids } = await build(({ seed, ids }) => {
+        seed.repositories[0]!.useOrgDefaults = false;
         seed.repositoryAgentConfig.push(
-          { repositoryId: ids.repositoryId, agent: "documentation", enabled: true },
-          { repositoryId: ids.repositoryId, agent: "style", enabled: false },
+          { repositoryId: ids.repositoryId, agent: "logic", mode: "block" },
+          { repositoryId: ids.repositoryId, agent: "style", mode: "off" },
         );
+        seed.repositorySettings.push({ repositoryId: ids.repositoryId, reviewBranches: ["main", "release/*"] });
+        seed.organizationAgentDefaults.push({ organizationId: ids.organizationId, agent: "security", mode: "comment" });
       });
 
       const config = await stores.repositoryConfig.getEffectiveConfig(ids.repositoryId);
 
       expect(config?.enabledAgents).toEqual(["security", "performance", "logic", "documentation"]);
+      expect(config?.blockingAgents).toEqual(["security", "logic"]);
+      expect(config?.reviewBranches).toEqual(["main", "release/*"]);
+    });
+
+    it("uses the organization's modes and branches when the repository follows the defaults", async () => {
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.organizations[0]!.defaultReviewBranches = ["develop"];
+        seed.organizationAgentDefaults.push({ organizationId: ids.organizationId, agent: "security", mode: "comment" });
+        seed.repositoryAgentConfig.push({ repositoryId: ids.repositoryId, agent: "logic", mode: "block" });
+      });
+
+      const config = await stores.repositoryConfig.getEffectiveConfig(ids.repositoryId);
+
+      expect(config?.blockingAgents).toEqual([]);
+      expect(config?.agentModes.security).toBe("comment");
+      expect(config?.reviewBranches).toEqual(["develop"]);
     });
 
     it("returns undefined for an unknown repository", async () => {
       const { stores } = await build();
 
       await expect(stores.repositoryConfig.getEffectiveConfig(randomUUID())).resolves.toBeUndefined();
+      await expect(stores.repositoryConfig.getConfigInputs(randomUUID())).resolves.toBeUndefined();
+      await expect(stores.repositoryConfig.getReviewDefaults(randomUUID())).resolves.toBeUndefined();
+    });
+
+    it("saves a partial update and keeps what it doesn't mention", async () => {
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.repositorySettings.push({ repositoryId: ids.repositoryId, agentTimeoutMs: 45000 });
+      });
+
+      await stores.repositoryConfig.updateConfig(
+        ids.repositoryId,
+        { useOrgDefaults: false, agents: [{ agent: "style", mode: "off" }], reviewBranches: ["release/*"], confidenceThresholdOverride: 0.9 },
+        ids.userId,
+      );
+      await stores.repositoryConfig.updateConfig(ids.repositoryId, { agents: [{ agent: "style", mode: "block" }], reviewEnabled: false }, ids.userId);
+
+      const inputs = await stores.repositoryConfig.getConfigInputs(ids.repositoryId);
+      expect(inputs).toMatchObject({
+        useOrgDefaults: false,
+        reviewEnabled: false,
+        repositoryModes: { style: "block" },
+        settings: { agentTimeoutMs: 45000, reviewBranches: ["release/*"], confidenceThresholdOverride: 0.9 },
+        updatedBy: ids.userId,
+      });
+      expect(inputs?.updatedAt).toBeInstanceOf(Date);
+    });
+
+    it("hides a removed repository's configuration", async () => {
+      const { stores, ids } = await build(({ seed }) => {
+        seed.repositories[0]!.removedAt = new Date();
+      });
+
+      await expect(stores.repositoryConfig.getConfigInputs(ids.repositoryId)).resolves.toBeUndefined();
+    });
+
+    it("reads and updates the organization's review defaults", async () => {
+      const { stores, ids } = await build();
+
+      await expect(stores.repositoryConfig.getReviewDefaults(ids.organizationId)).resolves.toEqual({ threshold: 0.75, modes: {}, reviewBranches: [] });
+
+      await stores.repositoryConfig.updateReviewDefaults(
+        ids.organizationId,
+        { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.6, reviewBranches: ["main", "release/*"] },
+        ids.userId,
+      );
+      await stores.repositoryConfig.updateReviewDefaults(ids.organizationId, { agents: [{ agent: "logic", mode: "block" }] }, ids.userId);
+
+      await expect(stores.repositoryConfig.getReviewDefaults(ids.organizationId)).resolves.toEqual({
+        threshold: 0.6,
+        modes: { security: "comment", logic: "block" },
+        reviewBranches: ["main", "release/*"],
+      });
     });
   });
 

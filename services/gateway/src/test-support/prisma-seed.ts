@@ -41,8 +41,12 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         ...(org.accountType ? { accountType: org.accountType } : {}),
         displayName: org.displayName ?? displayNames.get(org.organizationId) ?? "Test Org",
         ...(org.defaultConfidenceThreshold !== undefined ? { defaultConfidenceThreshold: org.defaultConfidenceThreshold } : {}),
+        ...(org.defaultReviewBranches !== undefined ? { defaultReviewBranches: org.defaultReviewBranches } : {}),
       },
     });
+  }
+  for (const row of seed.organizationAgentDefaults) {
+    await prisma.organizationAgentDefault.create({ data: row });
   }
   for (const installation of seed.installations) {
     await prisma.githubInstallation.create({
@@ -76,6 +80,7 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         githubRepoId: BigInt(repo.githubRepoId),
         fullName: repo.fullName,
         reviewEnabled: repo.reviewEnabled,
+        ...(repo.useOrgDefaults !== undefined ? { useOrgDefaults: repo.useOrgDefaults } : {}),
         ...(repo.defaultBranch !== undefined ? { defaultBranch: repo.defaultBranch } : {}),
         ...(repo.isPrivate !== undefined ? { isPrivate: repo.isPrivate } : {}),
         primaryLanguage: repo.primaryLanguage ?? null,
