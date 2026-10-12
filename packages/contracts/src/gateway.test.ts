@@ -149,25 +149,27 @@ describe("RepositorySchema", () => {
 });
 
 describe("RepositoryConfigSchema", () => {
+  const config = {
+    repositoryId: REPOSITORY_ID,
+    fullName: "octo-org/api",
+    defaultBranch: "main",
+    reviewEnabled: true,
+    useOrgDefaults: true,
+    agents: [{ agent: "security", mode: "block", source: "platform_default" }],
+    reviewBranches: [],
+    effectiveReviewBranches: ["main"],
+    confidenceThresholdOverride: null,
+    effectiveConfidenceThreshold: 0.8,
+    thresholdSource: "platform_default",
+  };
+
   it("accepts an inherited threshold with a null override", () => {
-    const parsed = RepositoryConfigSchema.parse({
-      repositoryId: REPOSITORY_ID,
-      agents: [{ agent: "security", enabled: true }],
-      confidenceThresholdOverride: null,
-      effectiveConfidenceThreshold: 0.8,
-      thresholdSource: "platform_default",
-    });
-    expect(parsed.confidenceThresholdOverride).toBeNull();
+    expect(RepositoryConfigSchema.parse(config).confidenceThresholdOverride).toBeNull();
   });
 
-  it("rejects an unknown threshold source", () => {
-    const result = RepositoryConfigSchema.safeParse({
-      repositoryId: REPOSITORY_ID,
-      agents: [],
-      effectiveConfidenceThreshold: 0.8,
-      thresholdSource: "guess",
-    });
-    expect(result.success).toBe(false);
+  it("rejects an unknown threshold source or agent mode", () => {
+    expect(RepositoryConfigSchema.safeParse({ ...config, thresholdSource: "guess" }).success).toBe(false);
+    expect(RepositoryConfigSchema.safeParse({ ...config, agents: [{ agent: "security", mode: "on", source: "repository" }] }).success).toBe(false);
   });
 });
 
@@ -177,12 +179,25 @@ describe("RepositoryConfigUpdateSchema", () => {
     expect(RepositoryConfigUpdateSchema.parse({ confidenceThresholdOverride: null }).confidenceThresholdOverride).toBeNull();
   });
 
-  it("rejects disabling every agent by sending an empty list", () => {
+  it("rejects an empty or repeated agent list", () => {
     expect(RepositoryConfigUpdateSchema.safeParse({ agents: [] }).success).toBe(false);
+    const repeated = [
+      { agent: "logic", mode: "off" },
+      { agent: "logic", mode: "block" },
+    ];
+    expect(RepositoryConfigUpdateSchema.safeParse({ agents: repeated }).success).toBe(false);
   });
 
   it("rejects an agent timeout outside 1000..120000", () => {
     expect(RepositoryConfigUpdateSchema.safeParse({ agentTimeoutMs: 999 }).success).toBe(false);
+  });
+
+  it("accepts branch globs and rejects spaces, '..', long patterns and more than 20", () => {
+    expect(RepositoryConfigUpdateSchema.safeParse({ reviewBranches: ["main", "release/*", "hotfix/**"] }).success).toBe(true);
+    for (const bad of ["my branch", "a/../b", "", "x".repeat(101)]) {
+      expect(RepositoryConfigUpdateSchema.safeParse({ reviewBranches: [bad] }).success).toBe(false);
+    }
+    expect(RepositoryConfigUpdateSchema.safeParse({ reviewBranches: Array.from({ length: 21 }, (_, i) => `b${i}`) }).success).toBe(false);
   });
 });
 

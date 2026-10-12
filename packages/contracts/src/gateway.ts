@@ -21,6 +21,7 @@ export const WebhookActionSchema = z.enum([
   "event_ignored",
   "repository_disabled",
   "installation_synced",
+  "branch_ignored",
 ]);
 export type WebhookAction = z.infer<typeof WebhookActionSchema>;
 
@@ -156,11 +157,42 @@ export const GithubLinkResultSchema = z.object({
 });
 export type GithubLinkResult = z.infer<typeof GithubLinkResultSchema>;
 
+/** `off` skips the agent; `comment` posts its findings; `block` also fails the Check Run on a critical finding. */
+export const AgentModeSchema = z.enum(["off", "comment", "block"]);
+export type AgentMode = z.infer<typeof AgentModeSchema>;
+
+export const AgentModeSourceSchema = z.enum(["repository", "organization_default", "platform_default"]);
+export type AgentModeSource = z.infer<typeof AgentModeSourceSchema>;
+
+/** One agent's effective mode and where it came from. */
 export const AgentSettingSchema = z.object({
   agent: AgentKindSchema,
-  enabled: z.boolean(),
+  mode: AgentModeSchema,
+  source: AgentModeSourceSchema,
 });
 export type AgentSetting = z.infer<typeof AgentSettingSchema>;
+
+export const AgentModeUpdateSchema = z.object({
+  agent: AgentKindSchema,
+  mode: AgentModeSchema,
+});
+export type AgentModeUpdate = z.infer<typeof AgentModeUpdateSchema>;
+
+/** A base-branch name or glob (`main`, `release/*`, `hotfix/**`); `*` is one path segment, `**` any number. */
+export const ReviewBranchPatternSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^\S+$/, "Branch patterns cannot contain spaces")
+  .refine((pattern) => !pattern.includes(".."), "Branch patterns cannot contain '..'");
+
+/** Empty means the repository's default branch only. */
+export const ReviewBranchesSchema = z.array(ReviewBranchPatternSchema).max(20);
+
+const AgentModeUpdatesSchema = z
+  .array(AgentModeUpdateSchema)
+  .min(1)
+  .refine((items) => new Set(items.map((item) => item.agent)).size === items.length, "Each agent may appear once");
 
 export const ThresholdSourceSchema = z.enum([
   "repository_override",
@@ -172,7 +204,17 @@ export type ThresholdSource = z.infer<typeof ThresholdSourceSchema>;
 /** Effective configuration plus where each value came from (UC-4). */
 export const RepositoryConfigSchema = z.object({
   repositoryId: z.string().uuid(),
+  fullName: z.string(),
+  defaultBranch: z.string(),
+  reviewEnabled: z.boolean(),
+  /** True: agent modes and branches come from the organization's review defaults. */
+  useOrgDefaults: z.boolean(),
+  /** In `AgentKindSchema` order. */
   agents: z.array(AgentSettingSchema),
+  /** The repository's own patterns, used when it doesn't follow the defaults. */
+  reviewBranches: ReviewBranchesSchema,
+  /** The patterns that apply now; never empty (the default branch when nothing is set). */
+  effectiveReviewBranches: z.array(z.string()).min(1),
   /** null means no override is set for this repository. */
   confidenceThresholdOverride: ConfidenceSchema.nullable().optional(),
   effectiveConfidenceThreshold: ConfidenceSchema,
@@ -185,16 +227,42 @@ export const RepositoryConfigSchema = z.object({
 });
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;
 
-/** Disabling every agent is rejected (UC-4 exception flow), hence minItems 1. */
+/**
+ * A partial update: omitted fields keep their value. Turning every agent off is rejected with 400
+ * `no_agents_enabled` (UC-4 exception flow); switch `reviewEnabled` off instead.
+ */
 export const RepositoryConfigUpdateSchema = z.object({
-  agents: z.array(AgentSettingSchema).min(1).optional(),
-  /** Omitted or null restores inheritance from the platform default of 0.8 (FR-ORC-06). */
+  reviewEnabled: z.boolean().optional(),
+  useOrgDefaults: z.boolean().optional(),
+  /** Only the listed agents change. */
+  agents: AgentModeUpdatesSchema.optional(),
+  reviewBranches: ReviewBranchesSchema.optional(),
+  /** null restores inheritance from the organization default (FR-ORC-06). */
   confidenceThresholdOverride: ConfidenceSchema.nullable().optional(),
   agentTimeoutMs: z.number().int().min(1000).max(120000).optional(),
   autoFixStyle: z.boolean().optional(),
   postInlineComments: z.boolean().optional(),
 });
 export type RepositoryConfigUpdate = z.infer<typeof RepositoryConfigUpdateSchema>;
+
+/** An organization's review defaults, used by its repositories that follow them. */
+export const ReviewDefaultsSchema = z.object({
+  organizationId: z.string().uuid(),
+  /** In `AgentKindSchema` order; `source` is `organization_default` or `platform_default`. */
+  agents: z.array(AgentSettingSchema),
+  confidenceThreshold: ConfidenceSchema,
+  /** Empty means each repository's default branch. */
+  reviewBranches: ReviewBranchesSchema,
+});
+export type ReviewDefaults = z.infer<typeof ReviewDefaultsSchema>;
+
+/** A partial update; turning every agent off is rejected with 400 `no_agents_enabled`. */
+export const ReviewDefaultsUpdateSchema = z.object({
+  agents: AgentModeUpdatesSchema.optional(),
+  confidenceThreshold: ConfidenceSchema.optional(),
+  reviewBranches: ReviewBranchesSchema.optional(),
+});
+export type ReviewDefaultsUpdate = z.infer<typeof ReviewDefaultsUpdateSchema>;
 
 export const OrgRoleSchema = z.enum(["admin", "member"]);
 export type OrgRole = z.infer<typeof OrgRoleSchema>;
