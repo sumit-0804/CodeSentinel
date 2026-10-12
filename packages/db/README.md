@@ -25,6 +25,7 @@ changes for Supabase Auth and job persistence:
 | `github_user_tokens` added (sealed with AES-256-GCM) | GitHub App user tokens for installation sync (Phase A, A6) |
 | `organizations.account_type` | An installation can be on a personal account or an organization |
 | `repositories.removed_at`; name unique only among active rows (migration `20261011120000`) | A repository that leaves its installation, or whose App is uninstalled, is marked removed rather than deleted, so its review history stays; a recreated repository can reuse the name (A6) |
+| `agent_mode` (`off` / `comment` / `block`) replaces `repository_agent_config.enabled` (false → off, true → comment); `organization_agent_defaults`; `repositories.use_org_defaults`; `review_branches` on `repository_settings` and `default_review_branches` on `organizations` (migration `20261012100000`) | Each agent can comment only or block the merge per repository, organizations set defaults, and each repository picks which base branches get reviewed (A9) |
 | `reviews.job_id`, `idempotency_key`, `report` (JSONB), `error` (JSONB); status `cancelled` | The orchestrator's job store lives in `reviews`, and the API answers from one row |
 
 Prisma can't express the CHECK constraints or row-level security, so they are hand-written at the
@@ -98,10 +99,18 @@ Rerunning the seed with or without it switches the repository back and forth.
 **Integration tests** (`src/schema.integration.test.ts`) prove the hand-written SQL: the partial
 unique index, the CHECKs, JSON reports and the `cancelled` status. They create one throwaway
 organization and delete it, cascading, at the end. CI runs them against a `pgvector/pgvector:pg16`
-service after `prisma migrate deploy`. Locally:
+service after `prisma migrate deploy`. Locally, use the same image in Docker (port 55432, so a local
+Postgres on 5432 doesn't clash):
 
 ```bash
-TEST_DATABASE_URL=<session-pooler-url> npm run test -w @code-sentinel/db
+docker run -d --rm --name cs-test-pg -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=code_sentinel -p 55432:5432 pgvector/pgvector:pg16
+export TEST_DATABASE_URL=postgres://ci:ci@localhost:55432/code_sentinel
+DIRECT_URL=$TEST_DATABASE_URL DATABASE_URL=$TEST_DATABASE_URL npx prisma migrate deploy   # in packages/db
+npx turbo run test --concurrency=1    # every package's integration tests; one at a time avoids a Windows lock on prisma generate
+docker rm -f cs-test-pg
 ```
+
+The suites also run against Supabase dev (the session pooler URL), but there the gateway's session
+cases are skipped.
 
 Requires Node 20.19+ (Prisma 7).

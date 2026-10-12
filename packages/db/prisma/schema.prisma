@@ -42,6 +42,15 @@ enum AgentKind {
   @@map("agent_kind")
 }
 
+/// How an agent runs on a repository: not at all, comments only, or comments plus a failing Check Run on a critical finding.
+enum AgentMode {
+  off
+  comment
+  block
+
+  @@map("agent_mode")
+}
+
 enum ReviewTrigger {
   github_pull_request
   vscode_on_demand
@@ -116,10 +125,13 @@ model Organization {
   accountType                AccountType @default(organization) @map("account_type")
   displayName                String      @map("display_name")
   defaultConfidenceThreshold Decimal     @default(0.800) @map("default_confidence_threshold") @db.Decimal(4, 3)
+  /// Base-branch patterns for repositories that follow the defaults; empty means each repository's default branch.
+  defaultReviewBranches      String[]    @default([]) @map("default_review_branches")
   createdAt                  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                  DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   members           OrganizationMember[]
+  agentDefaults     OrganizationAgentDefault[]
   installations     GithubInstallation[]
   apiKeys           ApiKey[]
   repositories      Repository[]
@@ -145,6 +157,7 @@ model User {
   apiKeys                ApiKey[]
   settingsUpdated        RepositorySetting[]
   agentConfigUpdated     RepositoryAgentConfig[]
+  agentDefaultsUpdated   OrganizationAgentDefault[]
   reviewsTriggered       Review[]
   suggestionsResolved    Suggestion[]
 
@@ -229,6 +242,8 @@ model Repository {
   primaryLanguage      String?  @map("primary_language")
   isPrivate            Boolean  @default(true) @map("is_private")
   reviewEnabled        Boolean  @default(true) @map("review_enabled")
+  /// True: agent modes and branches come from the organization defaults, not this repository's own rows.
+  useOrgDefaults       Boolean  @default(true) @map("use_org_defaults")
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   /// Set when the repository leaves its installation or the App is uninstalled; the row and its reviews stay.
   removedAt            DateTime? @map("removed_at") @db.Timestamptz(6)
@@ -252,6 +267,8 @@ model RepositorySetting {
   agentTimeoutMs              Int      @default(20000) @map("agent_timeout_ms")
   autoFixStyle                Boolean  @default(true) @map("auto_fix_style")
   postInlineComments          Boolean  @default(true) @map("post_inline_comments")
+  /// Base-branch patterns (`main`, `release/*`); empty means the default branch only, `**` every branch.
+  reviewBranches              String[] @default([]) @map("review_branches")
   updatedBy                   String?  @map("updated_by") @db.Uuid
   updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -264,7 +281,7 @@ model RepositorySetting {
 model RepositoryAgentConfig {
   repositoryId String    @map("repository_id") @db.Uuid
   agent        AgentKind
-  enabled      Boolean   @default(true)
+  mode         AgentMode @default(comment)
   updatedBy    String?   @map("updated_by") @db.Uuid
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -273,6 +290,21 @@ model RepositoryAgentConfig {
 
   @@id([repositoryId, agent])
   @@map("repository_agent_config")
+}
+
+/// Organization-wide agent modes for repositories that follow the defaults; a missing row means the platform default.
+model OrganizationAgentDefault {
+  organizationId String    @map("organization_id") @db.Uuid
+  agent          AgentKind
+  mode           AgentMode
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedByUser User?        @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@id([organizationId, agent])
+  @@map("organization_agent_defaults")
 }
 
 // ---------------------------------------------------------------------------
