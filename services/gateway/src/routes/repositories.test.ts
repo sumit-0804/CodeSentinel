@@ -1,0 +1,139 @@
+import { randomUUID } from "node:crypto";
+
+import { RepositoryConfigSchema, ReviewDefaultsSchema } from "@code-sentinel/contracts";
+import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
+import { withServer } from "@code-sentinel/service-kit/testing";
+import { describe, expect, it } from "vitest";
+
+import { createApp } from "../app.js";
+import type { StoreSeed } from "../persistence/in-memory.js";
+import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
+import { testSupabase } from "../test-support/supabase-tokens.js";
+
+type Caller = "admin" | "member" | "apiKey";
+
+/** Calls the gateway as the seeded admin (Supabase session), as a plain member, or with the seeded API key. */
+async function call(method: string, path: string, { as = "admin", body, edit }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void } = {}) {
+  const seeded = await seededStores((seed) => {
+    if (as === "member") seed.users[0]!.memberships[0]!.role = "member";
+    edit?.(seed);
+  });
+  const supabase = await testSupabase();
+  const authorization = as === "apiKey" ? seeded.apiKey : await supabase.sign(TEST_USER_ID);
+  let result!: { status: number; body: Record<string, unknown> };
+  await withServer(createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier })), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${authorization}`, "Content-Type": "application/json" },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    result = { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  });
+  return { ...result, stores: seeded.stores };
+}
+
+const CONFIG_PATH = `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/config`;
+const DEFAULTS_PATH = `/v1/organizations/${EXAMPLE_ORGANIZATION_ID}/review-defaults`;
+
+describe("GET /v1/repositories/{id}/config", () => {
+  it("returns the platform defaults with their sources, even for an API key", async () => {
+    const { status, body } = await call("GET", CONFIG_PATH, { as: "apiKey" });
+
+    expect(status).toBe(200);
+    const config = RepositoryConfigSchema.parse(body);
+    expect(config).toMatchObject({ useOrgDefaults: true, reviewBranches: [], effectiveReviewBranches: ["main"], thresholdSource: "platform_default" });
+    expect(config.agents[0]).toEqual({ agent: "security", mode: "block", source: "platform_default" });
+    expect(config.agents.slice(1).every(({ mode }) => mode === "comment")).toBe(true);
+  });
+
+  it("answers 404 for an unknown repository or one in another organization", async () => {
+    expect((await call("GET", `/v1/repositories/${randomUUID()}/config`)).status).toBe(404);
+    const other = await call("GET", CONFIG_PATH, {
+      edit: (seed) => {
+        seed.repositories[0]!.organizationId = randomUUID();
+      },
+    });
+    expect(other.status).toBe(404);
+    expect(other.body.code).toBe("repository_not_found");
+  });
+});
+
+describe("PUT /v1/repositories/{id}/config", () => {
+  it("saves modes, branches and the threshold for an admin and returns the new configuration", async () => {
+    const update = {
+      useOrgDefaults: false,
+      agents: [
+        { agent: "security", mode: "comment" },
+        { agent: "logic", mode: "block" },
+      ],
+      reviewBranches: ["main", "release/*"],
+      confidenceThresholdOverride: 0.9,
+    };
+
+    const { status, body, stores } = await call("PUT", CONFIG_PATH, { body: update });
+
+    expect(status).toBe(200);
+    expect(RepositoryConfigSchema.parse(body)).toMatchObject({
+      useOrgDefaults: false,
+      effectiveReviewBranches: ["main", "release/*"],
+      effectiveConfidenceThreshold: 0.9,
+      thresholdSource: "repository_override",
+      updatedBy: TEST_USER_ID,
+    });
+    await expect(stores.repositoryConfig.getEffectiveConfig(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({ blockingAgents: ["logic"] });
+  });
+
+  it("refuses a member with 403 admin_required and an API key with 403 session_required", async () => {
+    const member = await call("PUT", CONFIG_PATH, { as: "member", body: { reviewEnabled: false } });
+    const apiKey = await call("PUT", CONFIG_PATH, { as: "apiKey", body: { reviewEnabled: false } });
+
+    expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
+    expect([apiKey.status, apiKey.body.code]).toEqual([403, "session_required"]);
+  });
+
+  it("rejects turning every agent off with 400 no_agents_enabled", async () => {
+    const agents = ["security", "style", "performance", "logic", "documentation"].map((agent) => ({ agent, mode: "off" }));
+
+    const { status, body } = await call("PUT", CONFIG_PATH, { body: { useOrgDefaults: false, agents } });
+
+    expect([status, body.code]).toEqual([400, "no_agents_enabled"]);
+  });
+
+  it("rejects an invalid branch pattern with 400 invalid_body", async () => {
+    const { status, body } = await call("PUT", CONFIG_PATH, { body: { reviewBranches: ["../main"] } });
+
+    expect([status, body.code]).toEqual([400, "invalid_body"]);
+  });
+});
+
+describe("/v1/organizations/{id}/review-defaults", () => {
+  it("reads and updates the defaults a following repository then uses", async () => {
+    const update = { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.7, reviewBranches: ["develop"] };
+
+    const { status, body, stores } = await call("PUT", DEFAULTS_PATH, { body: update });
+
+    expect(status).toBe(200);
+    expect(ReviewDefaultsSchema.parse(body)).toMatchObject({ confidenceThreshold: 0.7, reviewBranches: ["develop"] });
+    expect(ReviewDefaultsSchema.parse(body).agents[0]).toEqual({ agent: "security", mode: "comment", source: "organization_default" });
+    await expect(stores.repositoryConfig.getEffectiveConfig(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({
+      blockingAgents: [],
+      reviewBranches: ["develop"],
+      confidenceThreshold: 0.7,
+    });
+  });
+
+  it("answers 404 to a non-member and 403 to a member who isn't an admin", async () => {
+    expect((await call("GET", `/v1/organizations/${randomUUID()}/review-defaults`)).status).toBe(404);
+    const member = await call("PUT", DEFAULTS_PATH, { as: "member", body: { confidenceThreshold: 0.5 } });
+    expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
+    expect((await call("GET", DEFAULTS_PATH, { as: "member" })).status).toBe(200);
+  });
+
+  it("rejects defaults with every agent off", async () => {
+    const agents = ["security", "style", "performance", "logic", "documentation"].map((agent) => ({ agent, mode: "off" }));
+
+    const { status, body } = await call("PUT", DEFAULTS_PATH, { body: { agents } });
+
+    expect([status, body.code]).toEqual([400, "no_agents_enabled"]);
+  });
+});

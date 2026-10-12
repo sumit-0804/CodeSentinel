@@ -18,6 +18,7 @@ import type { Stores } from "./persistence/stores.js";
 import { createHealthzRouter, type DatabaseHealth } from "./routes/healthz.js";
 import { createGithubRouter } from "./routes/github.js";
 import { createMeRouter } from "./routes/me.js";
+import { createOrganizationsRouter } from "./routes/organizations.js";
 import { createRepositoriesRouter } from "./routes/repositories.js";
 import type { GitHubUserClient } from "./github/github-user-client.js";
 import type { InstallationSync } from "./github/installation-sync.js";
@@ -87,7 +88,8 @@ export function createApp(deps: AppDeps): Express {
   );
   v1.use(createMeRouter({ users: stores.users }));
   v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, ...(githubLink ? { link: githubLink } : {}) }));
-  v1.use(createRepositoriesRouter({ repositories: stores.repositories }));
+  v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users }));
+  v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users }));
   app.use("/v1", v1);
 
   app.use(notFoundHandler());
