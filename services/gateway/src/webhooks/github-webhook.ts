@@ -8,6 +8,7 @@ import type { ReviewPublisher } from "../github/review-publisher.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { Stores } from "../persistence/stores.js";
+import { matchesReviewBranches } from "./branch-match.js";
 import { filterPullRequestFiles } from "./file-filter.js";
 import { isReviewAction, PullRequestEventSchema } from "./github-payload.js";
 import { handleInstallationEvent } from "./installation-events.js";
@@ -123,6 +124,12 @@ export function createGithubWebhookRouter({
         accept("repository_disabled", "repository_disabled");
         return;
       }
+      const baseRef = pullRequest.pull_request.base.ref;
+      if (!matchesReviewBranches(baseRef, config.reviewBranches)) {
+        logFields.baseRef = baseRef;
+        accept("branch_ignored", "branch_ignored");
+        return;
+      }
 
       const ref = {
         ...(pullRequest.installation ? { installationId: pullRequest.installation.id } : {}),
@@ -159,6 +166,7 @@ export function createGithubWebhookRouter({
           reviewId: job.reviewId,
           requestId: res.locals.requestId,
           threshold: config.confidenceThreshold,
+          blockingAgents: config.blockingAgents,
           postInlineComments: config.postInlineComments,
         });
       } catch (error) {

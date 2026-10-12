@@ -1,4 +1,4 @@
-import type { ReviewJob } from "@code-sentinel/contracts";
+import type { AgentKind, ReviewJob } from "@code-sentinel/contracts";
 import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
@@ -24,6 +24,8 @@ export interface FollowInput {
   reviewId: string;
   requestId: string;
   threshold: number;
+  /** Agents in `block` mode; only their critical findings fail the Check Run. */
+  blockingAgents: AgentKind[];
   postInlineComments: boolean;
 }
 
@@ -61,7 +63,7 @@ export class ReviewPublisher {
   }
 
   private async publish(input: FollowInput, log: Logger): Promise<void> {
-    const { ref, headSha, threshold } = input;
+    const { ref, headSha, threshold, blockingAgents } = input;
     let checkRunId: number | undefined;
     try {
       checkRunId = await this.github.createCheckRun(ref, { name: CHECK_NAME, headSha });
@@ -79,9 +81,9 @@ export class ReviewPublisher {
     }
 
     if (checkRunId === undefined) return;
-    const conclusion = job ? checkRunConclusion(job, threshold) : "neutral";
+    const conclusion = job ? checkRunConclusion(job, threshold, blockingAgents) : "neutral";
     const output = job
-      ? checkRunOutput(job, threshold, notes)
+      ? checkRunOutput(job, threshold, blockingAgents, notes)
       : { title: "Review timed out", summary: notes.join("\n\n"), annotations: [] };
     await this.github.completeCheckRun(ref, checkRunId, { conclusion, output });
     log.info("review published to GitHub", { checkRunId, conclusion, annotations: output.annotations.length });

@@ -16,6 +16,7 @@ const INPUT: FollowInput = {
   reviewId: "8f1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a11",
   requestId: "req-1",
   threshold: 0.8,
+  blockingAgents: ["security"],
   postInlineComments: true,
 };
 

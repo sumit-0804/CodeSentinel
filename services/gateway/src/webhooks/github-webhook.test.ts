@@ -219,16 +219,41 @@ describe("POST /webhooks/github: review flow", () => {
     await expectIgnored(target, await deliver(target, pullRequestEventPayload()), "repository_disabled");
   });
 
-  it("answers repository_disabled when every agent is disabled", async () => {
+  it("answers repository_disabled when every agent is off", async () => {
     const target = await webhookApp({
       edit: (seed) => {
+        seed.repositories[0]!.useOrgDefaults = false;
         for (const agent of ["security", "style", "performance", "logic", "documentation"] as const) {
-          seed.repositoryAgentConfig.push({ repositoryId: seed.repositories[0]!.repositoryId, agent, enabled: false });
+          seed.repositoryAgentConfig.push({ repositoryId: seed.repositories[0]!.repositoryId, agent, mode: "off" });
         }
       },
     });
 
     await expectIgnored(target, await deliver(target, pullRequestEventPayload()), "repository_disabled");
+  });
+
+  it("answers branch_ignored for a pull request into a branch the repository doesn't review", async () => {
+    const target = await webhookApp({
+      edit: (seed) => {
+        seed.repositories[0]!.useOrgDefaults = false;
+        seed.repositorySettings.push({ repositoryId: seed.repositories[0]!.repositoryId, reviewBranches: ["release/*"] });
+      },
+    });
+
+    await expectIgnored(target, await deliver(target, pullRequestEventPayload()), "branch_ignored");
+    expect(requestLog(target)).toMatchObject({ outcome: "branch_ignored", baseRef: "main" });
+  });
+
+  it("reviews a pull request into a branch the organization defaults list", async () => {
+    const target = await webhookApp({
+      edit: (seed) => {
+        seed.organizations[0]!.defaultReviewBranches = ["develop", "main"];
+      },
+    });
+
+    const res = await deliver(target, pullRequestEventPayload());
+
+    expect(res.body).toMatchObject({ accepted: true, action: "review_started" });
   });
 
   it("does not call the orchestrator when every file is filtered out", async () => {
@@ -268,6 +293,7 @@ describe("POST /webhooks/github: review flow", () => {
       reviewId: EXAMPLE_REVIEW_ID,
       requestId: expect.any(String),
       threshold: 0.8,
+      blockingAgents: ["security"],
       postInlineComments: true,
     });
 

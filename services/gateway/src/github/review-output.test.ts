@@ -50,16 +50,24 @@ const styleFix = finding({
   suggestion: { kind: "deterministic", originalSnippet: "  var tax  =  0.2\n  if (x) { }", suggestedSnippet: "  var tax = 0.2;\n  if (x) {\n  }" },
 });
 
+const BLOCK_SECURITY = ["security"] as const;
+
 describe("checkRunConclusion", () => {
-  it("fails on a postable critical finding, even when the review was partial", () => {
-    expect(checkRunConclusion(job([finding()]), 0.8)).toBe("failure");
-    expect(checkRunConclusion(job([finding()], {}, "partial"), 0.8)).toBe("failure");
+  it("fails on a postable critical finding from a blocking agent, even when the review was partial", () => {
+    expect(checkRunConclusion(job([finding()]), 0.8, BLOCK_SECURITY)).toBe("failure");
+    expect(checkRunConclusion(job([finding()], {}, "partial"), 0.8, BLOCK_SECURITY)).toBe("failure");
+  });
+
+  it("is neutral when the critical finding's agent only comments", () => {
+    expect(checkRunConclusion(job([finding()]), 0.8, [])).toBe("neutral");
+    expect(checkRunConclusion(job([finding({ agent: "logic" })]), 0.8, BLOCK_SECURITY)).toBe("neutral");
+    expect(checkRunConclusion(job([finding({ agent: "logic" })]), 0.8, ["logic"])).toBe("failure");
   });
 
   it("is neutral for an incomplete review and success otherwise; low-confidence criticals do not fail it", () => {
-    expect(checkRunConclusion(job([finding({ severity: "warning" })], {}, "partial"), 0.8)).toBe("neutral");
-    expect(checkRunConclusion({ ...job([]), status: "failed", report: undefined }, 0.8)).toBe("neutral");
-    expect(checkRunConclusion(job([finding({ confidence: 0.5 }), styleFix]), 0.8)).toBe("success");
+    expect(checkRunConclusion(job([finding({ severity: "warning" })], {}, "partial"), 0.8, BLOCK_SECURITY)).toBe("neutral");
+    expect(checkRunConclusion({ ...job([]), status: "failed", report: undefined }, 0.8, BLOCK_SECURITY)).toBe("neutral");
+    expect(checkRunConclusion(job([finding({ confidence: 0.5 }), styleFix]), 0.8, BLOCK_SECURITY)).toBe("success");
   });
 });
 
@@ -71,10 +79,12 @@ describe("checkRunOutput", () => {
         skippedFiles: [{ path: "logo.png", reason: "binary" }],
       }),
       0.8,
+      BLOCK_SECURITY,
       ["2 inline comments could not be placed."],
     );
 
     expect(output.title).toBe("1 critical · 1 info");
+    expect(output.summary).toContain("Merge blocked by **Security**: 1 critical finding.");
     expect(output.summary).toContain("Reviewed 2 of 3 files · 16 of 16 changed lines");
     expect(output.summary).toContain("- ✅ Security — 3 findings via groq (1.3 s)");
     expect(output.summary).toContain("- ⚠️ Logic — no result (timed out) (45.0 s)");
@@ -89,8 +99,19 @@ describe("checkRunOutput", () => {
     ]);
   });
 
+  it("says which comment-only agents found critical issues without blocking", () => {
+    const output = checkRunOutput(job([finding({ agent: "logic" }), finding({ agent: "performance" })]), 0.8, BLOCK_SECURITY);
+
+    expect(output.summary).toContain("2 critical findings from **Performance** and **Logic**, set to comment only, don't block the merge.");
+    expect(output.summary).not.toContain("Merge blocked");
+  });
+
   it("explains a review with no report", () => {
-    const output = checkRunOutput({ ...job([]), status: "failed", report: undefined, error: { code: "internal_error", message: "The review could not be completed" } }, 0.8);
+    const output = checkRunOutput(
+      { ...job([]), status: "failed", report: undefined, error: { code: "internal_error", message: "The review could not be completed" } },
+      0.8,
+      BLOCK_SECURITY,
+    );
 
     expect(output).toEqual({ title: "Review did not complete", summary: "The review could not be completed", annotations: [] });
   });

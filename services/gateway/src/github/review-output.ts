@@ -38,17 +38,29 @@ export function postable(report: CombinedReport, threshold: number): Finding[] {
   return report.findings.filter((finding) => finding.confidence >= threshold);
 }
 
+/** Postable critical findings, split by whether their agent is in `block` mode. */
+function criticalFindings(report: CombinedReport, threshold: number, blockingAgents: readonly AgentKind[]) {
+  const critical = postable(report, threshold).filter((finding) => finding.severity === "critical");
+  return {
+    blocking: critical.filter((finding) => blockingAgents.includes(finding.agent)),
+    other: critical.filter((finding) => !blockingAgents.includes(finding.agent)),
+  };
+}
+
 /**
- * FR-GH-02: `failure` when a postable finding is critical; otherwise `neutral` when the review did
- * not fully complete; otherwise `success`. A critical issue fails the check even on a partial review.
+ * FR-GH-02 with A9's agent modes: `failure` when a postable critical finding comes from a `block`
+ * agent, even on a partial review; `neutral` for other critical findings or an incomplete review;
+ * otherwise `success`.
  */
-export function checkRunConclusion(job: ReviewJob, threshold: number): CheckConclusion {
-  if (job.report && postable(job.report, threshold).some((finding) => finding.severity === "critical")) return "failure";
-  return job.status === "completed" && job.report ? "success" : "neutral";
+export function checkRunConclusion(job: ReviewJob, threshold: number, blockingAgents: readonly AgentKind[]): CheckConclusion {
+  if (!job.report) return "neutral";
+  const { blocking, other } = criticalFindings(job.report, threshold, blockingAgents);
+  if (blocking.length > 0) return "failure";
+  return job.status === "completed" && other.length === 0 ? "success" : "neutral";
 }
 
 /** Title, markdown summary and line annotations for the Check Run; `notes` are appended to the summary. */
-export function checkRunOutput(job: ReviewJob, threshold: number, notes: string[] = []): CheckRunOutput {
+export function checkRunOutput(job: ReviewJob, threshold: number, blockingAgents: readonly AgentKind[], notes: string[] = []): CheckRunOutput {
   const report = job.report;
   if (!report) {
     const reason = job.error?.message ?? `The review ended as \`${job.status}\` without a report.`;
@@ -63,6 +75,13 @@ export function checkRunOutput(job: ReviewJob, threshold: number, notes: string[
     : "No issues found";
 
   const lines: string[] = [`**${title}** · review \`${report.status}\``, ""];
+  const { blocking, other } = criticalFindings(report, threshold, blockingAgents);
+  if (blocking.length > 0) {
+    lines.push(`Merge blocked by ${agentNames(blocking)}: ${plural(blocking.length, "critical finding")}.`, "");
+  }
+  if (other.length > 0) {
+    lines.push(`${plural(other.length, "critical finding")} from ${agentNames(other)}, set to comment only, ${other.length === 1 ? "doesn't" : "don't"} block the merge.`, "");
+  }
   if (report.coverage) {
     const c = report.coverage;
     lines.push(`Reviewed ${c.filesReviewed} of ${c.filesTotal} files · ${c.changedLinesReviewed} of ${c.changedLinesTotal} changed lines`, "");
@@ -150,4 +169,16 @@ function agentLine(run: AgentRunSummary): string {
     return `- ➖ ${name} — ${run.errorCode === "agent_not_configured" ? "not configured" : "skipped"}`;
   }
   return `- ⚠️ ${name} — no result (${run.status === "timed_out" ? "timed out" : (run.errorCode ?? "failed")})${took}`;
+}
+
+/** "Security and Logic", in contract order. */
+function agentNames(findings: Finding[]): string {
+  const names = Object.keys(AGENT_LABEL)
+    .filter((agent) => findings.some((finding) => finding.agent === agent))
+    .map((agent) => `**${AGENT_LABEL[agent as AgentKind]}**`);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
