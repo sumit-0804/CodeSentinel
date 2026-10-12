@@ -23,6 +23,7 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`, `assertOrgAdmin`) | used by the GitHub, repository and organization routes |
 | Connecting GitHub (A6) | `routes/github.ts`, `github/github-user-client.ts`, `github/installation-sync.ts` | working; see [Connecting GitHub](#connecting-github) |
 | `GET /v1/repositories` | `routes/repositories.ts` | working: the organization's active repositories |
+| Review history (A4b-2) | `routes/reviews.ts`, `routes/review-view.ts` | working: `GET /v1/reviews`, `GET /v1/reviews/{id}`; see [Review history](#review-history) |
 | Repository configuration (A9) | `routes/repositories.ts`, `routes/organizations.ts`, `persistence/effective-config.ts`, `webhooks/branch-match.ts` | working: agent modes, organization defaults, branches to review; see [Repository configuration](#repository-configuration) |
 | Installation webhooks | `webhooks/installation-events.ts` | working: install, uninstall, suspend, repositories added or removed |
 | Stores | `persistence/stores.ts`, `persistence/prisma-stores.ts` (Supabase Postgres), `persistence/in-memory.ts` + `persistence/dev-seed.ts` | working; see [Persistence](#persistence) |
@@ -169,6 +170,27 @@ both `PUT`s. Each row written records `updated_by`.
 Language comes from the extension: `js/mjs/cjs/jsx` → `javascript`, `ts/mts/cts/tsx` → `typescript`,
 `py` → `python`, anything else → `unknown`, which is still sent (agents skip it as
 `unsupported_language`, and the Documentation agent may still use it).
+
+## Review history
+
+The orchestrator writes every review to `reviews`, with the full `CombinedReport` in `report`. The gateway reads
+them back for the dashboard and the VS Code extension; both routes take a Supabase session or an API key and only
+ever show the caller's organization (another organization's review is 404, like an unknown one).
+
+- **`GET /v1/reviews`**, newest first:
+  - `repositoryId`, `status` (comma-separated), `limit` (1–100, default 25) and `offset`
+  - **`latest=true`** keeps each pull request's newest review, one row per pull request
+  - each item carries the severity counts, the stored Check Run conclusion, and **`agentResults`**: each agent's
+    worst finding at or above the review's threshold (`critical` … `clean`, or `not_run` / `running`)
+  - a bad filter is 400 `invalid_query`
+- **`GET /v1/reviews/{id}`**: the `CombinedReport` plus the repository, trigger, PR title, refs, conclusion and
+  `createdAt`. While a review is still running it has no report yet, so the answer is an empty one with the row's
+  status.
+- **The database's `cancelled` status** is reported as `failed`, since the API has no `cancelled`.
+
+When the publisher completes a Check Run it also stores its id and conclusion on the review
+(`github_check_run_id`, `check_conclusion`: `pass` / `fail` / `neutral`), so the dashboard shows the same verdict
+as GitHub. If that write fails, it's logged and the Check Run stands.
 
 ## Publishing the review to the pull request
 
@@ -332,11 +354,11 @@ Differences to know:
 
 ## Not started yet
 
-- `/v1/reviews`: create (on-demand), list, get, SSE events, style fixes
+- `/v1/reviews`: create (on-demand), SSE events, style fixes; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
 - Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
-- Storing Check Run and comment ids (`reviews.github_check_run_id`, `suggestions.github_comment_id`); the orchestrator writes `reviews` in Phase A3
+- Storing posted comment ids (`suggestions.github_comment_id`)
 - Accept / reject tracking of posted suggestions (UC-3)
 - Cancelling a superseded job when a new commit is pushed
 - An all-filtered pull request finishing the review with an empty report (today: 202
@@ -352,7 +374,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-223 tests in 21 files (29 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+241 tests in 23 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
