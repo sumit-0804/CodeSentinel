@@ -42,14 +42,23 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/auth/confirm` | Email links (`token_hash` + `type`): sign-up, recovery, invite, email change. Works in any browser |
 | `/auth/error` | Names what failed and offers one next action |
 | `/overview` | First-run checklist; step 2 is done once the organization has a repository |
-| `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`) |
+| `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`). Each name opens its repository page |
+| `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: branches to review, and Manage on GitHub. The Pull requests tab arrives in A4b-2 |
 | `/onboarding/github/install` | Sets a random `state` cookie and sends you to install the App on GitHub |
 | `/onboarding/github/connect` | Same, through GitHub's authorize page: links GitHub and joins organizations the App is already on |
 | `/onboarding/github/callback` | GitHub's Callback and Setup URL. A `code` with a matching `state` is sent to `POST /v1/github/link`; without our `state` the code is never used and you confirm instead; an installation updated on GitHub (no code) triggers a sync |
 | `/pull-requests` | Empty state until reviews exist |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
+| `/settings?section=defaults` | **Review defaults**: the organization's agent modes, threshold and branches, used by repositories that follow them |
 
 `/` redirects to `/overview` until the public landing page (A4c) replaces it.
+
+**Saving configuration.** The repository page and Review defaults read and write the gateway's
+`/v1/repositories/{id}/config` and `/v1/organizations/{id}/review-defaults` through server actions
+(`app/(app)/repositories/actions.ts`). Edits stay in a draft until **Save changes** in the sticky bar; only what
+changed is sent (`lib/config-draft.ts`), and the browser asks before leaving with unsaved changes. Only
+organization admins can save: members see the settings read-only, and the gateway checks the role again. Turning
+every agent off is caught before Save. A7 adds the authenticator-code step before Save.
 
 ## How auth works
 
