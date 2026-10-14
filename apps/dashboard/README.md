@@ -54,7 +54,7 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code |
 | `/step-up` | Asks for an authenticator code, then continues to `?next=` (a safe same-origin path). Install and Connect send you here when your code is too old |
 
-`/` redirects to `/overview` until the public landing page (A4c) replaces it.
+`/` redirects to `/overview`.
 
 **Verdicts.** A review's verdict (`lib/review-view.ts`) follows the GitHub Check Run conclusion the gateway stores:
 `fail` is **Blocked**. Reviews from before that was stored fall back to "any critical finding blocks". Running
