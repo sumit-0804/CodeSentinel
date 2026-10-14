@@ -13,6 +13,8 @@ import {
   type ReviewRecord,
   type ReviewStore,
   type SessionStore,
+  type SuggestionRecord,
+  type SuggestionStore,
   type Stores,
   type SyncedRepository,
   type UserStore,
@@ -21,6 +23,37 @@ import {
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
 
 const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
+
+const SUGGESTION_INCLUDE = {
+  finding: { include: { review: { select: { organizationId: true, repositoryId: true, prNumber: true, headSha: true } } } },
+} as const;
+
+function toSuggestionRecord(row: Prisma.SuggestionGetPayload<{ include: typeof SUGGESTION_INCLUDE }>): SuggestionRecord {
+  const { finding } = row;
+  return {
+    suggestionId: row.id,
+    findingId: finding.id,
+    reviewId: finding.reviewId,
+    organizationId: finding.review.organizationId,
+    repositoryId: finding.review.repositoryId,
+    ...(finding.review.prNumber !== null ? { prNumber: finding.review.prNumber } : {}),
+    headSha: finding.review.headSha,
+    agent: finding.agent,
+    ruleId: finding.ruleId,
+    title: finding.title,
+    filePath: finding.filePath,
+    lineStart: finding.lineStart,
+    lineEnd: finding.lineEnd,
+    kind: row.kind,
+    state: row.state,
+    originalSnippet: row.originalSnippet,
+    suggestedSnippet: row.suggestedSnippet,
+    ...(row.githubCommentId !== null ? { githubCommentId: Number(row.githubCommentId) } : {}),
+    ...(row.resolutionCommitSha !== null ? { resolutionCommitSha: row.resolutionCommitSha } : {}),
+    ...(row.rejectionReason !== null ? { rejectionReason: row.rejectionReason } : {}),
+    ...(row.resolvedAt !== null ? { resolvedAt: row.resolvedAt } : {}),
+  };
+}
 
 /** Not removed, and its installation neither uninstalled nor suspended: its pull requests are reviewed. */
 const LIVE_REPOSITORY = { removedAt: null, installation: { uninstalledAt: null, suspendedAt: null } } as const;
@@ -92,6 +125,7 @@ export class PrismaStores implements Stores {
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
+  readonly suggestions: SuggestionStore;
   readonly sessions: SessionStore;
   readonly users: UserStore;
   readonly installations: InstallationStore;
@@ -259,6 +293,41 @@ export class PrismaStores implements Stores {
           select: { id: true, jobId: true, headSha: true, createdAt: true },
         });
         return rows.map((r) => ({ reviewId: r.id, jobId: r.jobId!, headSha: r.headSha, createdAt: r.createdAt }));
+      },
+    };
+
+    this.suggestions = {
+      forReview: async (reviewId) => {
+        const rows = await prisma.suggestion.findMany({ where: { finding: { reviewId } }, include: SUGGESTION_INCLUDE, orderBy: { createdAt: "asc" } });
+        return rows.map(toSuggestionRecord);
+      },
+      findByFinding: async (organizationId, findingId) => {
+        const row = await prisma.suggestion.findFirst({
+          where: { findingId, finding: { review: { organizationId } } },
+          include: SUGGESTION_INCLUDE,
+        });
+        return row ? toSuggestionRecord(row) : undefined;
+      },
+      recordPosted: async (posted) => {
+        await prisma.$transaction(
+          posted.map(({ suggestionId, commentId }) =>
+            prisma.suggestion.updateMany({ where: { id: suggestionId }, data: { postedToGithub: true, githubCommentId: BigInt(commentId) } }),
+          ),
+        );
+      },
+      accept: async (suggestionId, { userId, commitSha, at }) => {
+        const { count } = await prisma.suggestion.updateMany({
+          where: { id: suggestionId, state: "proposed" },
+          data: { state: "accepted", resolvedByUserId: userId, resolvedAt: at, resolutionCommitSha: commitSha ?? null },
+        });
+        return count === 1;
+      },
+      reject: async (suggestionId, { userId, reason, comment, at }) => {
+        const { count } = await prisma.suggestion.updateMany({
+          where: { id: suggestionId, state: "proposed" },
+          data: { state: "rejected", resolvedByUserId: userId, resolvedAt: at, rejectionReason: reason ?? null, rejectionComment: comment ?? null },
+        });
+        return count === 1;
       },
     };
 

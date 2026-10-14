@@ -22,6 +22,8 @@ import {
   type SealedGithubTokens,
   type SessionStore,
   type Stores,
+  type SuggestionRecord,
+  type SuggestionStore,
   type SyncedRepository,
   type UserRecord,
   type UserStore,
@@ -72,12 +74,21 @@ export interface StoreSeed {
   githubTokens: ({ userId: string } & SealedGithubTokens)[];
   /** `reviews` rows; the repository's name is looked up, as the database joins it. */
   reviews: SeedReview[];
+  /** `suggestions` rows with their finding; the review's tenant, PR and commit are looked up by `reviewId`. */
+  suggestions: SeedSuggestion[];
 }
 
 export type SeedReview = Omit<ReviewRecord, "repositoryFullName"> & { githubCheckRunId?: number; jobId?: string };
 
+export type SeedSuggestion = Omit<SuggestionRecord, "organizationId" | "repositoryId" | "prNumber" | "headSha"> & {
+  postedToGithub?: boolean;
+  resolvedByUserId?: string;
+  rejectionComment?: string;
+};
+
 export const emptySeed = (): StoreSeed => ({
   reviews: [],
+  suggestions: [],
   organizations: [],
   installations: [],
   repositories: [],
@@ -97,6 +108,7 @@ export class InMemoryStores implements Stores {
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
+  readonly suggestions: SuggestionStore;
   readonly sessions: SessionStore;
   readonly users: UserStore;
   readonly installations: InstallationStore;
@@ -290,6 +302,50 @@ export class InMemoryStores implements Stores {
         data.reviews
           .filter((r) => r.repositoryId === repositoryId && r.prNumber === prNumber && r.jobId && (r.status === "queued" || r.status === "running"))
           .map((r) => ({ reviewId: r.reviewId, jobId: r.jobId!, headSha: r.headSha, createdAt: new Date(r.createdAt) })),
+    };
+
+    const toSuggestionRecord = (suggestion: SeedSuggestion): SuggestionRecord | undefined => {
+      const review = data.reviews.find((r) => r.reviewId === suggestion.reviewId);
+      if (!review) return undefined;
+      const { postedToGithub: _posted, resolvedByUserId: _by, rejectionComment: _comment, ...record } = suggestion;
+      return structuredClone({
+        ...record,
+        organizationId: review.organizationId,
+        repositoryId: review.repositoryId,
+        ...(review.prNumber !== undefined ? { prNumber: review.prNumber } : {}),
+        headSha: review.headSha,
+      });
+    };
+    const decide = (suggestionId: string, change: Partial<SeedSuggestion>) => {
+      const suggestion = data.suggestions.find((s) => s.suggestionId === suggestionId);
+      if (!suggestion || suggestion.state !== "proposed") return false;
+      Object.assign(suggestion, change);
+      return true;
+    };
+
+    this.suggestions = {
+      forReview: async (reviewId) =>
+        data.suggestions.filter((s) => s.reviewId === reviewId).flatMap((s) => toSuggestionRecord(s) ?? []),
+      findByFinding: async (organizationId, findingId) => {
+        const record = data.suggestions.map(toSuggestionRecord).find((s) => s?.findingId === findingId);
+        return record?.organizationId === organizationId ? record : undefined;
+      },
+      recordPosted: async (posted) => {
+        for (const { suggestionId, commentId } of posted) {
+          const suggestion = data.suggestions.find((s) => s.suggestionId === suggestionId);
+          if (suggestion) Object.assign(suggestion, { postedToGithub: true, githubCommentId: commentId });
+        }
+      },
+      accept: async (suggestionId, { userId, commitSha, at }) =>
+        decide(suggestionId, { state: "accepted", resolvedByUserId: userId, resolvedAt: new Date(at), ...(commitSha ? { resolutionCommitSha: commitSha } : {}) }),
+      reject: async (suggestionId, { userId, reason, comment, at }) =>
+        decide(suggestionId, {
+          state: "rejected",
+          resolvedByUserId: userId,
+          resolvedAt: new Date(at),
+          ...(reason ? { rejectionReason: reason } : {}),
+          ...(comment ? { rejectionComment: comment } : {}),
+        }),
     };
 
     this.sessions = {

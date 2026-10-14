@@ -37,6 +37,7 @@ export function uniqueSeed() {
     repositoryAgentConfig: [],
     organizationAgentDefaults: [],
     reviews: [],
+    suggestions: [],
     activeSessionIds: [],
     githubTokens: [],
     users: [
@@ -346,6 +347,101 @@ export function describeStoresContract(
         createdAt: running!.createdAt,
       });
       await expect(stores.reviews.activeForPullRequest(ids.repositoryId, 99)).resolves.toEqual([]);
+    });
+  });
+
+  describe("suggestions", () => {
+    /** One completed review of PR 9 with one proposed AI fix. */
+    function withSuggestion({ seed, ids }: UniqueSeed) {
+      const reviewId = randomUUID();
+      const headSha = randomUUID().replaceAll("-", "").slice(0, 40);
+      seed.reviews.push({
+        reviewId,
+        organizationId: ids.organizationId,
+        repositoryId: ids.repositoryId,
+        trigger: "github_pull_request",
+        prNumber: 9,
+        headSha,
+        status: "completed",
+        confidenceThreshold: 0.8,
+        createdAt: new Date(),
+      });
+      const suggestion = {
+        suggestionId: randomUUID(),
+        findingId: randomUUID(),
+        reviewId,
+        agent: "security" as const,
+        ruleId: "security/sql-injection",
+        title: "SQL built from string formatting",
+        filePath: "app/payments.py",
+        lineStart: 14,
+        lineEnd: 14,
+        kind: "ai_suggested" as const,
+        state: "proposed" as const,
+        originalSnippet: "cur.execute(f\"...{c}\")",
+        suggestedSnippet: "cur.execute(\"... ?\", (c,))",
+      };
+      seed.suggestions.push(suggestion);
+      return { suggestion, reviewId, headSha };
+    }
+
+    it("lists a review's suggestions with their finding and review, and finds one by finding only in its organization", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
+
+      const [listed] = await stores.suggestions.forReview(fixture.reviewId);
+      expect(listed).toEqual({
+        ...fixture.suggestion,
+        organizationId: ids.organizationId,
+        repositoryId: ids.repositoryId,
+        prNumber: 9,
+        headSha: fixture.headSha,
+      });
+      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toEqual(listed);
+      await expect(stores.suggestions.findByFinding(randomUUID(), fixture.suggestion.findingId)).resolves.toBeUndefined();
+      await expect(stores.suggestions.findByFinding(ids.organizationId, randomUUID())).resolves.toBeUndefined();
+    });
+
+    it("records posted comment ids", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
+
+      await stores.suggestions.recordPosted([{ suggestionId: fixture.suggestion.suggestionId, commentId: 987654321 }]);
+
+      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ githubCommentId: 987654321 });
+    });
+
+    it("records one decision only: accept with the commit, then any later decision is refused", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
+      const at = new Date("2026-10-14T10:00:00.000Z");
+      const { suggestionId, findingId } = fixture.suggestion;
+
+      await expect(stores.suggestions.accept(suggestionId, { userId: ids.userId, commitSha: "c".repeat(40), at })).resolves.toBe(true);
+      await expect(stores.suggestions.reject(suggestionId, { userId: ids.userId, reason: "other", at })).resolves.toBe(false);
+      await expect(stores.suggestions.accept(suggestionId, { userId: ids.userId, at })).resolves.toBe(false);
+
+      await expect(stores.suggestions.findByFinding(ids.organizationId, findingId)).resolves.toMatchObject({
+        state: "accepted",
+        resolutionCommitSha: "c".repeat(40),
+        resolvedAt: at,
+      });
+    });
+
+    it("records a rejection with its reason", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
+      const at = new Date("2026-10-14T10:00:00.000Z");
+
+      await expect(
+        stores.suggestions.reject(fixture.suggestion.suggestionId, { userId: ids.userId, reason: "false_positive", comment: "test code", at }),
+      ).resolves.toBe(true);
+
+      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({
+        state: "rejected",
+        rejectionReason: "false_positive",
+        resolvedAt: at,
+      });
     });
   });
 

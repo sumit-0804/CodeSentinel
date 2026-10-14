@@ -4,10 +4,13 @@ import type {
   CheckConclusion,
   CombinedReport,
   OrganizationMembership,
+  RejectionReason,
   RepositoryConfigUpdate,
   ReviewDefaultsUpdate,
   ReviewStatus,
   ReviewTrigger,
+  SuggestionKind,
+  SuggestionState,
   ThresholdSource,
 } from "@code-sentinel/contracts";
 
@@ -231,10 +234,49 @@ export interface UserStore {
   setMembership(organizationId: string, userId: string, role: "admin" | "member" | undefined): Promise<void>;
 }
 
+/** A `suggestions` row with its finding and the review it came from (UC-3). */
+export interface SuggestionRecord {
+  suggestionId: string;
+  findingId: string;
+  reviewId: string;
+  organizationId: string;
+  repositoryId: string;
+  /** The reviewed pull request and commit, so an accepted fix is committed only onto that head. */
+  prNumber?: number;
+  headSha: string;
+  agent: AgentKind;
+  ruleId: string;
+  title: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  kind: SuggestionKind;
+  state: SuggestionState;
+  originalSnippet: string;
+  suggestedSnippet: string;
+  githubCommentId?: number;
+  resolutionCommitSha?: string;
+  rejectionReason?: RejectionReason;
+  resolvedAt?: Date;
+}
+
+export interface SuggestionStore {
+  /** Every suggestion of a review, for the review detail and for matching posted comments. */
+  forReview(reviewId: string): Promise<SuggestionRecord[]>;
+  /** The suggestion of a finding, only within the organization (NFR-13); `undefined` if it has none. */
+  findByFinding(organizationId: string, findingId: string): Promise<SuggestionRecord | undefined>;
+  /** Marks the suggestions posted as inline comments, with GitHub's comment ids. */
+  recordPosted(posted: { suggestionId: string; commentId: number }[]): Promise<void>;
+  /** Records a decision only while the suggestion is `proposed`; `false` when someone or something decided first. */
+  accept(suggestionId: string, decision: { userId: string; commitSha?: string; at: Date }): Promise<boolean>;
+  reject(suggestionId: string, decision: { userId: string; reason?: RejectionReason; comment?: string; at: Date }): Promise<boolean>;
+}
+
 export interface Stores {
   repositories: RepositoryStore;
   repositoryConfig: RepositoryConfigStore;
   reviews: ReviewStore;
+  suggestions: SuggestionStore;
   sessions: SessionStore;
   users: UserStore;
   installations: InstallationStore;

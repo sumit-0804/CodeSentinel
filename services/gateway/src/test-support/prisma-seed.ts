@@ -141,6 +141,45 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
       },
     });
   }
+  // Each suggestion with the finding and agent run it hangs from, after users so `resolved_by_user_id` resolves.
+  for (const s of seed.suggestions) {
+    const run = await prisma.agentRun.create({ data: { reviewId: s.reviewId, agent: s.agent, status: "succeeded", timeoutMs: 20000 } });
+    await prisma.finding.create({
+      data: {
+        id: s.findingId,
+        reviewId: s.reviewId,
+        agentRunId: run.id,
+        agent: s.agent,
+        ruleId: s.ruleId,
+        title: s.title,
+        description: "",
+        filePath: s.filePath,
+        lineStart: s.lineStart,
+        lineEnd: s.lineEnd,
+        severity: "critical",
+        confidence: 0.9,
+        severityRank: 1,
+        dedupeKey: s.findingId.replaceAll("-", ""),
+      },
+    });
+    await prisma.suggestion.create({
+      data: {
+        id: s.suggestionId,
+        findingId: s.findingId,
+        kind: s.kind,
+        state: s.state,
+        originalSnippet: s.originalSnippet,
+        suggestedSnippet: s.suggestedSnippet,
+        postedToGithub: s.postedToGithub ?? false,
+        githubCommentId: s.githubCommentId !== undefined ? BigInt(s.githubCommentId) : null,
+        resolvedByUserId: s.resolvedByUserId ?? null,
+        resolvedAt: s.resolvedAt ?? null,
+        resolutionCommitSha: s.resolutionCommitSha ?? null,
+        rejectionReason: s.rejectionReason ?? null,
+        rejectionComment: s.rejectionComment ?? null,
+      },
+    });
+  }
 }
 
 /** Removes what `writeSeed` wrote; deleting organizations and users cascades to everything else. */
