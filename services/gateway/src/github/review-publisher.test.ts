@@ -157,6 +157,29 @@ describe("ReviewPublisher", () => {
     expect(lines.some((line) => line.message === "could not create the Check Run" && line.status === 403)).toBe(true);
   });
 
+  it("stores which posted comment carries which fix, and never fails the review over it", async () => {
+    const github = new StubGitHubClient();
+    const suggestion = { suggestionId: "11111111-1111-4111-8111-111111111111", filePath: "app/payments.py", lineStart: 14, lineEnd: 14 };
+    const forReview = vi.fn(async () => [suggestion as never]);
+    const recordPosted = vi.fn(async () => {});
+    const p = new ReviewPublisher({
+      github,
+      orchestrator: { getReviewJob: async () => job("completed") },
+      logger: noopLogger,
+      suggestions: { forReview, recordPosted },
+      sleep: async () => {},
+    });
+
+    await p.follow(INPUT);
+
+    expect(forReview).toHaveBeenCalledWith(INPUT.reviewId);
+    expect(recordPosted).toHaveBeenCalledWith([{ suggestionId: suggestion.suggestionId, commentId: 1000 }]);
+
+    recordPosted.mockRejectedValueOnce(new Error("database down"));
+    await expect(p.follow(INPUT)).resolves.toBeUndefined();
+    expect(github.checkRuns.at(-1)?.status).toBe("completed");
+  });
+
   it("completes a cancelled job's Check Run as superseded, without comments", async () => {
     const { p, github, recordCheckRun } = publisher([job("running"), job("cancelled")]);
 

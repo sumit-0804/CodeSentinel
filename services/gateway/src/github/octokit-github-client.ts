@@ -8,6 +8,7 @@ import {
   type CheckRunOutput,
   type GitHubClient,
   type InstallationRepository,
+  type PostedReviewComment,
   type PullRequestFile,
   type PullRequestInfo,
   type PullRequestRef,
@@ -152,8 +153,60 @@ export class OctokitGitHubClient implements GitHubClient {
     }
   }
 
-  async createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<void> {
-    await this.forRef(ref).request("POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews", {
+  async listReviewComments(ref: PullRequestRef, reviewId: number): Promise<PostedReviewComment[]> {
+    const comments: { id: number | bigint; path: string; line?: number | null; start_line?: number | null }[] = await this.forRef(ref).paginate(
+      "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments",
+      { owner: ref.owner, repo: ref.repo, pull_number: ref.pullNumber, review_id: reviewId, per_page: 100 },
+    );
+    return comments.map((comment) => ({
+      id: Number(comment.id),
+      path: comment.path,
+      ...(comment.line != null ? { line: comment.line } : {}),
+      ...(comment.start_line != null ? { startLine: comment.start_line } : {}),
+    }));
+  }
+
+  async replyToReviewComment(ref: PullRequestRef, commentId: number, body: string): Promise<void> {
+    await this.forRef(ref).request("POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies", {
+      owner: ref.owner,
+      repo: ref.repo,
+      pull_number: ref.pullNumber,
+      comment_id: commentId,
+      body,
+    });
+  }
+
+  async getFileContent(ref: RepositoryRef, input: { path: string; gitRef: string }): Promise<{ sha: string; text: string } | undefined> {
+    try {
+      const { data } = await this.forRef(ref).request("GET /repos/{owner}/{repo}/contents/{path}", {
+        owner: ref.owner,
+        repo: ref.repo,
+        path: input.path,
+        ref: input.gitRef,
+      });
+      if (Array.isArray(data) || data.type !== "file" || !("content" in data)) return undefined;
+      return { sha: data.sha, text: Buffer.from(data.content, "base64").toString("utf8") };
+    } catch (error) {
+      if (githubStatus(error) === 404) return undefined;
+      throw error;
+    }
+  }
+
+  async updateFile(ref: RepositoryRef, input: { path: string; text: string; blobSha: string; branch: string; message: string }): Promise<string> {
+    const { data } = await this.forRef(ref).request("PUT /repos/{owner}/{repo}/contents/{path}", {
+      owner: ref.owner,
+      repo: ref.repo,
+      path: input.path,
+      message: input.message,
+      content: Buffer.from(input.text, "utf8").toString("base64"),
+      sha: input.blobSha,
+      branch: input.branch,
+    });
+    return data.commit.sha ?? "";
+  }
+
+  async createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<number> {
+    const { data } = await this.forRef(ref).request("POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews", {
       owner: ref.owner,
       repo: ref.repo,
       pull_number: ref.pullNumber,
@@ -168,6 +221,7 @@ export class OctokitGitHubClient implements GitHubClient {
         body: comment.body,
       })),
     });
+    return Number(data.id);
   }
 
   private forRef(ref: RepositoryRef): GitHubOctokitInstance {
@@ -200,7 +254,7 @@ interface GitHubPull {
   user: { login: string } | null;
   state: string;
   draft?: boolean;
-  head: { sha: string; ref: string };
+  head: { sha: string; ref: string; repo: { full_name: string } | null };
   base: { sha: string; ref: string };
   updated_at: string;
   html_url: string;
@@ -215,6 +269,7 @@ function toPullRequestInfo(pull: GitHubPull): PullRequestInfo {
     draft: pull.draft ?? false,
     headSha: pull.head.sha,
     headRef: pull.head.ref,
+    ...(pull.head.repo ? { headRepoFullName: pull.head.repo.full_name } : {}),
     baseSha: pull.base.sha,
     baseRef: pull.base.ref,
     updatedAt: pull.updated_at,

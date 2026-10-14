@@ -28,6 +28,8 @@ export interface PullRequestInfo {
   draft: boolean;
   headSha: string;
   headRef: string;
+  /** `owner/name` of the head branch's repository; differs from the base repository for a fork. */
+  headRepoFullName?: string;
   baseSha: string;
   baseRef: string;
   updatedAt: string;
@@ -64,6 +66,15 @@ export interface ReviewComment {
   body: string;
 }
 
+/** An inline comment as GitHub stored it. */
+export interface PostedReviewComment {
+  id: number;
+  path: string;
+  /** Last line of the range, on the new side. */
+  line?: number;
+  startLine?: number;
+}
+
 /** A repository an installation of the App can access. */
 export interface InstallationRepository {
   id: number;
@@ -86,8 +97,16 @@ export interface GitHubClient {
   createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number>;
   /** Completes a Check Run; annotations beyond GitHub's 50-per-request limit are sent in batches. */
   completeCheckRun(ref: PullRequestRef, checkRunId: number, input: { conclusion: CheckConclusion; output: CheckRunOutput }): Promise<void>;
-  /** Posts one review with `event: COMMENT`: it never approves or blocks the pull request. */
-  createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<void>;
+  /** Posts one review with `event: COMMENT`: it never approves or blocks the pull request. Returns GitHub's review id. */
+  createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<number>;
+  /** The inline comments a review posted, with GitHub's ids, so fixes can be matched to their comment. */
+  listReviewComments(ref: PullRequestRef, reviewId: number): Promise<PostedReviewComment[]>;
+  /** Answers an inline comment in its thread. */
+  replyToReviewComment(ref: PullRequestRef, commentId: number, body: string): Promise<void>;
+  /** A file's text and blob sha at a branch or commit; `undefined` when GitHub answers 404. */
+  getFileContent(ref: RepositoryRef, input: { path: string; gitRef: string }): Promise<{ sha: string; text: string } | undefined>;
+  /** Commits a new version of one file onto a branch (Contents: write); returns the commit's sha. */
+  updateFile(ref: RepositoryRef, input: { path: string; text: string; blobSha: string; branch: string; message: string }): Promise<string>;
 }
 
 /** The HTTP status of a failed GitHub call (Octokit's `RequestError` carries it), if any. */

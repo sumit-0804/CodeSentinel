@@ -3,7 +3,8 @@ import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
-import type { ReviewStore } from "../persistence/stores.js";
+import type { ReviewStore, SuggestionStore } from "../persistence/stores.js";
+import { matchPostedComments } from "./apply-suggestion.js";
 import { githubStatus, type CheckConclusion, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
 import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, reviewComments } from "./review-output.js";
 
@@ -11,11 +12,13 @@ import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerm
 const STORED_CONCLUSION: Record<CheckConclusion, StoredConclusion> = { success: "pass", failure: "fail", neutral: "neutral" };
 
 export interface ReviewPublisherDeps {
-  github: Pick<GitHubClient, "createCheckRun" | "completeCheckRun" | "createReview">;
+  github: Pick<GitHubClient, "createCheckRun" | "completeCheckRun" | "createReview" | "listReviewComments">;
   orchestrator: Pick<OrchestratorClientLike, "getReviewJob">;
   logger: Logger;
   /** Where the Check Run's conclusion is kept for the dashboard; omitted in tests that don't check it. */
   reviews?: Pick<ReviewStore, "recordCheckRun">;
+  /** Where posted comment ids are kept for UC-3; omitted in tests that don't check it. */
+  suggestions?: Pick<SuggestionStore, "forReview" | "recordPosted">;
   pollIntervalMs?: number;
   /** Give up waiting after this long and complete the Check Run as `neutral`. */
   timeoutMs?: number;
@@ -45,6 +48,7 @@ export class ReviewPublisher {
   private readonly orchestrator: ReviewPublisherDeps["orchestrator"];
   private readonly logger: Logger;
   private readonly reviews: ReviewPublisherDeps["reviews"];
+  private readonly suggestions: ReviewPublisherDeps["suggestions"];
   private readonly pollIntervalMs: number;
   private readonly timeoutMs: number;
   private readonly now: () => number;
@@ -55,6 +59,7 @@ export class ReviewPublisher {
     this.orchestrator = deps.orchestrator;
     this.logger = deps.logger;
     this.reviews = deps.reviews;
+    this.suggestions = deps.suggestions;
     this.pollIntervalMs = deps.pollIntervalMs ?? 2_000;
     this.timeoutMs = deps.timeoutMs ?? 300_000;
     this.now = deps.now ?? Date.now;
@@ -145,8 +150,9 @@ export class ReviewPublisher {
 
     const body = `Code-Sentinel posted ${comments.length} comment${comments.length === 1 ? "" : "s"}; the full report is on the **Code-Sentinel** check.`;
     try {
-      await this.github.createReview(ref, { commitId: headSha, body, comments });
+      const githubReviewId = await this.github.createReview(ref, { commitId: headSha, body, comments });
       log.info("review comments posted", { comments: comments.length });
+      await this.recordCommentIds(ref, job.reviewId, [githubReviewId], log);
       return notes;
     } catch (error) {
       if (githubStatus(error) !== 422) {
@@ -157,17 +163,35 @@ export class ReviewPublisher {
     }
 
     const refused: ReviewComment[] = [];
+    const githubReviewIds: number[] = [];
     for (const comment of comments) {
       try {
-        await this.github.createReview(ref, { commitId: headSha, body: "", comments: [comment] });
+        githubReviewIds.push(await this.github.createReview(ref, { commitId: headSha, body: "", comments: [comment] }));
       } catch (error) {
         refused.push(comment);
         log.warn("GitHub refused a review comment", { path: comment.path, line: comment.line, status: githubStatus(error) });
       }
     }
+    await this.recordCommentIds(ref, job.reviewId, githubReviewIds, log);
     if (refused.length) {
       notes.push(`${refused.length} inline comment${refused.length === 1 ? "" : "s"} could not be placed on the diff: ${refused.map((c) => `\`${c.path}:${c.line}\``).join(", ")}.`);
     }
     return notes;
+  }
+
+  /** Stores which inline comment carries which fix (UC-3), so accepting it can reply there. Never throws. */
+  private async recordCommentIds(ref: PullRequestRef, reviewId: string, githubReviewIds: number[], log: Logger): Promise<void> {
+    if (!this.suggestions || githubReviewIds.length === 0) return;
+    try {
+      const suggestions = await this.suggestions.forReview(reviewId);
+      if (suggestions.length === 0) return;
+      const posted = (await Promise.all(githubReviewIds.map((id) => this.github.listReviewComments(ref, id)))).flat();
+      const matched = matchPostedComments(suggestions, posted);
+      await this.suggestions.recordPosted(matched);
+      log.info("comment ids stored", { suggestions: matched.length });
+    } catch (error) {
+      // The comments are on GitHub; only the "Applied in" reply on accept is lost.
+      log.warn("could not store the comment ids", { error });
+    }
   }
 }
