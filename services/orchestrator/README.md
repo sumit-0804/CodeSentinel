@@ -75,6 +75,10 @@ When a job finishes, `PrismaJobStore.complete()` writes in one transaction:
 - one row per finding, with `dedupe_key` from `dedupeKey()`, `severity_rank` from `severityRank()` and `duplicate_count`
 - one `proposed` suggestion per finding that carries a fix
 
+In the same transaction, the older reviews of that pull request get their still-`proposed`
+suggestions marked `superseded`: the newer review is the one whose fixes count (UC-3). Only the
+Postgres store does this; the in-memory store keeps no suggestion rows.
+
 Every write to a finished state is guarded by `status in (queued, running)`, so a cancel and a finishing
 run never overwrite each other.
 

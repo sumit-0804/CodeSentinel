@@ -96,7 +96,10 @@ export class PrismaJobStore implements JobStore {
         },
       });
       if (count === 0) return false;
-      if (job.report) await this.writeReportRows(tx, job.reviewId, job.report, request, job.completedAt);
+      if (job.report) {
+        await this.writeReportRows(tx, job.reviewId, job.report, request, job.completedAt);
+        await supersedeOlderSuggestions(tx, job.reviewId);
+      }
       return true;
     });
   }
@@ -204,6 +207,22 @@ export class PrismaJobStore implements JobStore {
       ),
     });
   }
+}
+
+/**
+ * A finished review replaces the fixes older reviews of the same pull request proposed (UC-3): the
+ * ones nobody accepted or rejected become `superseded`, which also covers fixes committed on GitHub.
+ */
+async function supersedeOlderSuggestions(tx: Prisma.TransactionClient, reviewId: string): Promise<void> {
+  const review = await tx.review.findUnique({ where: { id: reviewId }, select: { repositoryId: true, prNumber: true, createdAt: true } });
+  if (!review || review.prNumber === null) return;
+  await tx.suggestion.updateMany({
+    where: {
+      state: "proposed",
+      finding: { review: { repositoryId: review.repositoryId, prNumber: review.prNumber, createdAt: { lt: review.createdAt }, id: { not: reviewId } } },
+    },
+    data: { state: "superseded" },
+  });
 }
 
 /** The graph does not always set `report.durationMs`; the job's own timestamps give the same figure. */

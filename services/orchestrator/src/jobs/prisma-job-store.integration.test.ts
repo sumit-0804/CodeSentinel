@@ -127,6 +127,35 @@ describe.skipIf(!url)("PrismaJobStore (integration)", () => {
     expect(review.report).toEqual(report);
   });
 
+  it("marks older reviews' undecided fixes of the same pull request superseded when a newer review completes", async () => {
+    const store = new PrismaJobStore(prisma);
+    const withFix = (reviewId: string): CombinedReport => ({
+      reviewId,
+      status: "completed",
+      summary: { criticalCount: 1, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 1 },
+      findings: [finding({ suggestion: { kind: "ai_suggested", originalSnippet: "a", suggestedSnippet: "b" } })],
+      agentRuns: [{ agent: "security", status: "succeeded", findingsCount: 1, latencyMs: 10 }],
+    });
+    const finish = async (job: ReturnType<typeof queuedJob>, req: ReturnType<typeof request>) => {
+      await store.insert(job, req);
+      await store.complete({ ...job, status: "completed", completedAt: job.createdAt, report: withFix(job.reviewId) }, req);
+    };
+    const suggestionStates = async (reviewId: string) =>
+      (await prisma.suggestion.findMany({ where: { finding: { reviewId } }, select: { state: true } })).map((s) => s.state);
+
+    const pr = randomInt(1, 1_000_000);
+    const older = queuedJob({ createdAt: "2026-10-11T09:00:00.000Z" });
+    const otherPr = queuedJob({ createdAt: "2026-10-11T09:30:00.000Z" });
+    const newer = queuedJob({ createdAt: "2026-10-11T10:00:00.000Z" });
+    await finish(older, request({ pullRequest: { ...request().pullRequest!, number: pr } }));
+    await finish(otherPr, request());
+    await finish(newer, request({ pullRequest: { ...request().pullRequest!, number: pr } }));
+
+    await expect(suggestionStates(older.reviewId)).resolves.toEqual(["superseded"]);
+    await expect(suggestionStates(otherPr.reviewId)).resolves.toEqual(["proposed"]);
+    await expect(suggestionStates(newer.reviewId)).resolves.toEqual(["proposed"]);
+  });
+
   it("takes the duration from the job's timestamps when the report has none", async () => {
     const store = new PrismaJobStore(prisma);
     const job = queuedJob();
