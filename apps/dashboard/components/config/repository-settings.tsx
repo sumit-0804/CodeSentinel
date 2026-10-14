@@ -5,14 +5,14 @@ import Link from "next/link";
 import { ExternalLink, GitBranch, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { toast } from "sonner";
-import type { RepositoryConfig, ReviewDefaults, ReviewListItem } from "@code-sentinel/contracts";
+import type { PullRequestListItem, RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
 import { saveRepositoryConfig } from "@/app/(app)/repositories/actions";
 import { useStepUp } from "@/components/auth/step-up";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
 import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
 import { UnsavedBar } from "@/components/config/unsaved-bar";
-import { ReviewTable } from "@/components/reviews/review-table";
+import { OpenPullRequests } from "@/components/reviews/open-pull-requests";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -48,15 +48,15 @@ export function RepositorySettings({
   defaults,
   isAdmin,
   initialTab,
-  pullRequests,
+  openPullRequests,
   lastConfidences,
 }: {
   config: RepositoryConfig;
   defaults: ReviewDefaults;
   isAdmin: boolean;
   initialTab: RepositoryTab;
-  /** Each pull request's newest review in this repository. */
-  pullRequests: ReviewListItem[];
+  /** The repository's open pull requests from GitHub, or why they couldn't be loaded. */
+  openPullRequests: { ok: true; pulls: PullRequestListItem[] } | { ok: false; message: string };
   /** Finding confidences of the newest finished review, for the threshold preview. */
   lastConfidences?: number[];
 }) {
@@ -174,7 +174,7 @@ export function RepositorySettings({
           </Tabs.Trigger>
           <Tabs.Trigger value="pull-requests" className={TAB_CLASS}>
             Pull requests
-            <span className="font-semibold text-ink-3 tabular-nums">{pullRequests.length}</span>
+            {openPullRequests.ok ? <span className="font-semibold text-ink-3 tabular-nums">{openPullRequests.pulls.length}</span> : null}
           </Tabs.Trigger>
           <Tabs.Trigger value="advanced" className={TAB_CLASS}>
             Advanced
@@ -219,11 +219,20 @@ export function RepositorySettings({
         </Tabs.Content>
 
         <Tabs.Content value="pull-requests" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
-          {pullRequests.length > 0 ? (
-            <ReviewTable reviews={pullRequests} showRepository={false} />
+          {!openPullRequests.ok ? (
+            <p className="panel p-6 text-ink-2">{openPullRequests.message}</p>
+          ) : openPullRequests.pulls.length > 0 ? (
+            <OpenPullRequests repositoryId={saved.repositoryId} pulls={openPullRequests.pulls} />
           ) : (
-            <p className="panel p-6 text-ink-2">No pull requests reviewed yet. Open or update a pull request in {name} and its review appears here.</p>
+            <p className="panel p-6 text-ink-2">No open pull requests in {name}. Open one and it&apos;s reviewed automatically.</p>
           )}
+          <p className="text-[13px] text-ink-3">
+            Open pull requests on GitHub. Every review, including closed pull requests, is on the{" "}
+            <Link href="/pull-requests" className="font-semibold text-cyan hover:underline">
+              Pull requests
+            </Link>{" "}
+            page.
+          </p>
         </Tabs.Content>
 
         <Tabs.Content value="advanced" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">

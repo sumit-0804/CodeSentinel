@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { EmptyState, PageSkeleton } from "@/components/app/page-parts";
 import { RepositorySettings, type RepositoryTab } from "@/components/config/repository-settings";
 import { getRepositoryPageData } from "@/lib/repository-config";
-import { getReview, getReviews } from "@/lib/reviews";
+import { getOpenPullRequests, getReview, getReviews } from "@/lib/reviews";
 
 type Props = PageProps<"/repositories/[owner]/[name]">;
 
@@ -28,12 +28,14 @@ async function RepositoryContent({ params, searchParams }: Props) {
     return <EmptyState title="This repository isn't available">{UNAVAILABLE[data.reason]}</EmptyState>;
   }
   const initialTab: RepositoryTab = tab === "advanced" || tab === "pull-requests" ? tab : "agents";
+  const [reviews, open] = await Promise.all([getReviews(true, data.config.repositoryId), getOpenPullRequests(data.config.repositoryId)]);
   // The newest review's confidences drive the threshold preview; without reviews it's simply left out.
-  const reviews = await getReviews(true, data.config.repositoryId);
-  const pullRequests = reviews.ok ? reviews.reviews : [];
-  const newest = pullRequests.find((review) => review.status !== "queued" && review.status !== "running");
+  const newest = reviews.ok ? reviews.reviews.find((review) => review.status !== "queued" && review.status !== "running") : undefined;
   const last = newest ? await getReview(newest.reviewId) : undefined;
   const lastConfidences = last?.ok ? last.review.findings.map((finding) => finding.confidence) : undefined;
+  const openPullRequests = open.ok
+    ? { ok: true as const, pulls: open.pulls }
+    : { ok: false as const, message: open.code === "github_unavailable" ? "GitHub didn't answer. Reload in a moment to see open pull requests." : UNAVAILABLE[open.reason] };
 
   // Keyed by repository so moving between repositories starts a fresh draft.
   return (
@@ -43,7 +45,7 @@ async function RepositoryContent({ params, searchParams }: Props) {
       defaults={data.defaults}
       isAdmin={data.isAdmin}
       initialTab={initialTab}
-      pullRequests={pullRequests}
+      openPullRequests={openPullRequests}
       {...(lastConfidences ? { lastConfidences } : {})}
     />
   );
