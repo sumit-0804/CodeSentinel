@@ -104,6 +104,15 @@ enum FixKind {
   @@map("fix_kind")
 }
 
+enum RejectionReason {
+  false_positive
+  not_applicable
+  will_fix_manually
+  other
+
+  @@map("rejection_reason")
+}
+
 enum SuggestionState {
   proposed
   accepted
@@ -406,19 +415,22 @@ model Finding {
 
 /// Deterministic style fixes never need review; AI fixes must carry an explicit accept/reject (FR-GH-04, NFR-07).
 model Suggestion {
-  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  findingId           String          @map("finding_id") @db.Uuid
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  findingId           String           @map("finding_id") @db.Uuid
   kind                FixKind
-  state               SuggestionState @default(proposed)
-  originalSnippet     String          @map("original_snippet")
-  suggestedSnippet    String          @map("suggested_snippet")
+  state               SuggestionState  @default(proposed)
+  originalSnippet     String           @map("original_snippet")
+  suggestedSnippet    String           @map("suggested_snippet")
   explanation         String?
-  postedToGithub      Boolean         @default(false) @map("posted_to_github")
-  githubCommentId     BigInt?         @map("github_comment_id")
-  resolvedByUserId    String?         @map("resolved_by_user_id") @db.Uuid
-  resolvedAt          DateTime?       @map("resolved_at") @db.Timestamptz(6)
-  resolutionCommitSha String?         @map("resolution_commit_sha")
-  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  postedToGithub      Boolean          @default(false) @map("posted_to_github")
+  githubCommentId     BigInt?          @map("github_comment_id")
+  resolvedByUserId    String?          @map("resolved_by_user_id") @db.Uuid
+  resolvedAt          DateTime?        @map("resolved_at") @db.Timestamptz(6)
+  resolutionCommitSha String?          @map("resolution_commit_sha")
+  /// Why a person dismissed the fix (UC-3), and what they added; set only when `state` is `rejected`.
+  rejectionReason     RejectionReason? @map("rejection_reason")
+  rejectionComment    String?          @map("rejection_comment")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
 
   finding        Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
   resolvedByUser User?   @relation(fields: [resolvedByUserId], references: [id], onDelete: SetNull)
