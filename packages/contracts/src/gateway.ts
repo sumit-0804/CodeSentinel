@@ -46,6 +46,13 @@ export const CreateReviewRequestSchema = z.object({
 });
 export type CreateReviewRequest = z.infer<typeof CreateReviewRequestSchema>;
 
+/** POST /v1/reviews from the dashboard: review an open pull request's head again (trigger `dashboard_manual`). */
+export const PullRequestReviewRequestSchema = z.object({
+  repositoryId: z.string().uuid(),
+  pullRequestNumber: z.number().int().positive(),
+});
+export type PullRequestReviewRequest = z.infer<typeof PullRequestReviewRequestSchema>;
+
 export const ReviewAcceptedSchema = z.object({
   reviewId: z.string().uuid(),
   status: z.enum(["queued", "running"]),
@@ -166,6 +173,30 @@ export const RepositoryListResponseSchema = z.object({
   items: z.array(RepositorySchema),
 });
 export type RepositoryListResponse = z.infer<typeof RepositoryListResponseSchema>;
+
+/** One open pull request from GitHub, with its newest Code Sentinel review. */
+export const PullRequestListItemSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  /** The author's GitHub login. */
+  author: z.string().optional(),
+  headSha: z.string(),
+  headRef: z.string(),
+  baseRef: z.string(),
+  draft: z.boolean(),
+  updatedAt: z.string().datetime(),
+  htmlUrl: z.string().url(),
+  /** Whether the base branch is one of the repository's branches to review. */
+  reviewable: z.boolean(),
+  latestReview: ReviewListItemSchema.nullable(),
+});
+export type PullRequestListItem = z.infer<typeof PullRequestListItemSchema>;
+
+/** 200 body of GET /v1/repositories/{repositoryId}/pulls: open pull requests, most recently updated first. */
+export const PullRequestListResponseSchema = z.object({
+  items: z.array(PullRequestListItemSchema),
+});
+export type PullRequestListResponse = z.infer<typeof PullRequestListResponseSchema>;
 
 /** A GitHub account (personal or organization) where the App is installed, as a member sees it. */
 export const InstallationSchema = z.object({
