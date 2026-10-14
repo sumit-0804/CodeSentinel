@@ -188,7 +188,8 @@ ever show the caller's organization (another organization's review is 404, like 
 
 - **`GET /v1/reviews`**, newest first:
   - `repositoryId`, `status` (comma-separated), `limit` (1–100, default 25) and `offset`
-  - **`latest=true`** keeps each pull request's newest review, one row per pull request
+  - **`latest=true`** keeps each pull request's newest review, one row per pull request, whether a push or a
+    dashboard re-run started it
   - each item carries the severity counts, the stored Check Run conclusion, and **`agentResults`**: each agent's
     worst finding at or above the review's threshold (`critical` … `clean`, or `not_run` / `running`)
   - a bad filter is 400 `invalid_query`
@@ -200,6 +201,37 @@ ever show the caller's organization (another organization's review is 404, like 
 When the publisher completes a Check Run it also stores its id and conclusion on the review
 (`github_check_run_id`, `check_conclusion`: `pass` / `fail` / `neutral`), so the dashboard shows the same verdict
 as GitHub. If that write fails, it's logged and the Check Run stands.
+
+## Open pull requests and re-running a review
+
+Both routes are scoped to the caller's organization; another organization's repository is 404
+`repository_not_found`.
+
+**`GET /v1/repositories/{id}/pulls`** (a session or an API key):
+- The repository's open pull requests from GitHub, read with the App's installation token: up to 50, most recently
+  updated first. GitHub's answer is cached for 30 s per repository.
+- Each pull request carries its newest review (`latestReview`, or `null`) and `reviewable`, whether its base branch
+  is one of the [branches to review](#repository-configuration).
+- GitHub failing is 502 `github_unavailable`.
+
+**`POST /v1/reviews`** with `{ repositoryId, pullRequestNumber }` (the dashboard's "Re-run review"):
+- **Who:** any member of the organization, with a signed-in session (API keys get 403 `session_required`).
+- **What it reviews:** the open pull request's head commit, through the same path as the webhook
+  (`webhooks/start-review.ts`: files, filter, job, follow), with trigger `dashboard_manual` and `triggered_by_user_id`.
+  - Re-running the same commit is allowed: the one-review-per-commit rule only covers `github_pull_request`.
+  - An older review of that pull request that is still running is cancelled ("Superseded by a newer commit").
+- **Answers:** 202 `{ reviewId, status }`, or:
+
+  | HTTP | `code` | When |
+  | --- | --- | --- |
+  | 404 | `pull_request_not_found` | The pull request isn't open on GitHub |
+  | 409 | `repository_disabled` | Reviews are off, or every agent is off |
+  | 409 | `branch_ignored` | Its base branch isn't reviewed |
+  | 409 | `review_in_progress` | A review of that pull request started less than 30 s ago, so a double click runs one review |
+  | 422 | `no_reviewable_files` | Every file is skipped; the "Nothing to review" Check Run is posted |
+  | 502 | `github_unavailable`, `orchestrator_unavailable` | GitHub or the orchestrator failed |
+
+The file-set body (VS Code) is specified but not built yet: 501 `not_implemented`.
 
 ## Publishing the review to the pull request
 
@@ -384,7 +416,7 @@ Differences to know:
 
 ## Not started yet
 
-- `/v1/reviews`: create (on-demand), SSE events, style fixes; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
+- `/v1/reviews`: create from a file set (VS Code), SSE events, style fixes; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
 - Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
 - API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
@@ -401,7 +433,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-258 tests in 24 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+274 tests in 25 files (35 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
