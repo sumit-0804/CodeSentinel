@@ -109,6 +109,7 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         status: review.status,
         checkConclusion: review.checkConclusion ?? null,
         githubCheckRunId: review.githubCheckRunId !== undefined ? BigInt(review.githubCheckRunId) : null,
+        jobId: review.jobId ?? null,
         confidenceThreshold: review.confidenceThreshold,
         durationMs: review.durationMs ?? null,
         createdAt: review.createdAt,

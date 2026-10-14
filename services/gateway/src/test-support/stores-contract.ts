@@ -314,6 +314,31 @@ export function describeStoresContract(
 
       await expect(stores.reviews.get(ids.organizationId, reviewId)).resolves.toMatchObject({ checkConclusion: "fail" });
     });
+
+    it("finds a pull request's queued and running reviews, and only that pull request's", async () => {
+      let running: SeedReview | undefined;
+      let queued: SeedReview | undefined;
+      const { stores, ids } = await build(({ seed, ids }) => {
+        running = review(ids, 5, 3, { status: "running", jobId: randomUUID() });
+        queued = review(ids, 5, 1, { status: "queued", jobId: randomUUID() });
+        seed.reviews.push(
+          running,
+          queued,
+          review(ids, 5, 9, { status: "completed", jobId: randomUUID() }),
+          review(ids, 6, 2, { status: "running", jobId: randomUUID() }),
+        );
+      });
+
+      const active = await stores.reviews.activeForPullRequest(ids.repositoryId, 5);
+
+      expect(active.map((r) => r.reviewId).sort()).toEqual([running!.reviewId, queued!.reviewId].sort());
+      expect(active.find((r) => r.reviewId === running!.reviewId)).toEqual({
+        reviewId: running!.reviewId,
+        jobId: running!.jobId,
+        headSha: running!.headSha,
+      });
+      await expect(stores.reviews.activeForPullRequest(ids.repositoryId, 99)).resolves.toEqual([]);
+    });
   });
 
   describe("apiKeys", () => {

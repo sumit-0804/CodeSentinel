@@ -77,7 +77,7 @@ export interface StoreSeed {
   reviews: SeedReview[];
 }
 
-export type SeedReview = Omit<ReviewRecord, "repositoryFullName"> & { githubCheckRunId?: number };
+export type SeedReview = Omit<ReviewRecord, "repositoryFullName"> & { githubCheckRunId?: number; jobId?: string };
 
 export const emptySeed = (): StoreSeed => ({
   reviews: [],
@@ -239,7 +239,7 @@ export class InMemoryStores implements Stores {
       },
     };
 
-    const toRecord = ({ githubCheckRunId: _checkRunId, ...review }: SeedReview): ReviewRecord =>
+    const toRecord = ({ githubCheckRunId: _checkRunId, jobId: _jobId, ...review }: SeedReview): ReviewRecord =>
       structuredClone({
         ...review,
         repositoryFullName: data.repositories.find((r) => r.repositoryId === review.repositoryId)?.fullName ?? "unknown/unknown",
@@ -276,6 +276,10 @@ export class InMemoryStores implements Stores {
         const review = data.reviews.find((r) => r.reviewId === reviewId);
         if (review) Object.assign(review, { githubCheckRunId: checkRunId, checkConclusion: conclusion });
       },
+      activeForPullRequest: async (repositoryId, prNumber) =>
+        data.reviews
+          .filter((r) => r.repositoryId === repositoryId && r.prNumber === prNumber && r.jobId && (r.status === "queued" || r.status === "running"))
+          .map((r) => ({ reviewId: r.reviewId, jobId: r.jobId!, headSha: r.headSha })),
     };
 
     this.sessions = {

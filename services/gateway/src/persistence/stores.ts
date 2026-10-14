@@ -206,6 +206,14 @@ export interface ReviewStore {
   get(organizationId: string, reviewId: string): Promise<ReviewRecord | undefined>;
   /** Stores the Check Run's id and conclusion; a review that doesn't exist (yet) is left alone. */
   recordCheckRun(reviewId: string, checkRun: { checkRunId: number; conclusion: CheckConclusion }): Promise<void>;
+  /** The pull request's reviews still queued or running, so a newer commit can cancel them. */
+  activeForPullRequest(repositoryId: string, prNumber: number): Promise<ActiveReview[]>;
+}
+
+export interface ActiveReview {
+  reviewId: string;
+  jobId: string;
+  headSha: string;
 }
 
 /** The API's `failed` also covers the jobs the database records as `cancelled`. */

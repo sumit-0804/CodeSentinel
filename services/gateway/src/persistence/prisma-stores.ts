@@ -240,6 +240,13 @@ export class PrismaStores implements Stores {
       recordCheckRun: async (reviewId, { checkRunId, conclusion }) => {
         await prisma.review.updateMany({ where: { id: reviewId }, data: { githubCheckRunId: BigInt(checkRunId), checkConclusion: conclusion } });
       },
+      activeForPullRequest: async (repositoryId, prNumber) => {
+        const rows = await prisma.review.findMany({
+          where: { repositoryId, prNumber, status: { in: ["queued", "running"] }, jobId: { not: null } },
+          select: { id: true, jobId: true, headSha: true },
+        });
+        return rows.map((r) => ({ reviewId: r.id, jobId: r.jobId!, headSha: r.headSha }));
+      },
     };
 
     // `auth.sessions` is Supabase's; `private.session_is_active` is a security-definer function only `prisma` may run.
