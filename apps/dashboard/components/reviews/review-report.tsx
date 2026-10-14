@@ -6,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 import type { AgentRunSummary, Finding, Severity } from "@code-sentinel/contracts";
 import { AGENTS, AgentGlyph } from "@/components/brand/agents";
 import { SeverityDot } from "@/components/brand/verdict-pill";
+import { FixActions } from "@/components/reviews/fix-actions";
 import { cn } from "@/lib/utils";
 import { groupByFile } from "@/lib/review-view";
 
@@ -145,6 +146,10 @@ export function ReviewReport({
                               {finding.cweId ? <span>{finding.cweId}</span> : null}
                               {below ? (
                                 <span>Not posted, below threshold</span>
+                              ) : finding.suggestion?.state === "accepted" ? (
+                                <span className="font-semibold text-pass">Fix committed</span>
+                              ) : finding.suggestion?.state === "rejected" ? (
+                                <span>Fix dismissed</span>
                               ) : finding.suggestion ? (
                                 <span className="font-semibold text-pass">{finding.suggestion.kind === "deterministic" ? "Exact fix" : "Suggested fix"}</span>
                               ) : null}
@@ -154,6 +159,7 @@ export function ReviewReport({
                             <div className={cn("grid gap-3.5 px-5 pb-5 sm:pl-[42px]", below && "opacity-55")}>
                               <p className="max-w-[70ch] whitespace-pre-line text-ink-2">{finding.description}</p>
                               <FixBlock finding={finding} />
+                              <FixActions finding={finding} posted={!below} />
                             </div>
                           ) : null}
                         </li>
