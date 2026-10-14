@@ -52,7 +52,7 @@ exact bytes GitHub signed. Checks run in this order and stop at the first that a
 | 6 | Repository has `reviewEnabled: false` | 202 | `repository_disabled` | `repository_disabled` |
 | 7 | Every agent `off` (the orchestrator would answer 422) | 202 | `repository_disabled` | `repository_disabled` |
 | 8 | `pull_request.base.ref` matches none of the [branches to review](#repository-configuration) | 202 | `branch_ignored` | `branch_ignored` (+ `baseRef`) |
-| 9 | Every PR file filtered out; no orchestrator call | 202 | `event_ignored` | `no_reviewable_files` |
+| 9 | Every PR file filtered out; no orchestrator call, but a neutral **"Nothing to review"** Check Run lists the skipped files | 202 | `event_ignored` | `no_reviewable_files` |
 | 10 | Orchestrator answers 202 | 202 | `review_started` + `reviewId` | `review_started` |
 | 10 | Orchestrator answers 200 (job exists for this delivery) | 202 | `duplicate_ignored` + `reviewId` | `duplicate_ignored` |
 | 10 | Orchestrator timed out, unreachable, non-2xx or invalid body | 502 | `orchestrator_unavailable` (`details.kind`, `details.status`) | `orchestrator_unavailable` |
@@ -61,6 +61,14 @@ The job is sent with `Idempotency-Key` = the delivery id and `X-Request-Id` = th
 GitHub redelivery after a 502 cannot start a second review. The gateway never looks at the PR
 author, so external contributors take the same path (AC-10). The request log line carries
 `deliveryId`, `event`, `action`, `repository`, `files`, `skippedFiles` counts and `outcome`.
+
+**A newer commit replaces the running review.** After a new review starts, the gateway cancels the
+pull request's other queued or running reviews of an older commit
+(`POST /internal/v1/review-jobs/{id}/cancel`, found through `ReviewStore.activeForPullRequest`).
+- Their Check Runs complete as neutral **"Superseded by a newer commit"**, with no inline comments.
+- A failed cancel is logged and never affects the new review.
+- When the newer review completes, the orchestrator marks the older reviews' undecided fixes
+  `superseded`, including ones committed with GitHub's own "Commit suggestion" button.
 
 ### Installation events
 
@@ -382,9 +390,6 @@ Differences to know:
 - Rate limiting (FR-GW-05)
 - Storing posted comment ids (`suggestions.github_comment_id`)
 - Accept / reject tracking of posted suggestions (UC-3)
-- Cancelling a superseded job when a new commit is pushed
-- An all-filtered pull request finishing the review with an empty report (today: 202
-  `event_ignored`, no orchestrator call)
 
 ## Develop
 
@@ -396,7 +401,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-248 tests in 24 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+258 tests in 24 files (32 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
