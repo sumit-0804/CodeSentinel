@@ -7,7 +7,7 @@ A multi-agent code review platform built on a service-oriented architecture.
 Review work is split across five independent agent services — **Security, Style, Performance,
 Logic, Documentation**. A LangGraph orchestrator fans a review request out to the agents in
 parallel, then aggregates, de-duplicates and severity-ranks their findings into one combined
-report. The platform is reachable from a GitHub App, a VS Code extension and a Next.js dashboard.
+report. The platform is reachable from a GitHub App and a Next.js dashboard.
 
 See [`docs/`](docs/) for the Proposal, Plan, Requirements Specification (BRD) and System Design
 Document, and [`docs/design/`](docs/design/) for the architecture diagrams, OpenAPI contracts and
