@@ -1,6 +1,13 @@
 import "server-only";
 import { cache } from "react";
-import { ReviewDetailSchema, ReviewListResponseSchema, type ReviewDetail, type ReviewListItem } from "@code-sentinel/contracts";
+import {
+  PullRequestListResponseSchema,
+  ReviewDetailSchema,
+  ReviewListResponseSchema,
+  type PullRequestListItem,
+  type ReviewDetail,
+  type ReviewListItem,
+} from "@code-sentinel/contracts";
 import { gatewayFetch, type GatewayFailure } from "@/lib/gateway";
 import { getAccount } from "@/lib/organization";
 
@@ -18,6 +25,21 @@ export const getReviews = cache(async (latest: boolean, repositoryId?: string, l
   const listed = await gatewayFetch(`/v1/reviews?${query}`, ReviewListResponseSchema, { organizationId: account.current.organizationId });
   if (!listed.ok) return { ok: false, reason: listed.reason };
   return { ok: true, reviews: listed.data.items, total: listed.data.pageInfo.total };
+});
+
+export type OpenPullRequestsResult = { ok: true; pulls: PullRequestListItem[] } | { ok: false; reason: GatewayFailure; code?: string };
+
+/** The repository's open pull requests from GitHub, each with its newest review. */
+export const getOpenPullRequests = cache(async (repositoryId: string): Promise<OpenPullRequestsResult> => {
+  const account = await getAccount();
+  if (!account.ok) return account;
+  if (!account.current) return { ok: true, pulls: [] };
+
+  const listed = await gatewayFetch(`/v1/repositories/${encodeURIComponent(repositoryId)}/pulls`, PullRequestListResponseSchema, {
+    organizationId: account.current.organizationId,
+  });
+  if (!listed.ok) return { ok: false, reason: listed.reason, ...(listed.code ? { code: listed.code } : {}) };
+  return { ok: true, pulls: listed.data.items };
 });
 
 export const getReview = cache(async (reviewId: string): Promise<ReviewResult> => {

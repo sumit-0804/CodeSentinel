@@ -6,6 +6,8 @@ import { ExternalLink } from "lucide-react";
 import { EmptyState, PageSkeleton } from "@/components/app/page-parts";
 import { Gauge } from "@/components/brand/verdict";
 import { VerdictPill } from "@/components/brand/verdict-pill";
+import { RefreshWhileRunning } from "@/components/reviews/refresh-while-running";
+import { RerunButton } from "@/components/reviews/rerun-button";
 import { ReviewReport } from "@/components/reviews/review-report";
 import { lanesOf, timeAgo, verdictOf, verdictSentence } from "@/lib/review-view";
 import { getReview } from "@/lib/reviews";
@@ -78,9 +80,13 @@ async function ReviewContent({ params }: PageProps<"/pull-requests/[reviewId]">)
               ) : null}
             </div>
           </div>
-          <Gauge lanes={lanesOf(review.agentResults)} size="sm" />
+          <div className="grid justify-items-start gap-4 md:justify-items-end">
+            <Gauge lanes={lanesOf(review.agentResults)} size="sm" />
+            {number !== undefined ? <RerunButton repositoryId={review.repositoryId} pullRequestNumber={number} size="sm" /> : null}
+          </div>
         </div>
       </div>
+      {running ? <RefreshWhileRunning /> : null}
       <ReviewReport
         findings={review.findings}
         agentRuns={review.agentRuns}
