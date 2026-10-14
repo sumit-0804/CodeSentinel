@@ -105,9 +105,10 @@ describe("ReviewDetailSchema", () => {
 });
 
 describe("suggestion decisions", () => {
-  it("accepts a rejection with a reason and rejects an unknown reason", () => {
+  it("accepts a rejection with a reason and rejects an unknown reason or an overlong comment", () => {
     expect(RejectSuggestionRequestSchema.parse({ reason: "false_positive", comment: "test code" }).reason).toBe("false_positive");
     expect(RejectSuggestionRequestSchema.safeParse({ reason: "meh" }).success).toBe(false);
+    expect(RejectSuggestionRequestSchema.safeParse({ comment: "x".repeat(1001) }).success).toBe(false);
   });
 
   it("accepts a decision and rejects a superseded state", () => {

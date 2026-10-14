@@ -5,6 +5,7 @@ import {
   CombinedReportSchema,
   ConfidenceSchema,
   PageInfoSchema,
+  RejectionReasonSchema,
   ReviewStatusSchema,
   ReviewSummarySchema,
 } from "./common.js";
@@ -111,8 +112,8 @@ export const ReviewListResponseSchema = z.object({
 export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 
 export const RejectSuggestionRequestSchema = z.object({
-  reason: z.enum(["false_positive", "not_applicable", "will_fix_manually", "other"]).optional(),
-  comment: z.string().optional(),
+  reason: RejectionReasonSchema.optional(),
+  comment: z.string().max(1000).optional(),
 });
 export type RejectSuggestionRequest = z.infer<typeof RejectSuggestionRequestSchema>;
 

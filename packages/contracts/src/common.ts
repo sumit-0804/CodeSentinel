@@ -87,6 +87,10 @@ export type SuggestionKind = z.infer<typeof SuggestionKindSchema>;
 export const SuggestionStateSchema = z.enum(["proposed", "accepted", "rejected", "superseded"]);
 export type SuggestionState = z.infer<typeof SuggestionStateSchema>;
 
+/** Why a person dismissed a suggested fix (UC-3). */
+export const RejectionReasonSchema = z.enum(["false_positive", "not_applicable", "will_fix_manually", "other"]);
+export type RejectionReason = z.infer<typeof RejectionReasonSchema>;
+
 export const SuggestionSchema = z.object({
   id: z.string().uuid().optional(),
   kind: SuggestionKindSchema,
@@ -94,6 +98,9 @@ export const SuggestionSchema = z.object({
   originalSnippet: z.string(),
   suggestedSnippet: z.string(),
   explanation: z.string().optional(),
+  /** Set by the gateway once decided: the commit that applied it, or why it was dismissed. */
+  commitSha: z.string().optional(),
+  rejectionReason: RejectionReasonSchema.optional(),
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
