@@ -141,10 +141,9 @@ GitHub PR files
 - [ ] Every file filtered ⇒ finish the review with an empty report, no orchestrator call
       (gateway already skips the orchestrator call; the empty report needs the review store).
 
-### GitHub, dashboard, VS Code
+### GitHub and dashboard
 - [ ] Check Run summary: coverage line + skipped-files list; "LLM analysis deferred" for quota skips.
 - [ ] Dashboard: coverage strip, "Skipped files" section, deferred-agent state.
-- [ ] VS Code: a skipped file says why instead of "no issues".
 
 ### Fixtures and tests
 - [ ] Large-PR fixture: one oversized file, a lockfile, a binary, normal files.
