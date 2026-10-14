@@ -48,13 +48,22 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/onboarding/github/connect` | Same, through GitHub's authorize page: links GitHub and joins organizations the App is already on |
 | `/onboarding/github/callback` | GitHub's Callback and Setup URL. A `code` with a matching `state` is sent to `POST /v1/github/link`; without our `state` the code is never used and you confirm instead; an installation updated on GitHub (no code) triggers a sync |
 | `/pull-requests` | Each pull request's newest review (`GET /v1/reviews?latest=true`): verdict lanes, verdict, severity counts, filters by verdict. Empty state until reviews exist |
-| `/pull-requests/[reviewId]` | One review: verdict and why, commit, threshold, View on GitHub, the gauge, and **Re-run review**; findings by file with severity filters, each expanding to its description and fix (before/after); findings below the threshold dimmed as not posted; agent runs. While the review runs, the page refreshes every 3 s |
+| `/pull-requests/[reviewId]` | One review: verdict and why, commit, threshold, View on GitHub, the gauge, and **Re-run review**; findings by file with severity filters, each expanding to its description and fix (before/after) with **Commit fix** / **Dismiss**, or what was decided; findings below the threshold dimmed as not posted; agent runs. While the review runs, the page refreshes every 3 s |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
 | `/settings?section=defaults` | **Review defaults**: the organization's agent modes, threshold and branches, used by repositories that follow them |
 | `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code |
 | `/step-up` | Asks for an authenticator code, then continues to `?next=` (a safe same-origin path). Install and Connect send you here when your code is too old |
 
 `/` redirects to `/overview`.
+
+**Deciding on a fix (UC-3).** An expanded finding with a posted fix shows `FixActions` (`components/reviews/fix-actions.tsx`):
+- **Commit fix:** calls the `commitFix` server action through `useStepUp`, so it asks for an authenticator code
+  first. The gateway commits the fix onto the pull request branch, and the pull request is reviewed again.
+- **Dismiss:** a reason (not a real problem, doesn't apply here, I'll fix it myself, something else) and an
+  optional comment. No code changes.
+- **Once decided:** the finding shows "Committed in {sha}", "Dismissed: …" or "Replaced by a newer review".
+- **Errors:** the gateway's refusals (head moved, fork, lines changed, missing App permission) become plain
+  messages (`lib/fix-messages.ts`).
 
 **Re-running a review.** `RerunButton` (`components/reviews/rerun-button.tsx`) calls the `rerunReview` server action
 (`app/(app)/pull-requests/actions.ts`), which sends `POST /v1/reviews` with `{ repositoryId, pullRequestNumber }`.
