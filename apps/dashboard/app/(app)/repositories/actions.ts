@@ -19,7 +19,6 @@ export type SaveResult<T> = { ok: true; saved: T } | { ok: false; message: strin
 const MESSAGES: Record<string, string> = {
   admin_required: "Only organization admins can change this.",
   mfa_required: "Enter a code from your authenticator app to save this.",
-  session_required: "Sign in again to change this.",
   no_agents_enabled: "Keep at least one agent on, or switch reviews off instead.",
   invalid_body: "Some of these settings aren't valid. Check the branches and try again.",
   repository_not_found: "This repository isn't in your organization any more.",

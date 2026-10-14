@@ -9,7 +9,6 @@ const MESSAGES: Record<string, string> = {
   repository_not_found: "This repository isn't in your organization any more.",
   github_unavailable: "GitHub didn't answer. Try again in a moment.",
   orchestrator_unavailable: "The review service didn't answer. Try again in a moment.",
-  session_required: "Sign in again to start a review.",
 };
 
 /** What the person sees when the gateway won't start a re-run: its error code first, then how the call failed. */

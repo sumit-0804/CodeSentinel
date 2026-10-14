@@ -17,11 +17,10 @@ export const metadata: Metadata = { title: "Settings" };
 
 type Section = "account" | "defaults" | "security";
 
-const SECTIONS: { label: string; section?: Section; note?: string }[] = [
+const SECTIONS: { label: string; section: Section }[] = [
   { label: "Account", section: "account" },
   { label: "Review defaults", section: "defaults" },
   { label: "Security", section: "security" },
-  { label: "API keys", note: "later" },
 ];
 
 async function SecurityContent() {
@@ -76,27 +75,20 @@ async function SettingsBody({ searchParams }: { searchParams: PageProps<"/settin
   return (
     <div className="grid items-start gap-[18px] min-[1041px]:grid-cols-[210px_minmax(0,1fr)] min-[1041px]:gap-10">
       <nav aria-label="Settings sections" className="flex gap-[3px] overflow-x-auto min-[1041px]:sticky min-[1041px]:top-[74px] min-[1041px]:grid">
-        {SECTIONS.map(({ label, section: target, note }) =>
-          target ? (
-            <Link
-              key={label}
-              href={target === "account" ? "/settings" : `/settings?section=${target}`}
-              aria-current={target === current ? "page" : undefined}
-              className={
-                target === current
-                  ? `${ITEM} border border-line-2 bg-panel-2 text-ink`
-                  : `${ITEM} border border-transparent text-ink-2 hover:bg-panel-2 hover:text-ink`
-              }
-            >
-              {label}
-            </Link>
-          ) : (
-            <span key={label} aria-disabled="true" className={`${ITEM} cursor-not-allowed text-ink-3`}>
-              {label}
-              {note ? <small className="text-[11.5px]">{note}</small> : null}
-            </span>
-          ),
-        )}
+        {SECTIONS.map(({ label, section: target }) => (
+          <Link
+            key={label}
+            href={target === "account" ? "/settings" : `/settings?section=${target}`}
+            aria-current={target === current ? "page" : undefined}
+            className={
+              target === current
+                ? `${ITEM} border border-line-2 bg-panel-2 text-ink`
+                : `${ITEM} border border-transparent text-ink-2 hover:bg-panel-2 hover:text-ink`
+            }
+          >
+            {label}
+          </Link>
+        ))}
       </nav>
       <Suspense key={current} fallback={<div className="h-[420px] animate-pulse rounded-2xl bg-panel" />}>
         {current === "defaults" ? <DefaultsContent /> : current === "security" ? <SecurityContent /> : <AccountContent />}
