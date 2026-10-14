@@ -2,14 +2,17 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/core";
 import { paginateRest } from "@octokit/plugin-paginate-rest";
 
-import type {
-  CheckConclusion,
-  CheckRunOutput,
-  GitHubClient,
-  InstallationRepository,
-  PullRequestFile,
-  PullRequestRef,
-  ReviewComment,
+import {
+  githubStatus,
+  type CheckConclusion,
+  type CheckRunOutput,
+  type GitHubClient,
+  type InstallationRepository,
+  type PullRequestFile,
+  type PullRequestInfo,
+  type PullRequestRef,
+  type RepositoryRef,
+  type ReviewComment,
 } from "./github-client.js";
 
 const GitHubOctokit = Octokit.plugin(paginateRest);
@@ -81,6 +84,32 @@ export class OctokitGitHubClient implements GitHubClient {
     }));
   }
 
+  async getPullRequest(ref: PullRequestRef): Promise<PullRequestInfo | undefined> {
+    try {
+      const { data } = await this.forRef(ref).request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner: ref.owner,
+        repo: ref.repo,
+        pull_number: ref.pullNumber,
+      });
+      return toPullRequestInfo(data);
+    } catch (error) {
+      if (githubStatus(error) === 404) return undefined;
+      throw error;
+    }
+  }
+
+  async listOpenPullRequests(ref: RepositoryRef, limit: number): Promise<PullRequestInfo[]> {
+    const { data } = await this.forRef(ref).request("GET /repos/{owner}/{repo}/pulls", {
+      owner: ref.owner,
+      repo: ref.repo,
+      state: "open",
+      sort: "updated",
+      direction: "desc",
+      per_page: Math.min(limit, 100),
+    });
+    return data.map(toPullRequestInfo);
+  }
+
   async createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number> {
     const { data } = await this.forRef(ref).request("POST /repos/{owner}/{repo}/check-runs", {
       owner: ref.owner,
@@ -141,7 +170,7 @@ export class OctokitGitHubClient implements GitHubClient {
     });
   }
 
-  private forRef(ref: PullRequestRef): GitHubOctokitInstance {
+  private forRef(ref: RepositoryRef): GitHubOctokitInstance {
     if (ref.installationId === undefined) {
       throw new Error(`No GitHub App installation for ${ref.owner}/${ref.repo}; the webhook carried none`);
     }
@@ -162,6 +191,35 @@ export class OctokitGitHubClient implements GitHubClient {
     }
     return client;
   }
+}
+
+/** The fields of GitHub's pull request object that map to `PullRequestInfo`. */
+interface GitHubPull {
+  number: number;
+  title: string;
+  user: { login: string } | null;
+  state: string;
+  draft?: boolean;
+  head: { sha: string; ref: string };
+  base: { sha: string; ref: string };
+  updated_at: string;
+  html_url: string;
+}
+
+function toPullRequestInfo(pull: GitHubPull): PullRequestInfo {
+  return {
+    number: pull.number,
+    title: pull.title,
+    ...(pull.user ? { author: pull.user.login } : {}),
+    state: pull.state === "open" ? "open" : "closed",
+    draft: pull.draft ?? false,
+    headSha: pull.head.sha,
+    headRef: pull.head.ref,
+    baseSha: pull.base.sha,
+    baseRef: pull.base.ref,
+    updatedAt: pull.updated_at,
+    htmlUrl: pull.html_url,
+  };
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

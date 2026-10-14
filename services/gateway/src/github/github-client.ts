@@ -7,12 +7,31 @@ export interface PullRequestFile {
   previousFilename?: string;
 }
 
-export interface PullRequestRef {
+export interface RepositoryRef {
   /** GitHub's numeric installation id, used to mint an installation token. */
   installationId?: number;
   owner: string;
   repo: string;
+}
+
+export interface PullRequestRef extends RepositoryRef {
   pullNumber: number;
+}
+
+/** The fields of a GitHub pull request the gateway uses. */
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  /** The author's login; absent for a deleted ("ghost") account. */
+  author?: string;
+  state: "open" | "closed";
+  draft: boolean;
+  headSha: string;
+  headRef: string;
+  baseSha: string;
+  baseRef: string;
+  updatedAt: string;
+  htmlUrl: string;
 }
 
 export type CheckConclusion = "success" | "failure" | "neutral";
@@ -59,6 +78,10 @@ export interface GitHubClient {
   /** Every repository the installation covers, for the installation sync (A6). */
   listInstallationRepositories(installationId: number): Promise<InstallationRepository[]>;
   listPullRequestFiles(ref: PullRequestRef): Promise<PullRequestFile[]>;
+  /** One pull request; `undefined` when GitHub answers 404. */
+  getPullRequest(ref: PullRequestRef): Promise<PullRequestInfo | undefined>;
+  /** Open pull requests, most recently updated first, at most `limit`. */
+  listOpenPullRequests(ref: RepositoryRef, limit: number): Promise<PullRequestInfo[]>;
   /** Creates an `in_progress` Check Run on `headSha` and returns its id. */
   createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number>;
   /** Completes a Check Run; annotations beyond GitHub's 50-per-request limit are sent in batches. */

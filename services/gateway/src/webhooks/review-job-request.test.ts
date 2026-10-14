@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { EffectiveRepositoryConfig } from "../persistence/stores.js";
 import { baseSeed, pullRequestEventPayload } from "../test-support/fixtures.js";
 import { PullRequestEventSchema } from "./github-payload.js";
-import { buildReviewJobRequest } from "./review-job-request.js";
+import { buildReviewJobRequest, pullRequestFromEvent } from "./review-job-request.js";
 
 const CONFIG: EffectiveRepositoryConfig = {
   agentModes: { security: "block", style: "off", performance: "off", logic: "comment", documentation: "off" },
@@ -23,7 +23,7 @@ const build = (skippedFiles = [{ path: "package-lock.json", reason: "generated_f
   buildReviewJobRequest({
     repository: baseSeed().repositories[0]!,
     config: CONFIG,
-    event: PullRequestEventSchema.parse(pullRequestEventPayload()),
+    pullRequest: pullRequestFromEvent(PullRequestEventSchema.parse(pullRequestEventPayload())),
     filtered: { files: [exampleChangedFile], skippedFiles },
   });
 
@@ -49,5 +49,18 @@ describe("buildReviewJobRequest", () => {
 
   it("takes agents, threshold and timeout from the effective config", () => {
     expect(build()).toMatchObject({ enabledAgents: ["security", "logic"], confidenceThreshold: 0.9, agentTimeoutMs: 30000 });
+  });
+
+  it("records a dashboard re-run with the user who asked", () => {
+    const request = buildReviewJobRequest({
+      repository: baseSeed().repositories[0]!,
+      config: CONFIG,
+      pullRequest: pullRequestFromEvent(PullRequestEventSchema.parse(pullRequestEventPayload())),
+      filtered: { files: [exampleChangedFile], skippedFiles: [] },
+      trigger: "dashboard_manual",
+      triggeredByUserId: "11111111-1111-4111-8111-111111111111",
+    });
+
+    expect(ReviewJobRequestSchema.parse(request)).toMatchObject({ trigger: "dashboard_manual", triggeredByUserId: "11111111-1111-4111-8111-111111111111" });
   });
 });

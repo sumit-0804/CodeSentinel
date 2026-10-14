@@ -4,7 +4,9 @@ import type {
   GitHubClient,
   InstallationRepository,
   PullRequestFile,
+  PullRequestInfo,
   PullRequestRef,
+  RepositoryRef,
   ReviewComment,
 } from "./github-client.js";
 
@@ -35,6 +37,9 @@ export class StubGitHubClient implements GitHubClient {
   readonly reviews: RecordedReview[] = [];
   /** Repositories each installation covers, keyed by GitHub's installation id; tests edit it. */
   readonly installationRepositories = new Map<number, InstallationRepository[]>();
+  /** Pull requests `getPullRequest` and `listOpenPullRequests` answer from; tests edit it. */
+  readonly pullRequests: PullRequestInfo[] = [];
+  pullRequestListCalls = 0;
   private readonly files: PullRequestFile[];
 
   constructor(files: PullRequestFile[] = []) {
@@ -48,6 +53,20 @@ export class StubGitHubClient implements GitHubClient {
   async listPullRequestFiles(ref: PullRequestRef): Promise<PullRequestFile[]> {
     this.calls.push({ ...ref });
     return structuredClone(this.files);
+  }
+
+  async getPullRequest(ref: PullRequestRef): Promise<PullRequestInfo | undefined> {
+    return structuredClone(this.pullRequests.find((pull) => pull.number === ref.pullNumber));
+  }
+
+  async listOpenPullRequests(_ref: RepositoryRef, limit: number): Promise<PullRequestInfo[]> {
+    this.pullRequestListCalls++;
+    return structuredClone(
+      this.pullRequests
+        .filter((pull) => pull.state === "open")
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, limit),
+    );
   }
 
   async createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number> {

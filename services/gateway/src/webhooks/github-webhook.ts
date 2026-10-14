@@ -9,11 +9,11 @@ import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.j
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { Stores } from "../persistence/stores.js";
 import { matchesReviewBranches } from "./branch-match.js";
-import { filterPullRequestFiles } from "./file-filter.js";
 import { isReviewAction, PullRequestEventSchema } from "./github-payload.js";
 import { handleInstallationEvent } from "./installation-events.js";
-import { buildReviewJobRequest } from "./review-job-request.js";
+import { pullRequestFromEvent } from "./review-job-request.js";
 import { createSignatureMiddleware } from "./signature.js";
+import { startPullRequestReview } from "./start-review.js";
 
 export interface GithubWebhookRouterDeps {
   secret: string;
@@ -137,54 +137,27 @@ export function createGithubWebhookRouter({
         repo: pullRequest.repository.name,
         pullNumber: pullRequest.number,
       };
-      const filtered = filterPullRequestFiles(await github.listPullRequestFiles(ref));
-      logFields.files = filtered.files.length;
-      logFields.skippedFiles = countByReason(filtered.skippedFiles);
-      // Nothing reaches the agents, but the pull request still gets a Check Run saying why.
-      if (filtered.files.length === 0) {
-        accept("no_reviewable_files", "event_ignored");
-        void publisher?.nothingToReview({
-          ref,
-          headSha: pullRequest.pull_request.head.sha,
-          skippedFiles: filtered.skippedFiles,
-          requestId: res.locals.requestId,
-        });
-        return;
-      }
-
       try {
-        const { job, created } = await orchestrator.createReviewJob(
-          buildReviewJobRequest({ repository, config, event: pullRequest, filtered }),
-          { idempotencyKey: deliveryId, requestId: res.locals.requestId },
+        // The follow-ups (Check Run, cancelling the older review) run in the background, so GitHub gets its 202 fast.
+        const result = await startPullRequestReview(
+          { stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}) },
+          {
+            repository,
+            config,
+            ref,
+            pullRequest: pullRequestFromEvent(pullRequest),
+            trigger: "github_pull_request",
+            idempotencyKey: deliveryId,
+            requestId: res.locals.requestId,
+            logFields,
+          },
         );
-        logFields.reviewId = job.reviewId;
-        if (!created) {
-          // A redelivery: the first delivery already owns the Check Run and the review.
-          accept("duplicate_ignored", "duplicate_ignored", job.reviewId);
+        if (result.outcome === "no_reviewable_files") {
+          accept("no_reviewable_files", "event_ignored");
           return;
         }
-        accept("review_started", "review_started", job.reviewId);
-        // After the 202: GitHub gets its answer fast, and neither step delays or fails the webhook.
-        void cancelSuperseded({
-          stores,
-          orchestrator,
-          logger,
-          repositoryId: repository.repositoryId,
-          prNumber: pullRequest.number,
-          keepReviewId: job.reviewId,
-          headSha: pullRequest.pull_request.head.sha,
-          requestId: res.locals.requestId,
-        });
-        void publisher?.follow({
-          ref,
-          headSha: pullRequest.pull_request.head.sha,
-          jobId: job.jobId,
-          reviewId: job.reviewId,
-          requestId: res.locals.requestId,
-          threshold: config.confidenceThreshold,
-          blockingAgents: config.blockingAgents,
-          postInlineComments: config.postInlineComments,
-        });
+        logFields.reviewId = result.job.reviewId;
+        accept(result.outcome, result.outcome, result.job.reviewId);
       } catch (error) {
         if (!(error instanceof OrchestratorCallError)) throw error;
         const details = { kind: error.kind, ...(error.status !== undefined ? { status: error.status } : {}) };
@@ -197,38 +170,3 @@ export function createGithubWebhookRouter({
   return router;
 }
 
-/**
- * Cancels the pull request's other queued or running reviews of an older commit, so only the newest
- * one posts a verdict; each cancelled one completes its Check Run as superseded. Never throws.
- */
-export async function cancelSuperseded(input: {
-  stores: Pick<Stores, "reviews">;
-  orchestrator: Pick<OrchestratorClientLike, "cancelReviewJob">;
-  logger: Logger;
-  repositoryId: string;
-  prNumber: number;
-  keepReviewId: string;
-  headSha: string;
-  requestId: string;
-}): Promise<void> {
-  const { stores, orchestrator, logger, requestId } = input;
-  try {
-    const active = await stores.reviews.activeForPullRequest(input.repositoryId, input.prNumber);
-    for (const review of active.filter((r) => r.reviewId !== input.keepReviewId && r.headSha !== input.headSha)) {
-      try {
-        await orchestrator.cancelReviewJob(review.jobId, { requestId });
-        logger.info("superseded review cancelled", { requestId, reviewId: review.reviewId, jobId: review.jobId });
-      } catch (error) {
-        logger.warn("could not cancel a superseded review", { requestId, reviewId: review.reviewId, error });
-      }
-    }
-  } catch (error) {
-    logger.warn("could not look up superseded reviews", { requestId, error });
-  }
-}
-
-function countByReason(skippedFiles: { reason: string }[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const { reason } of skippedFiles) counts[reason] = (counts[reason] ?? 0) + 1;
-  return counts;
-}
