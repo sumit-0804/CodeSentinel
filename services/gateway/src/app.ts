@@ -45,7 +45,7 @@ export interface AppDeps {
   /** GitHub linking and installation sync; absent when `config.githubLink` is not set (routes answer 503). */
   githubLink?: { githubUsers: GitHubUserClient; sync: InstallationSync };
   /** Posts finished reviews to GitHub; without it reviews run but nothing is posted. */
-  publisher?: Pick<ReviewPublisher, "follow">;
+  publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
 }
 
 /**

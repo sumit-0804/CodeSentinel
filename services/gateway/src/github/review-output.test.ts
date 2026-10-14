@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CombinedReport, Finding, ReviewJob } from "@code-sentinel/contracts";
-import { checkRunConclusion, checkRunOutput, droppedComments, MAX_REVIEW_COMMENTS, reviewComments } from "./review-output.js";
+import { checkRunConclusion, checkRunOutput, droppedComments, MAX_REVIEW_COMMENTS, nothingToReviewOutput, reviewComments } from "./review-output.js";
 
 const finding = (overrides: Partial<Finding> = {}): Finding => ({
   agent: "security",
@@ -114,6 +114,31 @@ describe("checkRunOutput", () => {
     );
 
     expect(output).toEqual({ title: "Review did not complete", summary: "The review could not be completed", annotations: [] });
+  });
+
+  it("says a cancelled review was superseded, and is neutral even with findings", () => {
+    const cancelled = { ...job([finding()]), status: "cancelled" as const };
+
+    expect(checkRunOutput(cancelled, 0.8, BLOCK_SECURITY).title).toBe("Superseded by a newer commit");
+    expect(checkRunConclusion(cancelled, 0.8, BLOCK_SECURITY)).toBe("neutral");
+  });
+});
+
+describe("nothingToReviewOutput", () => {
+  it("lists every skipped file with its reason", () => {
+    const output = nothingToReviewOutput([
+      { path: "package-lock.json", reason: "generated_file" },
+      { path: "logo.png", reason: "binary" },
+    ]);
+
+    expect(output.title).toBe("Nothing to review");
+    expect(output.summary).toContain("- `package-lock.json` — generated or vendored");
+    expect(output.summary).toContain("- `logo.png` — binary");
+    expect(output.annotations).toEqual([]);
+  });
+
+  it("explains a pull request that only removes or renames files", () => {
+    expect(nothingToReviewOutput([]).summary).toBe("This pull request only removes or renames files, so there are no changed lines to review.");
   });
 });
 

@@ -35,8 +35,9 @@ async function webhookApp({ edit, files = devSeed().pullRequestFiles, createRevi
     createReviewJob: vi.fn<OrchestratorClientLike["createReviewJob"]>(
       createReviewJob ?? (async () => ({ job: reviewJobResponse(202), created: true })),
     ),
+    cancelReviewJob: vi.fn<OrchestratorClientLike["cancelReviewJob"]>(async () => ({ ...reviewJobResponse(202), status: "cancelled" })),
   };
-  const publisher = { follow: vi.fn(async () => {}) };
+  const publisher = { follow: vi.fn(async () => {}), nothingToReview: vi.fn(async () => {}) };
   const app = createApp(testAppDeps({ logger, stores, github, orchestrator, publisher }));
   return { app, lines, github, orchestrator, findByGithubRepoId, publisher };
 }
@@ -256,7 +257,7 @@ describe("POST /webhooks/github: review flow", () => {
     expect(res.body).toMatchObject({ accepted: true, action: "review_started" });
   });
 
-  it("does not call the orchestrator when every file is filtered out", async () => {
+  it("does not call the orchestrator when every file is filtered out, but posts a Nothing to review Check Run", async () => {
     const target = await webhookApp({ files: devSeed().pullRequestFiles.slice(1) });
 
     await expectIgnored(target, await deliver(target, pullRequestEventPayload()), "event_ignored");
@@ -265,6 +266,63 @@ describe("POST /webhooks/github: review flow", () => {
       files: 0,
       skippedFiles: { generated_file: 1, binary: 1 },
     });
+    expect(target.publisher.nothingToReview).toHaveBeenCalledWith({
+      ref: { installationId: 42, owner: "code-sentinel", repo: "consumer-api", pullNumber: 42 },
+      headSha: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      skippedFiles: [expect.objectContaining({ reason: "generated_file" }), expect.objectContaining({ reason: "binary" })],
+      requestId: expect.any(String),
+    });
+    expect(target.publisher.follow).not.toHaveBeenCalled();
+  });
+
+  it("cancels the pull request's running review of an older commit once the new one starts", async () => {
+    const older = { jobId: "11111111-1111-4111-8111-111111111111", reviewId: "22222222-2222-4222-8222-222222222222" };
+    const target = await webhookApp({
+      edit: (seed) => {
+        const repo = seed.repositories[0]!;
+        const base = { organizationId: repo.organizationId, repositoryId: repo.repositoryId, trigger: "github_pull_request" as const, confidenceThreshold: 0.8 };
+        seed.reviews.push(
+          { ...base, ...older, prNumber: 42, headSha: "0".repeat(40), status: "running", createdAt: new Date() },
+          // Another pull request, and a finished review of this one: both left alone.
+          { ...base, reviewId: "33333333-3333-4333-8333-333333333333", jobId: "44444444-4444-4444-8444-444444444444", prNumber: 7, headSha: "1".repeat(40), status: "running", createdAt: new Date() },
+          { ...base, reviewId: "55555555-5555-4555-8555-555555555555", jobId: "66666666-6666-4666-8666-666666666666", prNumber: 42, headSha: "2".repeat(40), status: "completed", createdAt: new Date() },
+        );
+      },
+    });
+
+    const response = await deliver(target, pullRequestEventPayload({ action: "synchronize" }));
+    await vi.waitFor(() => expect(target.orchestrator.cancelReviewJob).toHaveBeenCalledTimes(1));
+
+    expect(response.body).toMatchObject({ action: "review_started" });
+    expect(target.orchestrator.cancelReviewJob).toHaveBeenCalledWith(older.jobId, { requestId: expect.any(String) });
+    expect(target.lines.find((line) => line.message === "superseded review cancelled")).toMatchObject({ reviewId: older.reviewId });
+  });
+
+  it("still starts the new review when cancelling the old one fails", async () => {
+    const target = await webhookApp({
+      edit: (seed) => {
+        const repo = seed.repositories[0]!;
+        seed.reviews.push({
+          organizationId: repo.organizationId,
+          repositoryId: repo.repositoryId,
+          trigger: "github_pull_request",
+          confidenceThreshold: 0.8,
+          reviewId: "22222222-2222-4222-8222-222222222222",
+          jobId: "11111111-1111-4111-8111-111111111111",
+          prNumber: 42,
+          headSha: "0".repeat(40),
+          status: "queued",
+          createdAt: new Date(),
+        });
+      },
+    });
+    target.orchestrator.cancelReviewJob.mockRejectedValueOnce(new OrchestratorCallError("down", { kind: "network", latencyMs: 1 }));
+
+    const response = await deliver(target, pullRequestEventPayload({ action: "synchronize" }));
+    await vi.waitFor(() => expect(target.lines.some((line) => line.message === "could not cancel a superseded review")).toBe(true));
+
+    expect(response.body).toMatchObject({ action: "review_started" });
+    expect(target.publisher.follow).toHaveBeenCalledTimes(1);
   });
 
   it("returns 502 orchestrator_unavailable when the orchestrator cannot be reached", async () => {

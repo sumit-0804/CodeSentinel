@@ -82,6 +82,7 @@ export function fakeOrchestrator(overrides: Partial<OrchestratorClientLike> = {}
     health: async () => ({ status: "ok", version: "test" }),
     createReviewJob: async () => ({ job: reviewJobResponse(202), created: true }),
     getReviewJob: async () => ({ ...reviewJobResponse(202), status: "completed" }),
+    cancelReviewJob: async () => ({ ...reviewJobResponse(202), status: "cancelled" }),
     ...overrides,
   };
 }

@@ -153,3 +153,21 @@ describe("OrchestratorClient.getReviewJob", () => {
     expect(missing).toMatchObject({ kind: "http", status: 404 });
   });
 });
+
+describe("OrchestratorClient.cancelReviewJob", () => {
+  it("POSTs to the job's cancel route and returns the job; a 404 means it's already gone", async () => {
+    const fetchImpl = vi.fn<FetchLike>(async () => jsonResponse({ ...reviewJobResponse(202), status: "cancelled" }));
+
+    const job = await client(fetchImpl).cancelReviewJob("0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b", { requestId: "req-3" });
+
+    expect(job?.status).toBe("cancelled");
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("http://orchestrator.internal:8080/internal/v1/review-jobs/0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b/cancel");
+    expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>)["X-Request-Id"]).toBe("req-3");
+
+    await expect(client(async () => jsonResponse({ code: "not_found" }, 404)).cancelReviewJob("gone")).resolves.toBeUndefined();
+    const down = await callError(client(async () => jsonResponse({ code: "internal" }, 500)).cancelReviewJob("x"));
+    expect(down).toMatchObject({ kind: "http", status: 500 });
+  });
+});

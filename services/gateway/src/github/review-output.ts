@@ -53,7 +53,7 @@ function criticalFindings(report: CombinedReport, threshold: number, blockingAge
  * otherwise `success`.
  */
 export function checkRunConclusion(job: ReviewJob, threshold: number, blockingAgents: readonly AgentKind[]): CheckConclusion {
-  if (!job.report) return "neutral";
+  if (!job.report || job.status === "cancelled") return "neutral";
   const { blocking, other } = criticalFindings(job.report, threshold, blockingAgents);
   if (blocking.length > 0) return "failure";
   return job.status === "completed" && other.length === 0 ? "success" : "neutral";
@@ -61,6 +61,10 @@ export function checkRunConclusion(job: ReviewJob, threshold: number, blockingAg
 
 /** Title, markdown summary and line annotations for the Check Run; `notes` are appended to the summary. */
 export function checkRunOutput(job: ReviewJob, threshold: number, blockingAgents: readonly AgentKind[], notes: string[] = []): CheckRunOutput {
+  // The gateway cancels a review only when a newer commit (or a re-run) replaces it.
+  if (job.status === "cancelled") {
+    return { title: "Superseded by a newer commit", summary: ["A newer review of this pull request replaced this one.", ...notes].join("\n\n"), annotations: [] };
+  }
   const report = job.report;
   if (!report) {
     const reason = job.error?.message ?? `The review ended as \`${job.status}\` without a report.`;
@@ -99,6 +103,20 @@ export function checkRunOutput(job: ReviewJob, threshold: number, blockingAgents
   lines.push(...notes);
 
   return { title, summary: lines.join("\n").trim().slice(0, MAX_SUMMARY), annotations: shown.map(annotation) };
+}
+
+/** The Check Run for a pull request whose every changed file was skipped: nothing goes to the agents. */
+export function nothingToReviewOutput(skippedFiles: readonly { path: string; reason: string }[]): CheckRunOutput {
+  // Removed files and pure renames are dropped without a reason, so the list can be empty.
+  const lines = skippedFiles.length
+    ? [
+        "Every changed file was skipped, so no agent ran.",
+        "",
+        "**Skipped files**",
+        ...skippedFiles.map((file) => `- \`${file.path}\` — ${SKIP_REASON[file.reason] ?? file.reason}`),
+      ]
+    : ["This pull request only removes or renames files, so there are no changed lines to review."];
+  return { title: "Nothing to review", summary: lines.join("\n").slice(0, MAX_SUMMARY), annotations: [] };
 }
 
 /**

@@ -89,6 +89,26 @@ export class OrchestratorClient {
     return data;
   }
 
+  /**
+   * `POST /internal/v1/review-jobs/{jobId}/cancel`: the job as cancelled, or as it finished if it was already done.
+   * `undefined` when the orchestrator no longer knows the job (404).
+   */
+  async cancelReviewJob(jobId: string, opts: { requestId?: string } = {}): Promise<ReviewJob | undefined> {
+    try {
+      const { data } = await this.send({
+        method: "POST",
+        path: `/internal/v1/review-jobs/${encodeURIComponent(jobId)}/cancel`,
+        ...(opts.requestId ? { headers: { "X-Request-Id": opts.requestId } } : {}),
+        schema: ReviewJobSchema,
+        successStatuses: [200],
+      });
+      return data;
+    } catch (error) {
+      if (error instanceof OrchestratorCallError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
   /** `GET /healthz`. */
   async health(): Promise<Health> {
     const { data } = await this.send({ method: "GET", path: "/healthz", schema: HealthSchema, successStatuses: [200] });
@@ -155,4 +175,4 @@ export class OrchestratorClient {
 }
 
 /** The slice of the client the app uses, so tests can pass plain objects. */
-export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "getReviewJob" | "health">;
+export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "getReviewJob" | "cancelReviewJob" | "health">;

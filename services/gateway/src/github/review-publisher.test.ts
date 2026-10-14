@@ -157,6 +157,31 @@ describe("ReviewPublisher", () => {
     expect(lines.some((line) => line.message === "could not create the Check Run" && line.status === 403)).toBe(true);
   });
 
+  it("completes a cancelled job's Check Run as superseded, without comments", async () => {
+    const { p, github, recordCheckRun } = publisher([job("running"), job("cancelled")]);
+
+    await p.follow(INPUT);
+
+    expect(github.checkRuns[0]).toMatchObject({ conclusion: "neutral", output: { title: "Superseded by a newer commit" } });
+    expect(github.reviews).toEqual([]);
+    expect(recordCheckRun).toHaveBeenCalledWith(INPUT.reviewId, { checkRunId: github.checkRuns[0]!.id, conclusion: "neutral" });
+  });
+
+  it("posts a neutral Nothing to review Check Run, and never throws", async () => {
+    const { p, github } = publisher([job("completed")]);
+
+    await p.nothingToReview({ ref: REF, headSha: "f3326e0", skippedFiles: [{ path: "package-lock.json", reason: "generated_file" }], requestId: "req-2" });
+
+    expect(github.checkRuns).toEqual([
+      expect.objectContaining({ headSha: "f3326e0", status: "completed", conclusion: "neutral", output: expect.objectContaining({ title: "Nothing to review" }) }),
+    ]);
+    expect(github.checkRuns[0]!.output?.summary).toContain("- `package-lock.json` — generated or vendored");
+
+    const failing = new StubGitHubClient();
+    vi.spyOn(failing, "createCheckRun").mockRejectedValue(Object.assign(new Error("Forbidden"), { status: 403 }));
+    await expect(publisher([], failing).p.nothingToReview({ ref: REF, headSha: "x", skippedFiles: [], requestId: "r" })).resolves.toBeUndefined();
+  });
+
   it("never throws, even when completing the Check Run fails", async () => {
     const github = new StubGitHubClient();
     vi.spyOn(github, "completeCheckRun").mockRejectedValue(new Error("boom"));

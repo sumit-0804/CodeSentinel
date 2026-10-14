@@ -17,12 +17,12 @@ import { createSignatureMiddleware } from "./signature.js";
 
 export interface GithubWebhookRouterDeps {
   secret: string;
-  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations">;
+  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations" | "reviews">;
   github: GitHubClient;
-  orchestrator: Pick<OrchestratorClientLike, "createReviewJob">;
+  orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
   /** Posts the finished review back to the pull request; omitted in tests that do not publish. */
-  publisher?: Pick<ReviewPublisher, "follow">;
+  publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
   now?: () => Date;
 }
 
@@ -140,9 +140,15 @@ export function createGithubWebhookRouter({
       const filtered = filterPullRequestFiles(await github.listPullRequestFiles(ref));
       logFields.files = filtered.files.length;
       logFields.skippedFiles = countByReason(filtered.skippedFiles);
-      // Interim: the design finishes an all-filtered review with an empty report, which needs the review store.
+      // Nothing reaches the agents, but the pull request still gets a Check Run saying why.
       if (filtered.files.length === 0) {
         accept("no_reviewable_files", "event_ignored");
+        void publisher?.nothingToReview({
+          ref,
+          headSha: pullRequest.pull_request.head.sha,
+          skippedFiles: filtered.skippedFiles,
+          requestId: res.locals.requestId,
+        });
         return;
       }
 
@@ -158,7 +164,17 @@ export function createGithubWebhookRouter({
           return;
         }
         accept("review_started", "review_started", job.reviewId);
-        // After the 202: GitHub gets its answer fast, and publishing never delays or fails the webhook.
+        // After the 202: GitHub gets its answer fast, and neither step delays or fails the webhook.
+        void cancelSuperseded({
+          stores,
+          orchestrator,
+          logger,
+          repositoryId: repository.repositoryId,
+          prNumber: pullRequest.number,
+          keepReviewId: job.reviewId,
+          headSha: pullRequest.pull_request.head.sha,
+          requestId: res.locals.requestId,
+        });
         void publisher?.follow({
           ref,
           headSha: pullRequest.pull_request.head.sha,
@@ -179,6 +195,36 @@ export function createGithubWebhookRouter({
   );
 
   return router;
+}
+
+/**
+ * Cancels the pull request's other queued or running reviews of an older commit, so only the newest
+ * one posts a verdict; each cancelled one completes its Check Run as superseded. Never throws.
+ */
+export async function cancelSuperseded(input: {
+  stores: Pick<Stores, "reviews">;
+  orchestrator: Pick<OrchestratorClientLike, "cancelReviewJob">;
+  logger: Logger;
+  repositoryId: string;
+  prNumber: number;
+  keepReviewId: string;
+  headSha: string;
+  requestId: string;
+}): Promise<void> {
+  const { stores, orchestrator, logger, requestId } = input;
+  try {
+    const active = await stores.reviews.activeForPullRequest(input.repositoryId, input.prNumber);
+    for (const review of active.filter((r) => r.reviewId !== input.keepReviewId && r.headSha !== input.headSha)) {
+      try {
+        await orchestrator.cancelReviewJob(review.jobId, { requestId });
+        logger.info("superseded review cancelled", { requestId, reviewId: review.reviewId, jobId: review.jobId });
+      } catch (error) {
+        logger.warn("could not cancel a superseded review", { requestId, reviewId: review.reviewId, error });
+      }
+    }
+  } catch (error) {
+    logger.warn("could not look up superseded reviews", { requestId, error });
+  }
 }
 
 function countByReason(skippedFiles: { reason: string }[]): Record<string, number> {

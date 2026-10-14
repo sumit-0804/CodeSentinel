@@ -1,11 +1,11 @@
-import type { AgentKind, CheckConclusion as StoredConclusion, ReviewJob } from "@code-sentinel/contracts";
+import type { AgentKind, CheckConclusion as StoredConclusion, ReviewJob, SkippedFile } from "@code-sentinel/contracts";
 import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { ReviewStore } from "../persistence/stores.js";
 import { githubStatus, type CheckConclusion, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
-import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, reviewComments } from "./review-output.js";
+import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, reviewComments } from "./review-output.js";
 
 /** `reviews.check_conclusion` uses its own words for GitHub's conclusions. */
 const STORED_CONCLUSION: Record<CheckConclusion, StoredConclusion> = { success: "pass", failure: "fail", neutral: "neutral" };
@@ -70,6 +70,18 @@ export class ReviewPublisher {
     }
   }
 
+  /** A neutral "Nothing to review" Check Run when every changed file was skipped; never throws. */
+  async nothingToReview(input: { ref: PullRequestRef; headSha: string; skippedFiles: SkippedFile[]; requestId: string }): Promise<void> {
+    const log = this.logger.child({ requestId: input.requestId });
+    try {
+      const checkRunId = await this.github.createCheckRun(input.ref, { name: CHECK_NAME, headSha: input.headSha });
+      await this.github.completeCheckRun(input.ref, checkRunId, { conclusion: "neutral", output: nothingToReviewOutput(input.skippedFiles) });
+      log.info("nothing-to-review Check Run posted", { checkRunId, skippedFiles: input.skippedFiles.length });
+    } catch (error) {
+      log.warn("could not post the nothing-to-review Check Run", { status: githubStatus(error), error });
+    }
+  }
+
   private async publish(input: FollowInput, log: Logger): Promise<void> {
     const { ref, headSha, threshold, blockingAgents } = input;
     let checkRunId: number | undefined;
@@ -84,7 +96,7 @@ export class ReviewPublisher {
     const notes: string[] = [];
     if (!job) {
       notes.push(`The review did not finish within ${Math.round(this.timeoutMs / 1000)} s.`);
-    } else if (input.postInlineComments) {
+    } else if (input.postInlineComments && job.status !== "cancelled") {
       notes.push(...(await this.postReview(ref, headSha, job, threshold, log)));
     }
 
