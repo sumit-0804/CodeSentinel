@@ -1,13 +1,9 @@
 import { forbidden, unauthorized, type Logger } from "@code-sentinel/service-kit";
 import type { NextFunction, Request } from "express";
 
-import type { ApiKeyStore, SessionStore, UserStore } from "../persistence/stores.js";
-import { sha256Hex } from "./hash.js";
+import type { SessionStore, UserStore } from "../persistence/stores.js";
 import type { GatewayResponse, Principal } from "./principal.js";
 import type { SupabaseClaims, SupabaseTokenVerifier } from "./supabase-token.js";
-
-/** Personal API keys always carry this prefix, so a key is never parsed as a JWT. */
-export const API_KEY_PREFIX = "cs_live_";
 
 export const ORGANIZATION_HEADER = "x-organization-id";
 
@@ -15,7 +11,6 @@ export const ORGANIZATION_HEADER = "x-organization-id";
 const RECORD_SIGN_IN_EVERY_MS = 5 * 60_000;
 
 export interface AuthMiddlewareDeps {
-  apiKeys: ApiKeyStore;
   sessions: SessionStore;
   users: UserStore;
   /** Absent when `SUPABASE_URL` is not configured: every Supabase token is then rejected. */
@@ -27,10 +22,10 @@ export interface AuthMiddlewareDeps {
 const invalidCredentials = () => unauthorized("invalid_credentials", "The supplied credentials are not valid");
 
 /**
- * Resolves `res.locals.principal` from `Authorization: Bearer` (FR-GW-02): a `cs_live_` API key, or a
- * Supabase access token whose session is still active. No header is 401 `unauthenticated`.
+ * Resolves `res.locals.principal` from `Authorization: Bearer` (FR-GW-02): a Supabase access token
+ * whose session is still active. No header is 401 `unauthenticated`.
  */
-export function createAuthMiddleware({ apiKeys, sessions, users, supabase, logger, now = () => new Date() }: AuthMiddlewareDeps) {
+export function createAuthMiddleware({ sessions, users, supabase, logger, now = () => new Date() }: AuthMiddlewareDeps) {
   const recordedAt = new Map<string, number>();
 
   async function supabasePrincipal(token: string, req: Request): Promise<Principal> {
@@ -66,7 +61,6 @@ export function createAuthMiddleware({ apiKeys, sessions, users, supabase, logge
     const organizationId = await resolveOrganization(claims.userId, req.get(ORGANIZATION_HEADER), users);
     return {
       userId: claims.userId,
-      method: "supabase",
       sessionId: claims.sessionId,
       aal: claims.aal,
       amr: claims.amr,
@@ -78,24 +72,14 @@ export function createAuthMiddleware({ apiKeys, sessions, users, supabase, logge
   return async (req: Request, res: GatewayResponse, next: NextFunction): Promise<void> => {
     const authorization = req.get("authorization");
     if (authorization === undefined) {
-      throw unauthorized("unauthenticated", "Sign in or send an API key as a bearer token");
+      throw unauthorized("unauthenticated", "Sign in and send your access token as a bearer token");
     }
     const token = /^Bearer\s+(\S+)$/i.exec(authorization.trim())?.[1];
     if (!token) throw invalidCredentials();
 
-    res.locals.principal = token.startsWith(API_KEY_PREFIX)
-      ? await apiKeyPrincipal(token, apiKeys, now())
-      : await supabasePrincipal(token, req);
+    res.locals.principal = await supabasePrincipal(token, req);
     next();
   };
-}
-
-async function apiKeyPrincipal(key: string, apiKeys: ApiKeyStore, now: Date): Promise<Principal> {
-  const record = await apiKeys.findActiveByKeyHash(sha256Hex(key));
-  if (!record) throw invalidCredentials();
-
-  await apiKeys.touchLastUsed(record.keyId, now);
-  return { userId: record.userId, organizationId: record.organizationId, method: "api_key" };
 }
 
 /** The requested organization must be one of the user's; without a header, the only one they have. */

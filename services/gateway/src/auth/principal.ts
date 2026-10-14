@@ -3,15 +3,14 @@ import type { ServiceHandler, ServiceLocals, ServiceResponse } from "@code-senti
 /** Who is calling, resolved by the auth middleware (FR-GW-02). Every org-owned read is scoped to `organizationId` (NFR-13). */
 export interface Principal {
   userId: string;
-  method: "supabase" | "api_key";
-  /** The key's organization, or for a signed-in user the `X-Organization-Id` header or their only membership. */
+  /** The `X-Organization-Id` header, or the user's only membership. */
   organizationId?: string;
-  /** Supabase sessions only: the session id and assurance level, for step-up checks (A7). */
-  sessionId?: string;
-  aal?: string;
-  amr?: { method: string; timestamp: number }[];
-  /** Supabase sessions only: every sign-in method linked to the account (`email`, `github`, `google`). */
-  providers?: string[];
+  /** The Supabase session id and assurance level, for step-up checks (A7). */
+  sessionId: string;
+  aal: string;
+  amr: { method: string; timestamp: number }[];
+  /** Every sign-in method linked to the account (`email`, `github`, `google`). */
+  providers: string[];
 }
 
 /** What the gateway's middleware stores on `res.locals`: the kit's fields plus the caller. */

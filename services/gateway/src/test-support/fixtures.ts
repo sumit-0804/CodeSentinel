@@ -1,10 +1,9 @@
 import type { ReviewJob } from "@code-sentinel/contracts";
-import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
+import { EXAMPLE_REVIEW_ID } from "@code-sentinel/contracts/examples";
 import { noopLogger } from "@code-sentinel/service-kit";
 
 import { createHmac } from "node:crypto";
 
-import { sha256Hex } from "../auth/hash.js";
 import type { AppDeps } from "../app.js";
 import type { GatewayConfig } from "../config.js";
 import { StubGitHubClient } from "../github/stub-github-client.js";
@@ -14,8 +13,6 @@ import { InMemoryStores, type StoreSeed } from "../persistence/in-memory.js";
 import { TEST_SUPABASE_SESSION_ID } from "./supabase-tokens.js";
 
 export const TEST_USER_ID = DEV_USER_ID;
-export const TEST_API_KEY = "cs_live_test_0123456789abcdef";
-export const TEST_API_KEY_ID = "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c";
 export const TEST_GITHUB_REPO_ID = DEV_GITHUB_REPO_ID;
 
 /** A valid `GatewayConfig` with dummy secrets. Never a real secret, never port 3000. */
@@ -41,27 +38,17 @@ export function baseSeed(): StoreSeed {
 export interface SeededStores {
   stores: InMemoryStores;
   seed: StoreSeed;
-  /** Plaintext of the seeded active API key. */
-  apiKey: string;
 }
 
 /**
- * The dev seed plus one active API key whose plaintext the test knows, and the session that
- * `testSupabase()` tokens carry marked active. `edit` adjusts the seed (revoke a key, sign out) first.
+ * The dev seed with the session that `testSupabase()` tokens carry marked active. `edit` adjusts
+ * the seed (sign out, add reviews) first.
  */
 export async function seededStores(edit: (seed: StoreSeed) => void = () => {}): Promise<SeededStores> {
   const seed = baseSeed();
   seed.activeSessionIds.push(TEST_SUPABASE_SESSION_ID);
-  seed.apiKeys.push({
-    keyId: TEST_API_KEY_ID,
-    userId: TEST_USER_ID,
-    organizationId: EXAMPLE_ORGANIZATION_ID,
-    label: "VS Code",
-    keyPrefix: TEST_API_KEY.slice(0, 12),
-    keyHash: sha256Hex(TEST_API_KEY),
-  });
   edit(seed);
-  return { stores: new InMemoryStores(seed), seed, apiKey: TEST_API_KEY };
+  return { stores: new InMemoryStores(seed), seed };
 }
 
 export const TEST_JOB_ID = "0f7e2c1a-9b3d-4e5f-8a6b-1c2d3e4f5a6b";

@@ -130,20 +130,6 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
       },
     });
   }
-  for (const key of seed.apiKeys) {
-    await prisma.apiKey.create({
-      data: {
-        id: key.keyId,
-        userId: key.userId,
-        organizationId: key.organizationId,
-        label: key.label,
-        keyPrefix: key.keyPrefix,
-        keyHash: Buffer.from(key.keyHash, "hex"),
-        revokedAt: key.revokedAt ?? null,
-        lastUsedAt: key.lastUsedAt ?? null,
-      },
-    });
-  }
   for (const { userId, ...tokens } of seed.githubTokens) {
     await prisma.githubUserToken.create({
       data: {

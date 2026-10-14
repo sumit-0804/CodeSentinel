@@ -9,7 +9,7 @@ import { InstallationSync } from "../github/installation-sync.js";
 import { StubGitHubClient } from "../github/stub-github-client.js";
 import { StubGitHubUserClient, type StubGitHubUser } from "../github/stub-github-user-client.js";
 import type { InMemoryStores } from "../persistence/in-memory.js";
-import { seededStores, testAppDeps } from "../test-support/fixtures.js";
+import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
 import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
 const ME = "4a5b6c7d-8e9f-4a0b-8c1d-2e3f4a5b6c7d";
@@ -38,7 +38,7 @@ async function setup({
   linkConfigured = true,
   ttlMs,
 }: { users?: StubGitHubUser[]; linkConfigured?: boolean; ttlMs?: number } = {}) {
-  const { stores, apiKey } = await seededStores();
+  const { stores } = await seededStores();
   const supabase = await testSupabase();
   const github = new StubGitHubClient();
   github.installationRepositories.set(11, repos("octocat/dotfiles"));
@@ -68,7 +68,7 @@ async function setup({
   ) {
     let result!: { status: number; body: Record<string, unknown> };
     // A signed-in session per call, stepped up unless asked not to; the test seed marks the token's session active.
-    const token = as.startsWith("cs_live_") ? as : await supabase.sign(as, stepUp ? stepUpClaims() : {});
+    const token = await supabase.sign(as, stepUp ? stepUpClaims() : {});
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}${path}`, {
         method,
@@ -80,7 +80,7 @@ async function setup({
     return result;
   }
 
-  return { stores: stores as InMemoryStores, github, githubUsers, apiKey, call };
+  return { stores: stores as InMemoryStores, github, githubUsers, call };
 }
 
 describe("POST /v1/github/link", () => {
@@ -138,10 +138,9 @@ describe("POST /v1/github/link", () => {
     expect(body.code).toBe("github_account_taken");
   });
 
-  it("rejects a missing code, an API key, and an unconfigured server", async () => {
+  it("rejects a missing code and an unconfigured server", async () => {
     const configured = await setup();
     expect((await configured.call("POST", "/v1/github/link", { body: {} })).body.code).toBe("invalid_body");
-    expect((await configured.call("POST", "/v1/github/link", { as: configured.apiKey, body: { code: "code-1" } })).body.code).toBe("session_required");
 
     const unconfigured = await setup({ linkConfigured: false });
     const { status, body } = await unconfigured.call("POST", "/v1/github/link", { body: { code: "code-1" } });
@@ -214,10 +213,10 @@ describe("GET /v1/installations and /v1/repositories", () => {
     expect(body.code).toBe("organization_required");
   });
 
-  it("serves an API key its own organization's repositories", async () => {
-    const { apiKey, call } = await setup();
+  it("serves a user with one organization that organization's repositories", async () => {
+    const { call } = await setup();
 
-    const { status, body } = await call("GET", "/v1/repositories", { as: apiKey });
+    const { status, body } = await call("GET", "/v1/repositories", { as: TEST_USER_ID });
 
     expect(status).toBe(200);
     expect(RepositoryListResponseSchema.parse(body).items).toHaveLength(1);

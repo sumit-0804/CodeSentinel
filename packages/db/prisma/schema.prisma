@@ -53,7 +53,6 @@ enum AgentMode {
 
 enum ReviewTrigger {
   github_pull_request
-  vscode_on_demand
   dashboard_manual
 
   @@map("review_trigger")
@@ -133,7 +132,6 @@ model Organization {
   members           OrganizationMember[]
   agentDefaults     OrganizationAgentDefault[]
   installations     GithubInstallation[]
-  apiKeys           ApiKey[]
   repositories      Repository[]
   reviews           Review[]
   findingEmbeddings FindingEmbedding[]
@@ -152,14 +150,13 @@ model User {
   lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  memberships            OrganizationMember[]
-  githubToken            GithubUserToken?
-  apiKeys                ApiKey[]
-  settingsUpdated        RepositorySetting[]
-  agentConfigUpdated     RepositoryAgentConfig[]
-  agentDefaultsUpdated   OrganizationAgentDefault[]
-  reviewsTriggered       Review[]
-  suggestionsResolved    Suggestion[]
+  memberships          OrganizationMember[]
+  githubToken          GithubUserToken?
+  settingsUpdated      RepositorySetting[]
+  agentConfigUpdated   RepositoryAgentConfig[]
+  agentDefaultsUpdated OrganizationAgentDefault[]
+  reviewsTriggered     Review[]
+  suggestionsResolved  Suggestion[]
 
   @@map("users")
 }
@@ -209,42 +206,23 @@ model GithubUserToken {
   @@map("github_user_tokens")
 }
 
-/// Personal API keys; only the SHA-256 of the full `cs_live_` key is stored.
-model ApiKey {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId         String    @map("user_id") @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  label          String
-  keyPrefix      String    @map("key_prefix")
-  keyHash        Bytes     @unique @map("key_hash")
-  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz(6)
-  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([userId], map: "idx_api_keys_user", where: raw("revoked_at IS NULL"))
-  @@map("api_keys")
-}
-
 // ---------------------------------------------------------------------------
 // Repositories and per-repository configuration (FR-WEB-02, FR-WEB-03, FR-ORC-06)
 // ---------------------------------------------------------------------------
 
 model Repository {
-  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId       String   @map("organization_id") @db.Uuid
-  githubInstallationId String   @map("github_installation_id") @db.Uuid
-  githubRepoId         BigInt   @unique @map("github_repo_id")
-  fullName             String   @map("full_name")
-  defaultBranch        String   @default("main") @map("default_branch")
-  primaryLanguage      String?  @map("primary_language")
-  isPrivate            Boolean  @default(true) @map("is_private")
-  reviewEnabled        Boolean  @default(true) @map("review_enabled")
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  githubInstallationId String    @map("github_installation_id") @db.Uuid
+  githubRepoId         BigInt    @unique @map("github_repo_id")
+  fullName             String    @map("full_name")
+  defaultBranch        String    @default("main") @map("default_branch")
+  primaryLanguage      String?   @map("primary_language")
+  isPrivate            Boolean   @default(true) @map("is_private")
+  reviewEnabled        Boolean   @default(true) @map("review_enabled")
   /// True: agent modes and branches come from the organization defaults, not this repository's own rows.
-  useOrgDefaults       Boolean  @default(true) @map("use_org_defaults")
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  useOrgDefaults       Boolean   @default(true) @map("use_org_defaults")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   /// Set when the repository leaves its installation or the App is uninstalled; the row and its reviews stay.
   removedAt            DateTime? @map("removed_at") @db.Timestamptz(6)
 
@@ -308,7 +286,7 @@ model OrganizationAgentDefault {
 }
 
 // ---------------------------------------------------------------------------
-// Review jobs (FR-ORC-01..04, FR-GH-01, FR-GH-02, FR-VSC-01, NFR-04)
+// Review jobs (FR-ORC-01..04, FR-GH-01, FR-GH-02, NFR-04)
 // ---------------------------------------------------------------------------
 
 /// One review job. `report` holds the full CombinedReport the API returns; agent runs, findings and
@@ -410,14 +388,14 @@ model Finding {
   duplicateCount Int       @default(1) @map("duplicate_count") @db.SmallInt
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  review       Review              @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  agentRun     AgentRun            @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
-  original     Finding?            @relation("FindingDuplicates", fields: [duplicateOf], references: [id], onDelete: SetNull)
-  duplicates   Finding[]           @relation("FindingDuplicates")
-  suggestions  Suggestion[]
-  embedding    FindingEmbedding?
-  similarTo    FindingSimilarity[] @relation("SimilaritySource")
-  similarFrom  FindingSimilarity[] @relation("SimilarityTarget")
+  review      Review              @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  agentRun    AgentRun            @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  original    Finding?            @relation("FindingDuplicates", fields: [duplicateOf], references: [id], onDelete: SetNull)
+  duplicates  Finding[]           @relation("FindingDuplicates")
+  suggestions Suggestion[]
+  embedding   FindingEmbedding?
+  similarTo   FindingSimilarity[] @relation("SimilaritySource")
+  similarFrom FindingSimilarity[] @relation("SimilarityTarget")
 
   @@unique([reviewId, dedupeKey], map: "uq_findings_dedupe", where: raw("duplicate_of IS NULL"))
   @@index([reviewId, severityRank, confidence(sort: Desc)], map: "idx_findings_review")

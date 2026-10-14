@@ -30,7 +30,7 @@ describe("createJsonLogger", () => {
     const { logger, lines } = captureLogger();
 
     logger.info("headers", {
-      authorization: "Bearer cs_live_abc",
+      authorization: "Bearer access-token-abc",
       headers: { cookie: "cs_session=jwt", "x-hub-signature-256": "sha256=abc" },
       secret: "webhook-secret",
       path: "/v1/me",
@@ -42,6 +42,6 @@ describe("createJsonLogger", () => {
       secret: "[redacted]",
       path: "/v1/me",
     });
-    expect(JSON.stringify(lines[0])).not.toMatch(/cs_live_abc|jwt|sha256=abc|webhook-secret/);
+    expect(JSON.stringify(lines[0])).not.toMatch(/access-token-abc|jwt|sha256=abc|webhook-secret/);
   });
 });

@@ -12,8 +12,6 @@ import {
 import {
   GithubAccountTakenError,
   storedStatuses,
-  type ApiKeyRecord,
-  type ApiKeyStore,
   type GithubTokenStore,
   type InstallationStore,
   type RepositoryConfigStore,
@@ -70,7 +68,6 @@ export interface StoreSeed {
   organizationAgentDefaults: { organizationId: string; agent: AgentKind; mode: AgentMode }[];
   /** Supabase session ids that are still signed in; like `auth.sessions`, any other id is not active. */
   activeSessionIds: string[];
-  apiKeys: ApiKeyRecord[];
   users: UserRecord[];
   githubTokens: ({ userId: string } & SealedGithubTokens)[];
   /** `reviews` rows; the repository's name is looked up, as the database joins it. */
@@ -88,7 +85,6 @@ export const emptySeed = (): StoreSeed => ({
   repositoryAgentConfig: [],
   organizationAgentDefaults: [],
   activeSessionIds: [],
-  apiKeys: [],
   users: [],
   githubTokens: [],
 });
@@ -102,7 +98,6 @@ export class InMemoryStores implements Stores {
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
   readonly sessions: SessionStore;
-  readonly apiKeys: ApiKeyStore;
   readonly users: UserStore;
   readonly installations: InstallationStore;
   readonly githubTokens: GithubTokenStore;
@@ -299,15 +294,6 @@ export class InMemoryStores implements Stores {
 
     this.sessions = {
       isActive: async (sessionId) => data.activeSessionIds.includes(sessionId),
-    };
-
-    this.apiKeys = {
-      findActiveByKeyHash: async (keyHash) =>
-        copy(data.apiKeys.find((k) => k.keyHash === keyHash && k.revokedAt === undefined)),
-      touchLastUsed: async (keyId, now) => {
-        const key = data.apiKeys.find((k) => k.keyId === keyId);
-        if (key) key.lastUsedAt = new Date(now);
-      },
     };
 
     this.users = {

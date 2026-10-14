@@ -19,7 +19,7 @@ describe("ReviewJobRequestSchema", () => {
     const minimal: ReviewJobRequestInput = {
       repositoryId: exampleReviewJobRequest.repositoryId,
       organizationId: exampleReviewJobRequest.organizationId,
-      trigger: "vscode_on_demand",
+      trigger: "dashboard_manual",
       headSha: exampleReviewJobRequest.headSha,
       files: exampleReviewJobRequest.files,
     };

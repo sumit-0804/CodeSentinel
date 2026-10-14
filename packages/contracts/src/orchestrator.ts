@@ -16,11 +16,7 @@ import { HealthStatusSchema } from "./agent.js";
  * Mirrors `docs/design/openapi/orchestrator.yaml`. Change the YAML first, then this file.
  */
 
-export const ReviewTriggerSchema = z.enum([
-  "github_pull_request",
-  "vscode_on_demand",
-  "dashboard_manual",
-]);
+export const ReviewTriggerSchema = z.enum(["github_pull_request", "dashboard_manual"]);
 export type ReviewTrigger = z.infer<typeof ReviewTriggerSchema>;
 
 /** Present when trigger is github_pull_request. */

@@ -15,7 +15,7 @@ export function createMeRouter({ users }: MeRouterDeps): Router {
 
   router.get("/me", async (_req: Request, res: GatewayResponse) => {
     const { principal } = res.locals;
-    if (!principal) throw unauthorized("unauthenticated", "Sign in or send an API key as a bearer token");
+    if (!principal) throw unauthorized("unauthenticated", "Sign in and send your access token as a bearer token");
 
     // A credential whose user has since been deleted is no longer valid.
     const user = await users.findById(principal.userId);
@@ -27,7 +27,7 @@ export function createMeRouter({ users }: MeRouterDeps): Router {
       ...(user.email !== undefined ? { email: user.email } : {}),
       ...(user.name !== undefined ? { name: user.name } : {}),
       ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
-      ...(principal.providers ? { providers: principal.providers } : {}),
+      providers: principal.providers,
       organizations: user.memberships,
     };
     res.json(body);

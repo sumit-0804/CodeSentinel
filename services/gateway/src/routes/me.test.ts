@@ -1,6 +1,6 @@
 import { CurrentUserSchema } from "@code-sentinel/contracts";
 import { withServer } from "@code-sentinel/service-kit/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../app.js";
 import { seededStores, testAppDeps, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
@@ -24,57 +24,42 @@ describe("GET /v1/me", () => {
     expect(body.code).toBe("unauthenticated");
   });
 
-  it("returns the current user for an API key", async () => {
-    const seeded = await seededStores();
-
-    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
-
-    expect(status).toBe(200);
-    const user = CurrentUserSchema.parse(body);
-    expect(user).toMatchObject({ userId: TEST_USER_ID, githubLogin: "octo-dev" });
-    expect(user.organizations).toHaveLength(1);
-  });
-
-  it("returns the signed-in user with name and linked sign-in methods for a Supabase token", async () => {
+  it("returns the signed-in user with memberships, name and linked sign-in methods", async () => {
     const seeded = await seededStores();
     const supabase = await testSupabase();
 
     const { status, body } = await getMe(seeded, { Authorization: `Bearer ${await supabase.sign(TEST_USER_ID)}` }, supabase);
 
     expect(status).toBe(200);
-    expect(CurrentUserSchema.parse(body)).toMatchObject({
+    const user = CurrentUserSchema.parse(body);
+    expect(user).toMatchObject({
       userId: TEST_USER_ID,
+      githubLogin: "octo-dev",
       name: "Ada Lovelace",
       providers: ["email", "github"],
     });
-  });
-
-  it("omits providers for an API key", async () => {
-    const seeded = await seededStores();
-
-    const { body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
-
-    expect(body).not.toHaveProperty("providers");
+    expect(user.organizations).toHaveLength(1);
   });
 
   it("omits githubLogin for a user who has not linked GitHub", async () => {
     const seeded = await seededStores((seed) => {
       delete seed.users[0]!.githubLogin;
     });
+    const supabase = await testSupabase();
 
-    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
+    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${await supabase.sign(TEST_USER_ID)}` }, supabase);
 
     expect(status).toBe(200);
     expect(CurrentUserSchema.parse(body).userId).toBe(TEST_USER_ID);
     expect(body).not.toHaveProperty("githubLogin");
   });
 
-  it("answers 401 when the credential's user no longer exists", async () => {
-    const seeded = await seededStores((seed) => {
-      seed.users = [];
-    });
+  it("answers 401 when the token's user no longer exists", async () => {
+    const seeded = await seededStores();
+    vi.spyOn(seeded.stores.users, "findById").mockResolvedValue(undefined);
+    const supabase = await testSupabase();
 
-    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${seeded.apiKey}` });
+    const { status, body } = await getMe(seeded, { Authorization: `Bearer ${await supabase.sign(TEST_USER_ID)}` }, supabase);
 
     expect(status).toBe(401);
     expect(body.code).toBe("invalid_credentials");

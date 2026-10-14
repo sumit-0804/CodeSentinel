@@ -2,7 +2,7 @@ import { RepositoryConfigUpdateSchema, type RepositoryConfig, type RepositoryLis
 import { badRequest, notFound } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { assertOrgAdmin, assertStepUp, requireOrganization, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
+import { assertOrgAdmin, assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyRepositoryConfigUpdate, resolveEffectiveConfig, toRepositoryConfig } from "../persistence/effective-config.js";
 import type { RepositoryConfigStore, RepositoryStore, UserStore } from "../persistence/stores.js";
@@ -42,7 +42,6 @@ export function createRepositoriesRouter({ repositories, repositoryConfig, users
 
   router.put(
     "/repositories/:repositoryId/config",
-    requireUserSession,
     requireOrganization,
     async (req: Request<{ repositoryId: string }>, res: GatewayResponse) => {
       const parsed = RepositoryConfigUpdateSchema.safeParse(req.body);

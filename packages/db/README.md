@@ -14,7 +14,7 @@ the orchestrator use. The database is **Supabase Postgres**: `code-sentinel-dev`
 
 ## What is in the schema
 
-Every table of the System Design Document (organizations, members, installations, API keys,
+Every table of the System Design Document (organizations, members, installations,
 repositories and their settings, reviews, agent runs, findings, suggestions, embeddings), with these
 changes for Supabase Auth and job persistence:
 
@@ -27,6 +27,7 @@ changes for Supabase Auth and job persistence:
 | `repositories.removed_at`; name unique only among active rows (migration `20261011120000`) | A repository that leaves its installation, or whose App is uninstalled, is marked removed rather than deleted, so its review history stays; a recreated repository can reuse the name (A6) |
 | `agent_mode` (`off` / `comment` / `block`) replaces `repository_agent_config.enabled` (false → off, true → comment); `organization_agent_defaults`; `repositories.use_org_defaults`; `review_branches` on `repository_settings` and `default_review_branches` on `organizations` (migration `20261012100000`) | Each agent can comment only or block the merge per repository, organizations set defaults, and each repository picks which base branches get reviewed (A9) |
 | `reviews.job_id`, `idempotency_key`, `report` (JSONB), `error` (JSONB); status `cancelled` | The orchestrator's job store lives in `reviews`, and the API answers from one row |
+| `api_keys` and the editor review trigger removed; `review_trigger` is `github_pull_request` or `dashboard_manual` (migration `20261014120000`) | There is no editor client; every caller is the GitHub App or a signed-in dashboard user |
 
 Prisma can't express the CHECK constraints or row-level security, so they are hand-written at the
 end of the first migration:
@@ -91,7 +92,7 @@ prompt and hold Prisma's advisory lock until it's killed.
 
 **Seed:** the same ids as `@code-sentinel/contracts/examples` and the gateway's in-memory dev seed:
 organization `code-sentinel`, repository `code-sentinel/consumer-api` (GitHub id 123456789), user
-`octo-dev`, and the API key `cs_live_dev_00000000`. That key is published here, so dev data only.
+`octo-dev`. Dev data only.
 Set `SEED_GITHUB_REPOSITORY=owner/name:githubRepoId` (e.g. the test playground) to seed that
 repository instead, so its pull requests are reviewed by a gateway running with `DATABASE_URL`.
 Rerunning the seed with or without it switches the repository back and forth.

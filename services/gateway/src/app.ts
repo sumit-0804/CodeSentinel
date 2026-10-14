@@ -39,7 +39,7 @@ export interface AppDeps {
   database?: DatabaseHealth;
   /** Reported by `/healthz`. */
   version?: string;
-  /** Clock for API-key last use and sign-in records. */
+  /** Clock for sign-in records, step-up checks and review timestamps. */
   now?: () => Date;
   /** Overrides the JWKS-backed verifier built from `config.supabaseUrl` (tests use a local key). */
   supabaseVerifier?: SupabaseTokenVerifier;
@@ -80,7 +80,6 @@ export function createApp(deps: AppDeps): Express {
   const supabase = supabaseVerifier ?? (config.supabaseUrl ? createSupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl }) : undefined);
   v1.use(
     createAuthMiddleware({
-      apiKeys: stores.apiKeys,
       sessions: stores.sessions,
       users: stores.users,
       logger,

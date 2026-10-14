@@ -1,8 +1,7 @@
 # @code-sentinel/gateway
 
-The API gateway: the single Express entry point for the GitHub App, the VS Code extension and the
-dashboard (FR-GW-01). It verifies GitHub webhooks (FR-GW-03), authenticates session and API-key
-traffic (FR-GW-02), and forwards review jobs to the orchestrator, relaying its answer (FR-GW-04).
+The API gateway: the single Express entry point for the GitHub App and the dashboard (FR-GW-01).
+It verifies GitHub webhooks (FR-GW-03), authenticates signed-in dashboard sessions (FR-GW-02), and forwards review jobs to the orchestrator, relaying its answer (FR-GW-04).
 
 Public contract: [`docs/design/openapi/gateway.yaml`](../../docs/design/openapi/gateway.yaml).
 Orchestrator contract it calls: [`docs/design/openapi/orchestrator.yaml`](../../docs/design/openapi/orchestrator.yaml).
@@ -19,8 +18,8 @@ response shape comes from [`@code-sentinel/contracts`](../../packages/contracts/
 | Config from env, validated at startup | `config.ts`, `loadEnvFile` from `@code-sentinel/service-kit` | working |
 | Error handling (`ApiError` bodies with `requestId`) | `HttpError`, `errorHandler` from `@code-sentinel/service-kit` | working |
 | `GET /healthz` | `routes/healthz.ts` | working; reports the orchestrator and, with `DATABASE_URL`, the database |
-| Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `auth/supabase-token.ts`, `routes/me.ts` | working: `cs_live_` API keys and Supabase access tokens; see [Authentication](#authentication) |
-| Route guards | `auth/guards.ts` (`requireUserSession`, `requireOrganization`, `assertOrgAdmin`) | used by the GitHub, repository and organization routes |
+| Auth middleware + `GET /v1/me` (FR-GW-02) | `auth/authenticate.ts`, `auth/supabase-token.ts`, `routes/me.ts` | working: Supabase access tokens; see [Authentication](#authentication) |
+| Route guards | `auth/guards.ts` (`requireOrganization`, `assertOrgAdmin`, `assertStepUp`) | used by the GitHub, repository and organization routes |
 | Connecting GitHub (A6) | `routes/github.ts`, `github/github-user-client.ts`, `github/installation-sync.ts` | working; see [Connecting GitHub](#connecting-github) |
 | `GET /v1/repositories` | `routes/repositories.ts` | working: the organization's active repositories |
 | Review history (A4b-2) | `routes/reviews.ts`, `routes/review-view.ts` | working: `GET /v1/reviews`, `GET /v1/reviews/{id}`; see [Review history](#review-history) |
@@ -110,7 +109,7 @@ How a signed-in user gets organizations and repositories (A6, `seq_onboarding.mm
    which needs the App's **Members: read** permission). If GitHub won't say, `member` is added but an
    existing role is never lowered.
 4. `GET /v1/installations` lists the user's installations, and `GET /v1/repositories` an organization's
-   active repositories (`X-Organization-Id`, or the only membership; API keys use their own).
+   active repositories (`X-Organization-Id`, or the only membership).
 
 Repositories are matched by GitHub id, so a rename updates the name in place. A repository that leaves
 its installation is **marked removed, never deleted**, and comes back with its history if added again.
@@ -123,8 +122,7 @@ its installation is **marked removed, never deleted**, and comes back with its h
 | `github_unavailable` | 502 | GitHub did not answer during the exchange or the sync |
 | `github_link_unconfigured` | 503 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` or `FIELD_ENCRYPTION_KEY` not set |
 
-These are account routes: API keys get 403 `session_required`. `link` and `sync` also need a TOTP
-step-up (403 `mfa_required`, see [Authentication](#authentication)).
+`link` and `sync` need a TOTP step-up (403 `mfa_required`, see [Authentication](#authentication)).
 
 ## Repository configuration
 
@@ -151,16 +149,16 @@ How each repository is reviewed (A9, UC-4). Every agent has a **mode**:
 
 | Route | Who |
 | --- | --- |
-| `GET /v1/repositories/{id}/config` | any member (or the organization's API key); another organization's repository is 404 |
+| `GET /v1/repositories/{id}/config` | any member; another organization's repository is 404 |
 | `PUT /v1/repositories/{id}/config` | a signed-in **admin** of the repository's organization |
-| `GET /v1/organizations/{id}/review-defaults` | any member (or the organization's API key) |
+| `GET /v1/organizations/{id}/review-defaults` | any member |
 | `PUT /v1/organizations/{id}/review-defaults` | a signed-in **admin** of that organization |
 
 Both `PUT`s are partial updates (omitted fields keep their value) and answer with the new
 configuration. The repository `PUT` also takes `reviewEnabled` and `useOrgDefaults`, and
 `confidenceThresholdOverride: null` restores inheritance. Errors: 400 `invalid_body` (with zod's
 `issues`), 400 `no_agents_enabled` when every agent would end up `off` (switch reviews off instead),
-403 `session_required` for an API key, 403 `admin_required` for a member, and 403 `mfa_required`
+403 `admin_required` for a member, and 403 `mfa_required`
 without a recent authenticator code (see [Step-up](#authentication)). Each row written records `updated_by`.
 
 **File filter** (`filterPullRequestFiles`), applied to GitHub's PR file list in GitHub's order:
@@ -183,8 +181,7 @@ Language comes from the extension: `js/mjs/cjs/jsx` → `javascript`, `ts/mts/ct
 ## Review history
 
 The orchestrator writes every review to `reviews`, with the full `CombinedReport` in `report`. The gateway reads
-them back for the dashboard and the VS Code extension; both routes take a Supabase session or an API key and only
-ever show the caller's organization (another organization's review is 404, like an unknown one).
+them back for the dashboard; both routes take a Supabase session and only ever show the caller's organization (another organization's review is 404, like an unknown one).
 
 - **`GET /v1/reviews`**, newest first:
   - `repositoryId`, `status` (comma-separated), `limit` (1–100, default 25) and `offset`
@@ -207,7 +204,7 @@ as GitHub. If that write fails, it's logged and the Check Run stands.
 Both routes are scoped to the caller's organization; another organization's repository is 404
 `repository_not_found`.
 
-**`GET /v1/repositories/{id}/pulls`** (a session or an API key):
+**`GET /v1/repositories/{id}/pulls`** (any member):
 - The repository's open pull requests from GitHub, read with the App's installation token: up to 50, most recently
   updated first. GitHub's answer is cached for 30 s per repository.
 - Each pull request carries its newest review (`latestReview`, or `null`) and `reviewable`, whether its base branch
@@ -215,7 +212,7 @@ Both routes are scoped to the caller's organization; another organization's repo
 - GitHub failing is 502 `github_unavailable`.
 
 **`POST /v1/reviews`** with `{ repositoryId, pullRequestNumber }` (the dashboard's "Re-run review"):
-- **Who:** any member of the organization, with a signed-in session (API keys get 403 `session_required`).
+- **Who:** any member of the organization. Any other body is 400 `invalid_body`.
 - **What it reviews:** the open pull request's head commit, through the same path as the webhook
   (`webhooks/start-review.ts`: files, filter, job, follow), with trigger `dashboard_manual` and `triggered_by_user_id`.
   - Re-running the same commit is allowed: the one-review-per-commit rule only covers `github_pull_request`.
@@ -230,8 +227,6 @@ Both routes are scoped to the caller's organization; another organization's repo
   | 409 | `review_in_progress` | A review of that pull request started less than 30 s ago, so a double click runs one review |
   | 422 | `no_reviewable_files` | Every file is skipped; the "Nothing to review" Check Run is posted |
   | 502 | `github_unavailable`, `orchestrator_unavailable` | GitHub or the orchestrator failed |
-
-The file-set body (VS Code) is specified but not built yet: 501 `not_implemented`.
 
 ## Publishing the review to the pull request
 
@@ -276,15 +271,11 @@ posted and the failure is logged with the request id.
 ## Authentication
 
 `/v1` routes pass through `createAuthMiddleware`, which reads `Authorization: Bearer <token>` and
-sets `res.locals.principal`: `userId`, `method`, `organizationId?`, and for Supabase sessions also
-`sessionId`, `aal`, `amr` and `providers`. Two schemes, as in `gateway.yaml`. Cookies are never read.
+sets `res.locals.principal`: `userId`, `organizationId?`, `sessionId`, `aal`, `amr` and `providers`.
+The only scheme is `supabaseBearer`, as in `gateway.yaml`: a Supabase access token the dashboard sends
+from its server (`gatewayFetch`). Cookies are never read.
 
-| Scheme | Client | Check |
-| --- | --- | --- |
-| `Bearer cs_live_…` (`apiKey`) | VS Code | SHA-256 of the key matches an active (not revoked) row in `api_keys`; `lastUsedAt` is updated. The key's organization is the principal's |
-| `Bearer <Supabase access token>` (`supabaseBearer`) | Dashboard (server side, `gatewayFetch`) | See below |
-
-A Supabase access token is checked in this order (`auth/supabase-token.ts`, then the middleware):
+The token is checked in this order (`auth/supabase-token.ts`, then the middleware):
 1. **Signature and claims:** ES256 against the project's JWKS
    (`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, fetched once and cached by `jose`), issuer
    `<SUPABASE_URL>/auth/v1`, audience `authenticated`, `exp` with 5 s tolerance, `role` must be
@@ -298,13 +289,9 @@ A Supabase access token is checked in this order (`auth/supabase-token.ts`, then
 4. **Organization:** the `X-Organization-Id` header, which must be one of the user's memberships;
    without it, the user's only membership. A new user has none until GitHub onboarding (A6).
 
-API keys are opaque and never parsed as JWTs. Credentials are stored only as SHA-256 hashes; a
-salted hash such as bcrypt would prevent the unique-hash lookup `schema.sql` uses, and the keys are
-high-entropy random strings, not passwords. Without `SUPABASE_URL`, every non-`cs_live_` bearer is
-`invalid_credentials`.
+Without `SUPABASE_URL`, every bearer is `invalid_credentials`.
 
 **Guards** (`auth/guards.ts`):
-- `requireUserSession` refuses API keys on account and configuration routes.
 - `requireOrganization` refuses a caller with no resolved organization.
 - `assertOrgAdmin` needs the organization's admin role on configuration writes.
 - `assertStepUp` is the TOTP step-up (A7), described below.
@@ -328,10 +315,9 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `code` | HTTP | When |
 | --- | --- | --- |
 | `unauthenticated` | 401 | No `Authorization` header |
-| `invalid_credentials` | 401 | The bearer is not a known active API key or a valid Supabase token, or its user no longer exists |
+| `invalid_credentials` | 401 | The bearer is not a valid Supabase token, or its user no longer exists |
 | `session_revoked` | 401 | The token is valid but its Supabase session was signed out |
 | `organization_forbidden` | 403 | `X-Organization-Id` names an organization the user is not a member of |
-| `session_required` | 403 | An API key on a route that needs a signed-in session (`requireUserSession`) |
 | `organization_required` | 403 | No organization could be resolved (`requireOrganization`) |
 | `admin_required` | 403 | A configuration write by someone who isn't an admin of the organization (`assertOrgAdmin`) |
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
@@ -361,7 +347,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `REVIEW_POLL_TIMEOUT_MS` | `300000` | How long to wait for a review job before completing its Check Run as timed out | integer 10000..1800000 |
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `MFA_STEP_UP_MINUTES` | `10` | How long an authenticator code counts for on step-up routes | integer 1..60 |
-| `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → only API keys work | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
+| `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
 | `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role). Set → Prisma stores; unset → in-memory stores | `postgres://` or `postgresql://` URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
@@ -378,7 +364,7 @@ An empty value (`PORT=`) means "use the default". With `GITHUB_APP_ID` and
 
 `GATEWAY_SEED=dev` is for the local manual check without a database. It seeds one organization, the repository
 `code-sentinel/consumer-api` (`githubRepoId` 123456789, every agent on its platform default mode,
-platform threshold 0.8, default branch `main`), the user `octo-dev` with the API key **`cs_live_dev_00000000`** (`DEV_API_KEY`), and a GitHub
+platform threshold 0.8, default branch `main`), the user `octo-dev`, and a GitHub
 stub whose pull requests contain `payments/retry_queue.py` (reviewed), `package-lock.json`
 (`generated_file`) and `logo.png` (`binary`).
 
@@ -416,9 +402,8 @@ Differences to know:
 
 ## Not started yet
 
-- `/v1/reviews`: create from a file set (VS Code), SSE events, style fixes; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
+- `/v1/reviews`: SSE events; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
 - Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
-- API-key management (`/v1/me/api-keys`)
 - Rate limiting (FR-GW-05)
 - Storing posted comment ids (`suggestions.github_comment_id`)
 - Accept / reject tracking of posted suggestions (UC-3)
@@ -433,7 +418,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-274 tests in 25 files (35 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+265 tests in 25 files (33 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
@@ -455,8 +440,8 @@ the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit
    `review_started`, and a job on the orchestrator with one file and two skipped files.
 4. Send the same body signed with a wrong secret, with no signature, and `{not json` unsigned:
    each is 401 `invalid_signature` and the orchestrator receives nothing.
-5. `curl /v1/me` is 401 `unauthenticated`; with `Authorization: Bearer cs_live_dev_00000000` it is
-   200. `curl /healthz` is `ok`, and `degraded` / `unavailable` once the orchestrator stops.
+5. `curl /v1/me` is 401 `unauthenticated` (signing in needs Supabase; see the sign-in check below).
+   `curl /healthz` is `ok`, and `degraded` / `unavailable` once the orchestrator stops.
 
 **Sign-in check with the dashboard** (Supabase dev project): start the gateway with `DATABASE_URL`
 (the `prisma` role) and `SUPABASE_URL=https://<project-ref>.supabase.co`, and the dashboard with

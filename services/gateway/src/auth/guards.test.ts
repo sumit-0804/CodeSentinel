@@ -8,7 +8,7 @@ const NOW = new Date("2026-10-12T12:00:00Z");
 const policy = { minutes: 10, now: () => NOW };
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 
-const session = (aal: string, amr: Principal["amr"]): Principal => ({ userId: "u", method: "supabase", sessionId: "s", aal, amr });
+const session = (aal: string, amr: Principal["amr"]): Principal => ({ userId: "u", sessionId: "s", aal, amr, providers: [] });
 const totp = (ageSeconds: number) => ({ method: "totp", timestamp: seconds(NOW) - ageSeconds });
 
 function codeOf(run: () => void): string | undefined {
@@ -26,11 +26,11 @@ describe("assertStepUp", () => {
     expect(codeOf(() => assertStepUp(session("aal2", [totp(600)]), policy))).toBeUndefined();
   });
 
-  it("answers 403 mfa_required for a stale code, aal1, aal2 without TOTP, or no claims", () => {
+  it("answers 403 mfa_required for a stale code, aal1, aal2 without TOTP, or no sign-in methods", () => {
     expect(codeOf(() => assertStepUp(session("aal2", [totp(601)]), policy))).toBe("403 mfa_required");
     expect(codeOf(() => assertStepUp(session("aal1", [{ method: "password", timestamp: seconds(NOW) }]), policy))).toBe("403 mfa_required");
     expect(codeOf(() => assertStepUp(session("aal2", [{ method: "password", timestamp: seconds(NOW) }]), policy))).toBe("403 mfa_required");
-    expect(codeOf(() => assertStepUp({ userId: "u", method: "supabase" }, policy))).toBe("403 mfa_required");
+    expect(codeOf(() => assertStepUp(session("aal1", []), policy))).toBe("403 mfa_required");
   });
 
   it("ignores a TOTP entry on an aal1 token", () => {

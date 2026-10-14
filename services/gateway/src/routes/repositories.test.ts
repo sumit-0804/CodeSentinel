@@ -10,9 +10,9 @@ import type { StoreSeed } from "../persistence/in-memory.js";
 import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
 import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
-type Caller = "admin" | "member" | "apiKey";
+type Caller = "admin" | "member";
 
-/** Calls the gateway as the seeded admin (Supabase session, stepped up unless `stepUp: false`), as a plain member, or with the seeded API key. */
+/** Calls the gateway as the seeded admin (Supabase session, stepped up unless `stepUp: false`) or as a plain member. */
 async function call(
   method: string,
   path: string,
@@ -23,7 +23,7 @@ async function call(
     edit?.(seed);
   });
   const supabase = await testSupabase();
-  const authorization = as === "apiKey" ? seeded.apiKey : await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {});
+  const authorization = await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {});
   let result!: { status: number; body: Record<string, unknown> };
   await withServer(createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier })), async (baseUrl) => {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -40,8 +40,8 @@ const CONFIG_PATH = `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/config`;
 const DEFAULTS_PATH = `/v1/organizations/${EXAMPLE_ORGANIZATION_ID}/review-defaults`;
 
 describe("GET /v1/repositories/{id}/config", () => {
-  it("returns the platform defaults with their sources, even for an API key", async () => {
-    const { status, body } = await call("GET", CONFIG_PATH, { as: "apiKey" });
+  it("returns the platform defaults with their sources, even to a member", async () => {
+    const { status, body } = await call("GET", CONFIG_PATH, { as: "member", stepUp: false });
 
     expect(status).toBe(200);
     const config = RepositoryConfigSchema.parse(body);
@@ -87,13 +87,11 @@ describe("PUT /v1/repositories/{id}/config", () => {
     await expect(stores.repositoryConfig.getEffectiveConfig(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({ blockingAgents: ["logic"] });
   });
 
-  it("refuses a member with 403 admin_required and an API key with 403 session_required", async () => {
+  it("refuses a member with 403 admin_required", async () => {
     // A member is told about the role first, without being asked for a code.
     const member = await call("PUT", CONFIG_PATH, { as: "member", body: { reviewEnabled: false }, stepUp: false });
-    const apiKey = await call("PUT", CONFIG_PATH, { as: "apiKey", body: { reviewEnabled: false } });
 
     expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
-    expect([apiKey.status, apiKey.body.code]).toEqual([403, "session_required"]);
   });
 
   it("needs a TOTP step-up: an admin without one gets 403 mfa_required and nothing changes", async () => {

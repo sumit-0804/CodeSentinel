@@ -5,7 +5,6 @@ import { modesOf, resolveEffectiveConfig, type RepositoryConfigInputs } from "./
 import {
   GithubAccountTakenError,
   storedStatuses,
-  type ApiKeyStore,
   type GithubTokenStore,
   type InstallationStore,
   type RepositoryConfigStore,
@@ -87,14 +86,13 @@ async function upsertRepository(
 
 /**
  * All stores over Supabase Postgres through Prisma. GitHub ids are `bigint` columns but stay below
- * 2^53, so they are safe as numbers; `key_hash` is `bytea` and the stores speak hex.
+ * 2^53, so they are safe as numbers.
  */
 export class PrismaStores implements Stores {
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
   readonly sessions: SessionStore;
-  readonly apiKeys: ApiKeyStore;
   readonly users: UserStore;
   readonly installations: InstallationStore;
   readonly githubTokens: GithubTokenStore;
@@ -269,26 +267,6 @@ export class PrismaStores implements Stores {
       isActive: async (sessionId) => {
         const rows = await prisma.$queryRaw<{ active: boolean }[]>`select private.session_is_active(${sessionId}::uuid) as active`;
         return rows[0]?.active === true;
-      },
-    };
-
-    this.apiKeys = {
-      findActiveByKeyHash: async (keyHash) => {
-        const row = await prisma.apiKey.findUnique({ where: { keyHash: Buffer.from(keyHash, "hex") } });
-        if (!row || row.revokedAt !== null) return undefined;
-        return {
-          keyId: row.id,
-          userId: row.userId,
-          organizationId: row.organizationId,
-          label: row.label,
-          keyPrefix: row.keyPrefix,
-          keyHash: Buffer.from(row.keyHash).toString("hex"),
-          ...(row.lastUsedAt ? { lastUsedAt: row.lastUsedAt } : {}),
-        };
-      },
-      // `updateMany`, so a key deleted between lookup and touch is not an error.
-      touchLastUsed: async (keyId, now) => {
-        await prisma.apiKey.updateMany({ where: { id: keyId }, data: { lastUsedAt: now } });
       },
     };
 

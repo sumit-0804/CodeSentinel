@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  CreateReviewRequestSchema,
   PullRequestReviewRequestSchema,
   type PullRequestListItem,
   type PullRequestListResponse,
@@ -11,7 +10,7 @@ import { badGateway, badRequest, HttpError, notFound, unprocessable, type Logger
 import { Router, type Request } from "express";
 import { z } from "zod";
 
-import { requireOrganization, requireUserSession } from "../auth/guards.js";
+import { requireOrganization } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubClient, PullRequestInfo, RepositoryRef } from "../github/github-client.js";
 import type { ReviewPublisher } from "../github/review-publisher.js";
@@ -104,12 +103,9 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     res.json(body);
   });
 
-  router.post("/reviews", requireUserSession, requireOrganization, async (req: Request, res: GatewayResponse) => {
+  router.post("/reviews", requireOrganization, async (req: Request, res: GatewayResponse) => {
     const parsed = PullRequestReviewRequestSchema.safeParse(req.body);
     if (!parsed.success) {
-      if (CreateReviewRequestSchema.safeParse(req.body).success) {
-        throw new HttpError(501, "not_implemented", "Reviewing a set of files (VS Code) is not available yet");
-      }
       throw badRequest("invalid_body", "Send { repositoryId, pullRequestNumber }", { issues: parsed.error.issues });
     }
     const { userId, organizationId } = res.locals.principal!;

@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { CombinedReportSchema } from "./common.js";
-import { exampleChangedFile, exampleCombinedReport } from "./examples.js";
+import { exampleCombinedReport } from "./examples.js";
 import {
-  AcceptSuggestionRequestSchema,
-  ApiKeySchema,
-  CreateApiKeyRequestSchema,
-  CreateReviewRequestSchema,
-  CreatedApiKeySchema,
   CurrentUserSchema,
   RejectSuggestionRequestSchema,
   RepositoryConfigSchema,
@@ -17,7 +12,6 @@ import {
   ReviewDetailSchema,
   ReviewListQuerySchema,
   ReviewListResponseSchema,
-  StyleFixesResponseSchema,
   SuggestionDecisionSchema,
   WebhookAcceptedSchema,
 } from "./gateway.js";
@@ -34,21 +28,6 @@ describe("WebhookAcceptedSchema", () => {
 
   it("rejects an unknown action", () => {
     expect(WebhookAcceptedSchema.safeParse({ accepted: true, action: "queued" }).success).toBe(false);
-  });
-});
-
-describe("CreateReviewRequestSchema", () => {
-  it("accepts an on-demand review", () => {
-    const parsed = CreateReviewRequestSchema.parse({
-      repositoryId: REPOSITORY_ID,
-      files: [exampleChangedFile],
-      agents: ["security"],
-    });
-    expect(parsed.files[0]?.changeType).toBe("modified");
-  });
-
-  it("rejects an empty file list", () => {
-    expect(CreateReviewRequestSchema.safeParse({ repositoryId: REPOSITORY_ID, files: [] }).success).toBe(false);
   });
 });
 
@@ -125,29 +104,7 @@ describe("ReviewDetailSchema", () => {
   });
 });
 
-describe("StyleFixesResponseSchema", () => {
-  it("accepts patched files", () => {
-    const parsed = StyleFixesResponseSchema.parse({
-      fixedCount: 2,
-      files: [{ path: "src/a.ts", content: "export {};\n", fixesApplied: 2 }],
-    });
-    expect(parsed.fixedCount).toBe(2);
-  });
-
-  it("rejects a file without content", () => {
-    expect(StyleFixesResponseSchema.safeParse({ fixedCount: 1, files: [{ path: "src/a.ts" }] }).success).toBe(false);
-  });
-});
-
 describe("suggestion decisions", () => {
-  it("defaults the accept target to github_branch", () => {
-    expect(AcceptSuggestionRequestSchema.parse({}).target).toBe("github_branch");
-  });
-
-  it("rejects an unknown accept target", () => {
-    expect(AcceptSuggestionRequestSchema.safeParse({ target: "clipboard" }).success).toBe(false);
-  });
-
   it("accepts a rejection with a reason and rejects an unknown reason", () => {
     expect(RejectSuggestionRequestSchema.parse({ reason: "false_positive", comment: "test code" }).reason).toBe("false_positive");
     expect(RejectSuggestionRequestSchema.safeParse({ reason: "meh" }).success).toBe(false);
@@ -257,18 +214,5 @@ describe("CurrentUserSchema", () => {
       organizations: [{ organizationId: REPOSITORY_ID, displayName: "x", role: "owner" }],
     });
     expect(result.success).toBe(false);
-  });
-});
-
-describe("API keys", () => {
-  it("accepts a listed key without a secret and a created key with one", () => {
-    const key = { keyId: KEY_ID, label: "Work laptop", keyPrefix: "cs_live_9f2a", createdAt: "2026-09-15T09:00:00Z" };
-    expect("secret" in ApiKeySchema.parse({ ...key, secret: "cs_live_9f2a_abc" })).toBe(false);
-    expect(CreatedApiKeySchema.parse({ ...key, secret: "cs_live_9f2a_abc" }).secret).toBe("cs_live_9f2a_abc");
-  });
-
-  it("rejects an empty label on creation", () => {
-    expect(CreateApiKeyRequestSchema.safeParse({ label: "" }).success).toBe(false);
-    expect(CreateApiKeyRequestSchema.parse({ label: "Work laptop" }).label).toBe("Work laptop");
   });
 });

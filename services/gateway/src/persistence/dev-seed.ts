@@ -4,12 +4,9 @@ import {
   exampleChangedFile,
 } from "@code-sentinel/contracts/examples";
 
-import { sha256Hex } from "../auth/hash.js";
 import type { PullRequestFile } from "../github/github-client.js";
 import type { StoreSeed } from "./in-memory.js";
 
-/** Local-only API key for the manual check. Never valid anywhere `GATEWAY_SEED` is `none`. */
-export const DEV_API_KEY = "cs_live_dev_00000000";
 export const DEV_USER_ID = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f";
 export const DEV_GITHUB_REPO_ID = 123456789;
 
@@ -39,16 +36,6 @@ export function devSeed(options: DevSeedOptions = {}): { seed: StoreSeed; pullRe
     reviews: [],
     activeSessionIds: [],
     githubTokens: [],
-    apiKeys: [
-      {
-        keyId: "1b2c3d4e-5f60-4718-8293-a4b5c6d7e8f9",
-        userId: DEV_USER_ID,
-        organizationId: EXAMPLE_ORGANIZATION_ID,
-        label: "Local development",
-        keyPrefix: DEV_API_KEY.slice(0, 12),
-        keyHash: sha256Hex(DEV_API_KEY),
-      },
-    ],
     users: [
       {
         userId: DEV_USER_ID,

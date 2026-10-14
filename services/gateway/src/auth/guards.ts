@@ -5,16 +5,6 @@ import type { NextFunction, Request } from "express";
 import type { UserStore } from "../persistence/stores.js";
 import type { GatewayResponse, Principal } from "./principal.js";
 
-/** Account and configuration routes need a signed-in person, not a personal API key. */
-export function requireUserSession(_req: Request, res: GatewayResponse, next: NextFunction): void {
-  const { principal } = res.locals;
-  if (!principal) throw unauthorized("unauthenticated", "Sign in or send an API key as a bearer token");
-  if (principal.method !== "supabase") {
-    throw forbidden("session_required", "This action needs a signed-in session, not an API key");
-  }
-  next();
-}
-
 /** How recent the TOTP code must be (`MFA_STEP_UP_MINUTES`), and the clock to judge it by. */
 export interface StepUpPolicy {
   minutes: number;
@@ -41,7 +31,7 @@ export async function assertOrgAdmin(users: Pick<UserStore, "findById">, userId:
 /** Organization-owned routes need one resolved organization; send `X-Organization-Id` when you belong to several. */
 export function requireOrganization(_req: Request, res: GatewayResponse, next: NextFunction): void {
   const { principal } = res.locals;
-  if (!principal) throw unauthorized("unauthenticated", "Sign in or send an API key as a bearer token");
+  if (!principal) throw unauthorized("unauthenticated", "Sign in and send your access token as a bearer token");
   if (!principal.organizationId) {
     throw forbidden("organization_required", "Choose an organization with the X-Organization-Id header");
   }

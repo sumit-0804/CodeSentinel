@@ -11,7 +11,7 @@ with the same definition that types the code.
 | `common.ts` | `common.yaml` | `Finding`, `ChangedFile`, `SkippedFile`, `CombinedReport`, `AgentRunSummary`, `ReviewCoverage`, `ApiError`, … |
 | `agent.ts` | `agent.yaml` | `AgentReviewRequest`, `AgentReviewResponse`, `Capabilities`, `Health` |
 | `orchestrator.ts` | `orchestrator.yaml` | `ReviewJobRequest`, `ReviewJob`, `AgentHealthSnapshot` |
-| `gateway.ts` | `gateway.yaml` | `CreateReviewRequest`, `ReviewListItem`, `RepositoryConfig`, `CurrentUser`, `ApiKey`, … |
+| `gateway.ts` | `gateway.yaml` | `PullRequestReviewRequest`, `ReviewListItem`, `RepositoryConfig`, `CurrentUser`, … |
 | `examples.ts` | the YAML `example` blocks | Valid payloads for tests, exported as `@code-sentinel/contracts/examples` |
 
 ## Conventions

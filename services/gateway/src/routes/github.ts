@@ -6,7 +6,7 @@ import {
 import { badGateway, badRequest, HttpError, type Logger } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { assertStepUp, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
+import { assertStepUp, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubUserClient, GitHubUserTokens } from "../github/github-user-client.js";
 import { GithubNotLinkedError, type InstallationSync, type SyncedInstallation } from "../github/installation-sync.js";
@@ -30,13 +30,12 @@ const summary = (items: SyncedInstallation[]) =>
 
 /**
  * GitHub onboarding (A6): link the signed-in user's GitHub account from the App's callback `code`, sync
- * the installations they reach, and list them. Account routes: API keys are refused (`requireUserSession`).
- * `link` and `sync` change what Code Sentinel can access, so they need a TOTP step-up (A7).
+ * the installations they reach, and list them. `link` and `sync` change what Code Sentinel can access, so they need a TOTP step-up (A7).
  */
 export function createGithubRouter({ users, installations, link, logger, stepUp }: GithubRouterDeps): Router {
   const router = Router();
 
-  router.post("/github/link", requireUserSession, async (req: Request, res: GatewayResponse) => {
+  router.post("/github/link", async (req: Request, res: GatewayResponse) => {
     assertStepUp(res.locals.principal!, stepUp);
     if (!link) throw unconfigured();
     const parsed = GithubLinkRequestSchema.safeParse(req.body);
@@ -74,7 +73,7 @@ export function createGithubRouter({ users, installations, link, logger, stepUp 
     res.json(body);
   });
 
-  router.post("/installations/sync", requireUserSession, async (_req: Request, res: GatewayResponse) => {
+  router.post("/installations/sync", async (_req: Request, res: GatewayResponse) => {
     assertStepUp(res.locals.principal!, stepUp);
     if (!link) throw unconfigured();
     const userId = res.locals.principal!.userId;
@@ -86,7 +85,7 @@ export function createGithubRouter({ users, installations, link, logger, stepUp 
     res.json(body);
   });
 
-  router.get("/installations", requireUserSession, async (_req: Request, res: GatewayResponse) => {
+  router.get("/installations", async (_req: Request, res: GatewayResponse) => {
     const items = await installations.listForUser(res.locals.principal!.userId);
     const body: InstallationListResponse = {
       items: items.map(({ organizationId, accountLogin, accountType, suspended, repositoryCount }) => ({

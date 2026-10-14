@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import type { SeedReview, StoreSeed } from "../persistence/in-memory.js";
-import { seededStores, testAppDeps } from "../test-support/fixtures.js";
+import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
+import { testSupabase } from "../test-support/supabase-tokens.js";
 
 const review = (prNumber: number, minutesAgo: number, overrides: Partial<SeedReview> = {}): SeedReview => ({
   reviewId: randomUUID(),
@@ -24,12 +25,14 @@ const review = (prNumber: number, minutesAgo: number, overrides: Partial<SeedRev
   ...overrides,
 });
 
-/** Calls the gateway with the seeded API key, which belongs to the example organization. */
+/** Calls the gateway as the seeded user, whose only organization is the example one. */
 async function get(path: string, edit: (seed: StoreSeed) => void = () => {}) {
   const seeded = await seededStores(edit);
+  const supabase = await testSupabase();
+  const token = await supabase.sign(TEST_USER_ID);
   let result!: { status: number; body: Record<string, unknown> };
-  await withServer(createApp(testAppDeps({ stores: seeded.stores })), async (baseUrl) => {
-    const response = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${seeded.apiKey}` } });
+  await withServer(createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier })), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
     result = { status: response.status, body: (await response.json()) as Record<string, unknown> };
   });
   return result;

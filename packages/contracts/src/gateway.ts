@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import {
   AgentKindSchema,
-  ChangedFileSchema,
   CombinedReportSchema,
   ConfidenceSchema,
   PageInfoSchema,
@@ -12,7 +11,7 @@ import {
 import { ReviewTriggerSchema } from "./orchestrator.js";
 
 /**
- * Public gateway contract used by the GitHub App, the VS Code extension and the dashboard.
+ * Public gateway contract used by the GitHub App and the dashboard.
  * Mirrors `docs/design/openapi/gateway.yaml`. Change the YAML first, then this file.
  */
 
@@ -34,17 +33,6 @@ export const WebhookAcceptedSchema = z.object({
   action: WebhookActionSchema.optional(),
 });
 export type WebhookAccepted = z.infer<typeof WebhookAcceptedSchema>;
-
-/** POST /v1/reviews: on-demand review from VS Code or the dashboard (FR-VSC-01). */
-export const CreateReviewRequestSchema = z.object({
-  repositoryId: z.string().uuid(),
-  files: z.array(ChangedFileSchema).min(1).max(200),
-  /** Commit the files came from, when the workspace is a clean checkout. */
-  headSha: z.string().optional(),
-  /** Restrict this one review to a subset. Repository configuration still applies on top. */
-  agents: z.array(AgentKindSchema).optional(),
-});
-export type CreateReviewRequest = z.infer<typeof CreateReviewRequestSchema>;
 
 /** POST /v1/reviews from the dashboard: review an open pull request's head again (trigger `dashboard_manual`). */
 export const PullRequestReviewRequestSchema = z.object({
@@ -121,26 +109,6 @@ export const ReviewListResponseSchema = z.object({
   pageInfo: PageInfoSchema,
 });
 export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
-
-export const StyleFixedFileSchema = z.object({
-  path: z.string(),
-  content: z.string(),
-  fixesApplied: z.number().int().min(0).optional(),
-});
-export type StyleFixedFile = z.infer<typeof StyleFixedFileSchema>;
-
-/** 200 body of POST /v1/reviews/{reviewId}/style-fixes. No LLM is involved (NFR-07). */
-export const StyleFixesResponseSchema = z.object({
-  fixedCount: z.number().int().min(0),
-  files: z.array(StyleFixedFileSchema),
-});
-export type StyleFixesResponse = z.infer<typeof StyleFixesResponseSchema>;
-
-/** editor_buffer records the decision without touching GitHub. */
-export const AcceptSuggestionRequestSchema = z.object({
-  target: z.enum(["github_branch", "editor_buffer"]).default("github_branch"),
-});
-export type AcceptSuggestionRequest = z.infer<typeof AcceptSuggestionRequestSchema>;
 
 export const RejectSuggestionRequestSchema = z.object({
   reason: z.enum(["false_positive", "not_applicable", "will_fix_manually", "other"]).optional(),
@@ -363,37 +331,11 @@ export const CurrentUserSchema = z.object({
   email: z.string().optional(),
   name: z.string().optional(),
   avatarUrl: z.string().optional(),
-  /** Sign-in methods linked to the account (`email`, `github`, `google`); absent for API-key callers. */
+  /** Sign-in methods linked to the account (`email`, `github`, `google`). */
   providers: z.array(z.string()).optional(),
   organizations: z.array(OrganizationMembershipSchema),
 });
 export type CurrentUser = z.infer<typeof CurrentUserSchema>;
-
-/** Prefix only; the secret is shown once at creation and never again. */
-export const ApiKeySchema = z.object({
-  keyId: z.string().uuid(),
-  label: z.string(),
-  keyPrefix: z.string(),
-  lastUsedAt: z.string().datetime().optional(),
-  createdAt: z.string().datetime(),
-});
-export type ApiKey = z.infer<typeof ApiKeySchema>;
-
-export const ApiKeyListResponseSchema = z.object({
-  items: z.array(ApiKeySchema).optional(),
-});
-export type ApiKeyListResponse = z.infer<typeof ApiKeyListResponseSchema>;
-
-export const CreateApiKeyRequestSchema = z.object({
-  label: z.string().min(1),
-});
-export type CreateApiKeyRequest = z.infer<typeof CreateApiKeyRequestSchema>;
-
-/** 201 body of POST /v1/me/api-keys. The plaintext secret appears here only. */
-export const CreatedApiKeySchema = ApiKeySchema.extend({
-  secret: z.string().optional(),
-});
-export type CreatedApiKey = z.infer<typeof CreatedApiKeySchema>;
 
 export const GatewayHealthSchema = z.object({
   status: z.enum(["ok", "degraded", "unavailable"]).optional(),

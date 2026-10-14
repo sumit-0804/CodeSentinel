@@ -47,18 +47,6 @@ export interface EffectiveRepositoryConfig {
   postInlineComments: boolean;
 }
 
-/** An `api_keys` row. `keyHash` is the SHA-256 of the full `cs_live_` key; the key itself is never stored. */
-export interface ApiKeyRecord {
-  keyId: string;
-  userId: string;
-  organizationId: string;
-  label: string;
-  keyPrefix: string;
-  keyHash: string;
-  revokedAt?: Date;
-  lastUsedAt?: Date;
-}
-
 /** A repository as the dashboard lists it. */
 export interface RepositorySummary {
   repositoryId: string;
@@ -230,12 +218,6 @@ export interface SessionStore {
   isActive(sessionId: string): Promise<boolean>;
 }
 
-export interface ApiKeyStore {
-  /** Only keys that are not revoked. */
-  findActiveByKeyHash(keyHash: string): Promise<ApiKeyRecord | undefined>;
-  touchLastUsed(keyId: string, now: Date): Promise<void>;
-}
-
 export interface UserStore {
   findById(userId: string): Promise<UserRecord | undefined>;
   /** Inserts or refreshes the `users` row (replaces Supabase's auth trigger); memberships are untouched. */
@@ -254,7 +236,6 @@ export interface Stores {
   repositoryConfig: RepositoryConfigStore;
   reviews: ReviewStore;
   sessions: SessionStore;
-  apiKeys: ApiKeyStore;
   users: UserStore;
   installations: InstallationStore;
   githubTokens: GithubTokenStore;

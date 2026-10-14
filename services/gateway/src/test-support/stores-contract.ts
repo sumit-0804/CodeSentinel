@@ -2,7 +2,6 @@ import { randomInt, randomUUID } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { sha256Hex } from "../auth/hash.js";
 import type { SeedReview, StoreSeed } from "../persistence/in-memory.js";
 import { GithubAccountTakenError, type Stores } from "../persistence/stores.js";
 
@@ -11,15 +10,11 @@ export function uniqueSeed() {
   const organizationId = randomUUID();
   const repositoryId = randomUUID();
   const userId = randomUUID();
-  const keyId = randomUUID();
-  const revokedKeyId = randomUUID();
   const installationId = randomUUID();
   const githubRepoId = randomInt(1, 2 ** 47);
   const githubOrgId = randomInt(1, 2 ** 47);
   const githubInstallationId = randomInt(1, 2 ** 47);
   const orgLogin = `test-org-${githubOrgId}`;
-  const apiKey = `cs_live_test_${randomUUID()}`;
-  const revokedApiKey = `cs_live_test_${randomUUID()}`;
 
   const seed: StoreSeed = {
     organizations: [
@@ -44,18 +39,6 @@ export function uniqueSeed() {
     reviews: [],
     activeSessionIds: [],
     githubTokens: [],
-    apiKeys: [
-      { keyId, userId, organizationId, label: "Test", keyPrefix: apiKey.slice(0, 12), keyHash: sha256Hex(apiKey) },
-      {
-        keyId: revokedKeyId,
-        userId,
-        organizationId,
-        label: "Revoked",
-        keyPrefix: revokedApiKey.slice(0, 12),
-        keyHash: sha256Hex(revokedApiKey),
-        revokedAt: new Date(Date.now() - 1000),
-      },
-    ],
     users: [
       {
         userId,
@@ -67,9 +50,7 @@ export function uniqueSeed() {
   };
   return {
     seed,
-    ids: { organizationId, repositoryId, userId, keyId, githubRepoId, installationId, githubInstallationId, githubOrgId, orgLogin },
-    apiKey,
-    revokedApiKey,
+    ids: { organizationId, repositoryId, userId, githubRepoId, installationId, githubInstallationId, githubOrgId, orgLogin },
   };
 }
 
@@ -303,8 +284,8 @@ export function describeStoresContract(
       let rerun: SeedReview | undefined;
       const { stores, ids } = await build(({ seed, ids }) => {
         rerun = review(ids, 7, 5, { trigger: "dashboard_manual" });
-        const { prNumber: _pr, prTitle: _title, ...vscode } = review(ids, 0, 1, { trigger: "vscode_on_demand" });
-        seed.reviews.push(review(ids, 7, 30), rerun, vscode);
+        const { prNumber: _pr, prTitle: _title, ...noPullRequest } = review(ids, 0, 1, { trigger: "dashboard_manual" });
+        seed.reviews.push(review(ids, 7, 30), rerun, noPullRequest);
       });
 
       const latest = await stores.reviews.list(ids.organizationId, { latest: true, limit: 25, offset: 0 });
@@ -365,26 +346,6 @@ export function describeStoresContract(
         createdAt: running!.createdAt,
       });
       await expect(stores.reviews.activeForPullRequest(ids.repositoryId, 99)).resolves.toEqual([]);
-    });
-  });
-
-  describe("apiKeys", () => {
-    it("finds an active key by hash and never a revoked or unknown one", async () => {
-      const { stores, apiKey, revokedApiKey, seed } = await build();
-
-      await expect(stores.apiKeys.findActiveByKeyHash(sha256Hex(apiKey))).resolves.toEqual(seed.apiKeys[0]);
-      await expect(stores.apiKeys.findActiveByKeyHash(sha256Hex(revokedApiKey))).resolves.toBeUndefined();
-      await expect(stores.apiKeys.findActiveByKeyHash(sha256Hex("cs_live_unknown"))).resolves.toBeUndefined();
-    });
-
-    it("records when a key was last used", async () => {
-      const { stores, apiKey, ids } = await build();
-      const now = new Date("2026-10-11T10:00:00.000Z");
-
-      await stores.apiKeys.touchLastUsed(ids.keyId, now);
-      await stores.apiKeys.touchLastUsed(randomUUID(), now);
-
-      await expect(stores.apiKeys.findActiveByKeyHash(sha256Hex(apiKey))).resolves.toMatchObject({ lastUsedAt: now });
     });
   });
 

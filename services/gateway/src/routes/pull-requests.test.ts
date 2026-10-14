@@ -42,7 +42,7 @@ interface Options {
 }
 
 async function setup({ edit, pulls = [pull(42)], files = devSeed().pullRequestFiles, orchestrator = {}, github: editGithub }: Options = {}) {
-  const { stores, apiKey } = await seededStores((seed) => {
+  const { stores } = await seededStores((seed) => {
     seed.installations.push({ installationId: seed.repositories[0]!.githubInstallationId, organizationId: EXAMPLE_ORGANIZATION_ID, githubInstallationId: INSTALLATION, accountLogin: "code-sentinel" });
     edit?.(seed);
   });
@@ -65,8 +65,8 @@ async function setup({ edit, pulls = [pull(42)], files = devSeed().pullRequestFi
     }),
   );
 
-  async function call(method: string, path: string, { body, as }: { body?: unknown; as?: "apiKey" } = {}) {
-    const token = as === "apiKey" ? apiKey : await supabase.sign(TEST_USER_ID);
+  async function call(method: string, path: string, { body }: { body?: unknown } = {}) {
+    const token = await supabase.sign(TEST_USER_ID);
     let result!: { status: number; body: Record<string, unknown> };
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}${path}`, {
@@ -184,14 +184,13 @@ describe("POST /v1/reviews (re-run a pull request)", () => {
     expect(createReviewJob).not.toHaveBeenCalled();
   });
 
-  it("refuses API keys, answers 501 for the file-set body and 400 for anything else", async () => {
+  it("answers 400 invalid_body for anything but a repository and pull request number", async () => {
     const { call } = await setup();
 
-    expect((await call("POST", "/v1/reviews", { body: rerun(), as: "apiKey" })).body.code).toBe("session_required");
     const files = await call("POST", "/v1/reviews", {
       body: { repositoryId: EXAMPLE_REPOSITORY_ID, files: [{ path: "a.py", language: "python", changeType: "modified", patch: "@@ -1 +1 @@\n-a\n+b" }] },
     });
-    expect([files.status, files.body.code]).toEqual([501, "not_implemented"]);
+    expect([files.status, files.body.code]).toEqual([400, "invalid_body"]);
     expect((await call("POST", "/v1/reviews", { body: { pullRequestNumber: "x" } })).status).toBe(400);
   });
 
@@ -231,7 +230,7 @@ describe("GET /v1/repositories/{id}/pulls", () => {
         }),
     });
 
-    const { status, body } = await call("GET", `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/pulls`, { as: "apiKey" });
+    const { status, body } = await call("GET", `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/pulls`);
 
     expect(status).toBe(200);
     const { items } = PullRequestListResponseSchema.parse(body);

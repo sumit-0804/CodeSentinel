@@ -10,7 +10,7 @@ export interface GatewayConfig {
   orchestratorTimeoutMs: number;
   /** Sent to the orchestrator as `Authorization: Bearer <token>`. */
   serviceToken: string;
-  /** Supabase project URL; dashboard tokens are verified against its JWKS. Unset → only API keys work. */
+  /** Supabase project URL; dashboard tokens are verified against its JWKS. Unset → every `/v1` call is 401. */
   supabaseUrl?: string;
   /** Verifies `X-Hub-Signature-256` on every webhook delivery (FR-GW-03). */
   githubWebhookSecret: string;
@@ -101,7 +101,7 @@ const EnvSchema = z.object({
   NODE_ENV: z.string().optional(),
 })
   .refine((values) => !(values.NODE_ENV === "production" && values.GATEWAY_SEED === "dev"), {
-    // The dev seed contains a published API key, so it must never load in production.
+    // The dev seed is fake demo data, so it must never load in production.
     message: "must be none when NODE_ENV is production",
     path: ["GATEWAY_SEED"],
   })

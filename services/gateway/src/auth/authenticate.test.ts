@@ -4,23 +4,22 @@ import { withServer } from "@code-sentinel/service-kit/testing";
 import express from "express";
 import { describe, expect, it, vi } from "vitest";
 
-import { seededStores, TEST_API_KEY_ID, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
+import { seededStores, TEST_USER_ID, type SeededStores } from "../test-support/fixtures.js";
 import { TEST_SUPABASE_SESSION_ID, testSupabase, type TestSupabase } from "../test-support/supabase-tokens.js";
 import { createAuthMiddleware } from "./authenticate.js";
-import { requireOrganization, requireUserSession } from "./guards.js";
+import { requireOrganization } from "./guards.js";
 import type { GatewayResponse } from "./principal.js";
 
 const NOW = new Date("2026-10-11T12:00:00Z");
 const NEW_USER_ID = "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d";
 const OTHER_ORG_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
 
-/** Echoes the principal at `/whoami`; `/session` and `/org` sit behind the guards. */
+/** Echoes the principal at `/whoami`; `/org` sits behind `requireOrganization`. */
 function authApp({ stores }: SeededStores, supabase?: TestSupabase, now: () => Date = () => NOW) {
   const app = express();
   app.use(requestIdMiddleware());
   app.use(
     createAuthMiddleware({
-      apiKeys: stores.apiKeys,
       sessions: stores.sessions,
       users: stores.users,
       ...(supabase ? { supabase: supabase.verifier } : {}),
@@ -31,7 +30,6 @@ function authApp({ stores }: SeededStores, supabase?: TestSupabase, now: () => D
     res.json(res.locals.principal);
   };
   app.get("/whoami", echo);
-  app.get("/session", requireUserSession, echo);
   app.get("/org", requireOrganization, echo);
   app.use(errorHandler(noopLogger));
   return app;
@@ -48,7 +46,7 @@ async function call(app: express.Express, path: string, headers: Record<string, 
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
-describe("createAuthMiddleware: API keys", () => {
+describe("createAuthMiddleware: missing or malformed credentials", () => {
   it("answers 401 unauthenticated without credentials", async () => {
     const { status, body } = await call(authApp(await seededStores()), "/whoami");
 
@@ -56,30 +54,10 @@ describe("createAuthMiddleware: API keys", () => {
     expect(body.code).toBe("unauthenticated");
   });
 
-  it("accepts a valid API key and records its last use", async () => {
-    const seeded = await seededStores();
+  it.each(["Bearer not-a-jwt", "Basic abc", "Bearer"])("rejects %j as invalid_credentials", async (authorization) => {
+    const supabase = await testSupabase(() => NOW);
 
-    const { status, body } = await call(authApp(seeded), "/whoami", bearer(seeded.apiKey));
-
-    expect(status).toBe(200);
-    expect(body).toEqual({ userId: TEST_USER_ID, organizationId: EXAMPLE_ORGANIZATION_ID, method: "api_key" });
-    const key = await seeded.stores.apiKeys.findActiveByKeyHash(seeded.seed.apiKeys.find((k) => k.keyId === TEST_API_KEY_ID)!.keyHash);
-    expect(key?.lastUsedAt).toEqual(NOW);
-  });
-
-  it.each(["Bearer cs_live_unknown", "Basic abc", "Bearer"])("rejects %j as invalid_credentials", async (authorization) => {
-    const { status, body } = await call(authApp(await seededStores()), "/whoami", { Authorization: authorization });
-
-    expect(status).toBe(401);
-    expect(body.code).toBe("invalid_credentials");
-  });
-
-  it("rejects a revoked API key", async () => {
-    const seeded = await seededStores((seed) => {
-      seed.apiKeys.find((key) => key.keyId === TEST_API_KEY_ID)!.revokedAt = new Date("2026-09-01T00:00:00Z");
-    });
-
-    const { status, body } = await call(authApp(seeded), "/whoami", bearer(seeded.apiKey));
+    const { status, body } = await call(authApp(await seededStores(), supabase), "/whoami", { Authorization: authorization });
 
     expect(status).toBe(401);
     expect(body.code).toBe("invalid_credentials");
@@ -102,7 +80,6 @@ describe("createAuthMiddleware: Supabase access tokens", () => {
     expect(status).toBe(200);
     expect(body).toMatchObject({
       userId: TEST_USER_ID,
-      method: "supabase",
       sessionId: TEST_SUPABASE_SESSION_ID,
       aal: "aal1",
       organizationId: EXAMPLE_ORGANIZATION_ID,
@@ -239,16 +216,6 @@ describe("createAuthMiddleware: Supabase access tokens", () => {
 });
 
 describe("guards", () => {
-  it("requireUserSession lets a signed-in user through and refuses an API key", async () => {
-    const supabase = await testSupabase(() => NOW);
-    const seeded = await seededStores();
-
-    expect((await call(authApp(seeded, supabase), "/session", bearer(await supabase.sign(TEST_USER_ID)))).status).toBe(200);
-    const { status, body } = await call(authApp(seeded, supabase), "/session", bearer(seeded.apiKey));
-    expect(status).toBe(403);
-    expect(body.code).toBe("session_required");
-  });
-
   it("requireOrganization refuses a user with no resolved organization", async () => {
     const supabase = await testSupabase(() => NOW);
 
@@ -258,9 +225,9 @@ describe("guards", () => {
     expect(body.code).toBe("organization_required");
   });
 
-  it("requireOrganization lets an API key through with its own organization", async () => {
-    const seeded = await seededStores();
+  it("requireOrganization lets a user through with their only organization", async () => {
+    const supabase = await testSupabase(() => NOW);
 
-    expect((await call(authApp(seeded), "/org", bearer(seeded.apiKey))).status).toBe(200);
+    expect((await call(authApp(await seededStores(), supabase), "/org", bearer(await supabase.sign(TEST_USER_ID)))).status).toBe(200);
   });
 });

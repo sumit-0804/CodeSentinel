@@ -2,7 +2,7 @@ import { ReviewDefaultsUpdateSchema, type ReviewDefaults } from "@code-sentinel/
 import { badRequest, notFound } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
-import { assertOrgAdmin, assertStepUp, requireUserSession, type StepUpPolicy } from "../auth/guards.js";
+import { assertOrgAdmin, assertStepUp, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyReviewDefaultsUpdate, resolveAgentSettings, toReviewDefaults } from "../persistence/effective-config.js";
 import type { RepositoryConfigStore, UserStore } from "../persistence/stores.js";
@@ -17,14 +17,11 @@ export interface OrganizationsRouterDeps {
 export function createOrganizationsRouter({ repositoryConfig, users, stepUp }: OrganizationsRouterDeps): Router {
   const router = Router();
 
-  // A signed-in user reads any organization they belong to; an API key only its own. Others answer 404.
+  // A signed-in user reads any organization they belong to. Others answer 404.
   const loadDefaults = async (req: Request<{ organizationId: string }>, res: GatewayResponse) => {
     const { organizationId } = req.params;
-    const principal = res.locals.principal!;
-    const member =
-      principal.method === "api_key"
-        ? principal.organizationId === organizationId
-        : (await users.findById(principal.userId))?.memberships.some((m) => m.organizationId === organizationId) === true;
+    const user = await users.findById(res.locals.principal!.userId);
+    const member = user?.memberships.some((m) => m.organizationId === organizationId) === true;
     const defaults = member ? await repositoryConfig.getReviewDefaults(organizationId) : undefined;
     if (!defaults) throw notFound("organization_not_found", "No such organization");
     return defaults;
@@ -37,7 +34,6 @@ export function createOrganizationsRouter({ repositoryConfig, users, stepUp }: O
 
   router.put(
     "/organizations/:organizationId/review-defaults",
-    requireUserSession,
     async (req: Request<{ organizationId: string }>, res: GatewayResponse) => {
       const parsed = ReviewDefaultsUpdateSchema.safeParse(req.body);
       if (!parsed.success) throw badRequest("invalid_body", "The review defaults are not valid", { issues: parsed.error.issues });
