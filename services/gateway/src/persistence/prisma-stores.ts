@@ -9,6 +9,7 @@ import {
   type GithubTokenStore,
   type InstallationStore,
   type RepositoryConfigStore,
+  type RepositoryRecord,
   type RepositoryStore,
   type ReviewRecord,
   type ReviewStore,
@@ -21,6 +22,23 @@ import {
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
 
 const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
+
+/** Not removed, and its installation neither uninstalled nor suspended: its pull requests are reviewed. */
+const LIVE_REPOSITORY = { removedAt: null, installation: { uninstalledAt: null, suspendedAt: null } } as const;
+
+function toRepositoryRecord(
+  row: Prisma.RepositoryGetPayload<{ include: { installation: { select: { githubInstallationId: true } } } }>,
+): RepositoryRecord {
+  return {
+    repositoryId: row.id,
+    organizationId: row.organizationId,
+    githubInstallationId: row.githubInstallationId,
+    githubInstallationNumber: Number(row.installation.githubInstallationId),
+    githubRepoId: Number(row.githubRepoId),
+    fullName: row.fullName,
+    reviewEnabled: row.reviewEnabled,
+  };
+}
 
 function toReviewRecord(row: Prisma.ReviewGetPayload<{ include: typeof REVIEW_INCLUDE }>): ReviewRecord {
   // The orchestrator writes `report`; a row that doesn't parse is shown without one rather than failing the list.
@@ -85,21 +103,17 @@ export class PrismaStores implements Stores {
     this.repositories = {
       findByGithubRepoId: async (githubRepoId) => {
         const row = await prisma.repository.findFirst({
-          where: {
-            githubRepoId: BigInt(githubRepoId),
-            removedAt: null,
-            installation: { uninstalledAt: null, suspendedAt: null },
-          },
+          where: { githubRepoId: BigInt(githubRepoId), ...LIVE_REPOSITORY },
+          include: { installation: { select: { githubInstallationId: true } } },
         });
-        if (!row) return undefined;
-        return {
-          repositoryId: row.id,
-          organizationId: row.organizationId,
-          githubInstallationId: row.githubInstallationId,
-          githubRepoId: Number(row.githubRepoId),
-          fullName: row.fullName,
-          reviewEnabled: row.reviewEnabled,
-        };
+        return row ? toRepositoryRecord(row) : undefined;
+      },
+      findForOrganization: async (organizationId, repositoryId) => {
+        const row = await prisma.repository.findFirst({
+          where: { id: repositoryId, organizationId, ...LIVE_REPOSITORY },
+          include: { installation: { select: { githubInstallationId: true } } },
+        });
+        return row ? toRepositoryRecord(row) : undefined;
       },
       listForOrganization: async (organizationId) => {
         const rows = await prisma.repository.findMany({
@@ -222,7 +236,8 @@ export class PrismaStores implements Stores {
           organizationId,
           ...(repositoryId ? { repositoryId } : {}),
           ...(status ? { status: { in: storedStatuses(status) } } : {}),
-          ...(latest ? { trigger: "github_pull_request" } : {}),
+          // Pull request reviews only, whether a push or a dashboard re-run started them.
+          ...(latest ? { prNumber: { not: null } } : {}),
         };
         const distinct: Prisma.ReviewScalarFieldEnum[] | undefined = latest ? ["repositoryId", "prNumber"] : undefined;
         const [rows, total] = await Promise.all([
@@ -243,9 +258,9 @@ export class PrismaStores implements Stores {
       activeForPullRequest: async (repositoryId, prNumber) => {
         const rows = await prisma.review.findMany({
           where: { repositoryId, prNumber, status: { in: ["queued", "running"] }, jobId: { not: null } },
-          select: { id: true, jobId: true, headSha: true },
+          select: { id: true, jobId: true, headSha: true, createdAt: true },
         });
-        return rows.map((r) => ({ reviewId: r.id, jobId: r.jobId!, headSha: r.headSha }));
+        return rows.map((r) => ({ reviewId: r.id, jobId: r.jobId!, headSha: r.headSha, createdAt: r.createdAt }));
       },
     };
 

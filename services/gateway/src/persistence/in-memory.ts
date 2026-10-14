@@ -117,6 +117,19 @@ export class InMemoryStores implements Stores {
       const installation = installationById(repo.githubInstallationId);
       return repo.removedAt === undefined && installation?.uninstalledAt === undefined && installation?.suspendedAt === undefined;
     };
+    const toRepositoryRecord = (repo: SeedRepository): RepositoryRecord => {
+      const { repositoryId, organizationId, githubInstallationId, githubRepoId, fullName, reviewEnabled } = repo;
+      const githubInstallationNumber = installationById(githubInstallationId)?.githubInstallationId;
+      return {
+        repositoryId,
+        organizationId,
+        githubInstallationId,
+        ...(githubInstallationNumber !== undefined ? { githubInstallationNumber } : {}),
+        githubRepoId,
+        fullName,
+        reviewEnabled,
+      };
+    };
     const displayNameOf = (organizationId: string) => {
       const org = data.organizations.find((o) => o.organizationId === organizationId);
       return org?.displayName ?? org?.login ?? "Organization";
@@ -149,9 +162,11 @@ export class InMemoryStores implements Stores {
     this.repositories = {
       findByGithubRepoId: async (githubRepoId) => {
         const repo = data.repositories.find((r) => r.githubRepoId === githubRepoId);
-        if (!repo || !isLive(repo)) return undefined;
-        const { repositoryId, organizationId, githubInstallationId, fullName, reviewEnabled } = repo;
-        return { repositoryId, organizationId, githubInstallationId, githubRepoId, fullName, reviewEnabled };
+        return repo && isLive(repo) ? toRepositoryRecord(repo) : undefined;
+      },
+      findForOrganization: async (organizationId, repositoryId) => {
+        const repo = data.repositories.find((r) => r.repositoryId === repositoryId && r.organizationId === organizationId);
+        return repo && isLive(repo) ? toRepositoryRecord(repo) : undefined;
       },
       listForOrganization: async (organizationId) =>
         data.repositories
@@ -254,7 +269,7 @@ export class InMemoryStores implements Stores {
               r.organizationId === organizationId &&
               (!repositoryId || r.repositoryId === repositoryId) &&
               (!statuses || statuses.includes(r.status)) &&
-              (!latest || r.trigger === "github_pull_request"),
+              (!latest || r.prNumber !== undefined),
           )
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         if (latest) {
@@ -279,7 +294,7 @@ export class InMemoryStores implements Stores {
       activeForPullRequest: async (repositoryId, prNumber) =>
         data.reviews
           .filter((r) => r.repositoryId === repositoryId && r.prNumber === prNumber && r.jobId && (r.status === "queued" || r.status === "running"))
-          .map((r) => ({ reviewId: r.reviewId, jobId: r.jobId!, headSha: r.headSha })),
+          .map((r) => ({ reviewId: r.reviewId, jobId: r.jobId!, headSha: r.headSha, createdAt: new Date(r.createdAt) })),
     };
 
     this.sessions = {

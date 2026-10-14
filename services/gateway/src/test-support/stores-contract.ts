@@ -106,11 +106,23 @@ export function describeStoresContract(
         repositoryId,
         organizationId,
         githubInstallationId,
+        githubInstallationNumber: ids.githubInstallationId,
         githubRepoId: ids.githubRepoId,
         fullName,
         reviewEnabled,
       });
       await expect(stores.repositories.findByGithubRepoId(ids.githubRepoId + 1)).resolves.toBeUndefined();
+    });
+
+    it("finds a repository by id only within its own organization", async () => {
+      const { stores, ids } = await build();
+
+      await expect(stores.repositories.findForOrganization(ids.organizationId, ids.repositoryId)).resolves.toMatchObject({
+        repositoryId: ids.repositoryId,
+        githubInstallationNumber: ids.githubInstallationId,
+      });
+      await expect(stores.repositories.findForOrganization(randomUUID(), ids.repositoryId)).resolves.toBeUndefined();
+      await expect(stores.repositories.findForOrganization(ids.organizationId, randomUUID())).resolves.toBeUndefined();
     });
   });
 
@@ -287,6 +299,20 @@ export function describeStoresContract(
       expect(running.rows.map((r) => r.prNumber)).toEqual([8]);
     });
 
+    it("counts a dashboard re-run as a pull request's newest review, and leaves out reviews without a pull request", async () => {
+      let rerun: SeedReview | undefined;
+      const { stores, ids } = await build(({ seed, ids }) => {
+        rerun = review(ids, 7, 5, { trigger: "dashboard_manual" });
+        const { prNumber: _pr, prTitle: _title, ...vscode } = review(ids, 0, 1, { trigger: "vscode_on_demand" });
+        seed.reviews.push(review(ids, 7, 30), rerun, vscode);
+      });
+
+      const latest = await stores.reviews.list(ids.organizationId, { latest: true, limit: 25, offset: 0 });
+
+      expect(latest.rows.map((r) => r.reviewId)).toEqual([rerun!.reviewId]);
+      expect(latest.total).toBe(1);
+    });
+
     it("never shows another organization's reviews", async () => {
       let theirId = "";
       const theirs = await build(({ seed, ids }) => {
@@ -336,6 +362,7 @@ export function describeStoresContract(
         reviewId: running!.reviewId,
         jobId: running!.jobId,
         headSha: running!.headSha,
+        createdAt: running!.createdAt,
       });
       await expect(stores.reviews.activeForPullRequest(ids.repositoryId, 99)).resolves.toEqual([]);
     });

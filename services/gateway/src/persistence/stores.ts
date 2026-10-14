@@ -24,6 +24,8 @@ export interface RepositoryRecord {
   organizationId: string;
   /** `github_installations.id`, the internal row id, not GitHub's numeric installation id. */
   githubInstallationId: string;
+  /** GitHub's numeric installation id, for calls made outside a webhook; absent when the installation isn't known. */
+  githubInstallationNumber?: number;
   githubRepoId: number;
   fullName: string;
   reviewEnabled: boolean;
@@ -133,6 +135,8 @@ export interface SignInProfile {
 export interface RepositoryStore {
   /** Skips removed repositories and those whose installation is uninstalled or suspended: their PRs are not reviewed. */
   findByGithubRepoId(githubRepoId: number): Promise<RepositoryRecord | undefined>;
+  /** The same live repository by id, only if it belongs to the organization (NFR-13). */
+  findForOrganization(organizationId: string, repositoryId: string): Promise<RepositoryRecord | undefined>;
   /** The organization's active repositories, by name. */
   listForOrganization(organizationId: string): Promise<RepositorySummary[]>;
 }
@@ -214,6 +218,7 @@ export interface ActiveReview {
   reviewId: string;
   jobId: string;
   headSha: string;
+  createdAt: Date;
 }
 
 /** The API's `failed` also covers the jobs the database records as `cancelled`. */
