@@ -1,7 +1,7 @@
 import { exampleCombinedReport } from "@code-sentinel/contracts/examples";
 import { describe, expect, it } from "vitest";
 
-import type { ReviewRecord } from "../persistence/stores.js";
+import type { ReviewRecord, SuggestionRecord } from "../persistence/stores.js";
 import { agentResults, toDetail, toListItem } from "./review-view.js";
 
 const record = (overrides: Partial<ReviewRecord> = {}): ReviewRecord => ({
@@ -66,5 +66,34 @@ describe("toListItem / toDetail", () => {
   it("takes the threshold and identity from the row, not the report", () => {
     const detail = toDetail(record({ confidenceThreshold: 0.65 }));
     expect(detail).toMatchObject({ confidenceThreshold: 0.65, repositoryFullName: "octo/api", headSha: "f3326e0", createdAt: "2026-10-12T10:00:00.000Z" });
+  });
+
+  it("adds each fix's row to its finding: the finding id and the decision", () => {
+    const finding = exampleCombinedReport.findings.find((f) => f.suggestion)!;
+    const row: SuggestionRecord = {
+      suggestionId: "11111111-1111-4111-8111-111111111111",
+      findingId: "22222222-2222-4222-8222-222222222222",
+      reviewId: exampleCombinedReport.reviewId,
+      organizationId: "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c",
+      repositoryId: "2b0c6b0e-0b1a-4f6e-9c3d-1a2b3c4d5e6f",
+      prNumber: 4,
+      headSha: "f3326e0",
+      agent: finding.agent,
+      ruleId: finding.ruleId,
+      title: finding.title,
+      filePath: finding.location.filePath,
+      lineStart: finding.location.lineStart,
+      lineEnd: finding.location.lineEnd,
+      kind: finding.suggestion!.kind,
+      state: "accepted",
+      originalSnippet: finding.suggestion!.originalSnippet,
+      suggestedSnippet: finding.suggestion!.suggestedSnippet,
+      resolutionCommitSha: "c".repeat(40),
+    };
+
+    const detailed = toDetail(record(), [row]).findings.find((f) => f.suggestion);
+
+    expect(detailed).toMatchObject({ id: row.findingId, suggestion: { id: row.suggestionId, state: "accepted", commitSha: "c".repeat(40) } });
+    expect(toDetail(record()).findings.find((f) => f.suggestion)?.id).toBeUndefined();
   });
 });

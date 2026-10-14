@@ -20,6 +20,7 @@ import { createGithubRouter } from "./routes/github.js";
 import { createMeRouter } from "./routes/me.js";
 import { createOrganizationsRouter } from "./routes/organizations.js";
 import { createRepositoriesRouter } from "./routes/repositories.js";
+import { createFindingsRouter } from "./routes/findings.js";
 import { createPullRequestsRouter } from "./routes/pull-requests.js";
 import { createReviewsRouter } from "./routes/reviews.js";
 import type { GitHubUserClient } from "./github/github-user-client.js";
@@ -92,7 +93,8 @@ export function createApp(deps: AppDeps): Express {
   v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, stepUp, ...(githubLink ? { link: githubLink } : {}) }));
   v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
   v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
-  v1.use(createReviewsRouter({ reviews: stores.reviews }));
+  v1.use(createReviewsRouter({ reviews: stores.reviews, suggestions: stores.suggestions }));
+  v1.use(createFindingsRouter({ stores, github, logger, stepUp }));
   v1.use(createPullRequestsRouter({ stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}), ...(now ? { now } : {}) }));
   app.use("/v1", v1);
 

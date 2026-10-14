@@ -3,12 +3,13 @@ import {
   type AgentKind,
   type AgentResult,
   type CombinedReport,
+  type Finding,
   type ReviewDetail,
   type ReviewListItem,
   type ReviewStatus,
 } from "@code-sentinel/contracts";
 
-import type { ReviewRecord } from "../persistence/stores.js";
+import type { ReviewRecord, SuggestionRecord } from "../persistence/stores.js";
 
 const EMPTY_SUMMARY = { criticalCount: 0, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 0 };
 const RANK: Record<"critical" | "warning" | "info", number> = { critical: 3, warning: 2, info: 1 };
@@ -52,7 +53,35 @@ export function toListItem(record: ReviewRecord): ReviewListItem {
 }
 
 /** The stored report plus where it came from; a review still running has no report yet, so it gets an empty one. */
-export function toDetail(record: ReviewRecord): ReviewDetail {
+/** The same finding in the report JSON and in the `findings` rows the orchestrator wrote from it. */
+const findingKey = (f: { agent: string; ruleId: string; filePath: string; lineStart: number; lineEnd: number }) =>
+  `${f.agent}|${f.ruleId}|${f.filePath}|${f.lineStart}|${f.lineEnd}`;
+
+/**
+ * Adds each fix's row (UC-3) to the report's findings: the finding id the accept and reject routes take,
+ * and the fix's state, commit or dismissal reason.
+ */
+function withDecisions(findings: Finding[], suggestions: readonly SuggestionRecord[]): Finding[] {
+  const byKey = new Map(suggestions.map((s) => [findingKey(s), s]));
+  return findings.map((finding) => {
+    const row = finding.suggestion ? byKey.get(findingKey({ ...finding, ...finding.location })) : undefined;
+    if (!row || !finding.suggestion) return finding;
+    byKey.delete(findingKey(row));
+    return {
+      ...finding,
+      id: row.findingId,
+      suggestion: {
+        ...finding.suggestion,
+        id: row.suggestionId,
+        state: row.state,
+        ...(row.resolutionCommitSha ? { commitSha: row.resolutionCommitSha } : {}),
+        ...(row.rejectionReason ? { rejectionReason: row.rejectionReason } : {}),
+      },
+    };
+  });
+}
+
+export function toDetail(record: ReviewRecord, suggestions: readonly SuggestionRecord[] = []): ReviewDetail {
   const report: CombinedReport = record.report ?? {
     reviewId: record.reviewId,
     status: apiStatus(record.status),
@@ -62,6 +91,7 @@ export function toDetail(record: ReviewRecord): ReviewDetail {
   };
   return {
     ...report,
+    findings: withDecisions(report.findings, suggestions),
     // The row is the source of truth for these, whatever the report carried.
     reviewId: record.reviewId,
     status: apiStatus(record.status),

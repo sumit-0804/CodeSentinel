@@ -5,13 +5,13 @@ import { z } from "zod";
 
 import { requireOrganization } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
-import type { ReviewStore } from "../persistence/stores.js";
+import type { ReviewStore, SuggestionStore } from "../persistence/stores.js";
 import { toDetail, toListItem } from "./review-view.js";
 
 const ReviewIdSchema = z.string().uuid();
 
 /** Review history (FR-WEB-01, FR-WEB-04): `GET /v1/reviews` and `GET /v1/reviews/{id}`, scoped to the caller's organization. */
-export function createReviewsRouter({ reviews }: { reviews: ReviewStore }): Router {
+export function createReviewsRouter({ reviews, suggestions }: { reviews: ReviewStore; suggestions: Pick<SuggestionStore, "forReview"> }): Router {
   const router = Router();
 
   router.get("/reviews", requireOrganization, async (req: Request, res: GatewayResponse) => {
@@ -35,7 +35,7 @@ export function createReviewsRouter({ reviews }: { reviews: ReviewStore }): Rout
     const id = ReviewIdSchema.safeParse(req.params.reviewId);
     const record = id.success ? await reviews.get(res.locals.principal!.organizationId!, id.data) : undefined;
     if (!record) throw notFound("review_not_found", "No such review in this organization");
-    const body: ReviewDetail = toDetail(record);
+    const body: ReviewDetail = toDetail(record, await suggestions.forReview(record.reviewId));
     res.json(body);
   });
 
