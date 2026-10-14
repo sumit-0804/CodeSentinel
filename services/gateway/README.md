@@ -228,6 +228,41 @@ Both routes are scoped to the caller's organization; another organization's repo
   | 422 | `no_reviewable_files` | Every file is skipped; the "Nothing to review" Check Run is posted |
   | 502 | `github_unavailable`, `orchestrator_unavailable` | GitHub or the orchestrator failed |
 
+## Accepting or rejecting a fix (UC-3)
+
+A finding's fix is a `suggestions` row the orchestrator writes as `proposed`.
+- **Comment ids:** after posting the inline comments, the publisher reads them back from the pull request's
+  comment list (`GET …/pulls/{n}/comments`; the per-review list leaves the line numbers empty) and stores each
+  fix's comment id (`posted_to_github`, `github_comment_id`), matched by file and line range (`matchPostedComments`).
+- **Review detail:** `GET /v1/reviews/{id}` adds each fix's row to its finding: `id` (the finding id) and
+  `suggestion.id`, `state`, `commitSha` or `rejectionReason`.
+
+**`POST /v1/findings/{findingId}/suggestion/accept`** (FR-GH-04, the only way Code Sentinel writes to a branch):
+- **Who:** any member of the finding's organization, with a signed-in session and the [TOTP step-up](#authentication),
+  because it writes code.
+- **What it checks** (`github/apply-suggestion.ts`), each a 409 when it fails:
+  - the fix is still `proposed` (`suggestion_decided`)
+  - the pull request is open (`pull_request_closed`) and not from a fork (`fork_not_supported`, as the App can't
+    push there)
+  - its head is still the reviewed commit (`head_moved`)
+  - lines `lineStart..lineEnd` of the file at that head still equal `originalSnippet` (`file_changed`)
+- **What it does:**
+  1. Replaces those lines with `suggestedSnippet`, keeping the file's line endings.
+  2. Commits it onto the branch with the Contents API ("Apply Code Sentinel fix: …"). Without Contents: Read and
+     write, the commit fails and the answer is 409 `github_permission_missing`.
+  3. Replies "Applied in {sha}" on the fix's inline comment, if it had one.
+  4. Records `accepted`, `resolved_by_user_id`, `resolved_at` and `resolution_commit_sha`.
+- **After:** the commit is a push, so the pull request is reviewed again, and that review marks the older fixes
+  `superseded`.
+
+**`POST /v1/findings/{findingId}/suggestion/reject`** `{ reason?, comment? }`:
+- **Who:** any member, with a signed-in session. No step-up, since nothing is written to the repository.
+- **What it does:** records `rejected` with `rejection_reason` and `rejection_comment` (at most 1000 characters).
+  It's 409 `suggestion_decided` if the fix was already decided.
+
+Each decision is written only while the fix is `proposed`, so two people deciding at once can't both win.
+Another organization's finding, an unknown one, or one without a fix is 404 `finding_not_found`.
+
 ## Publishing the review to the pull request
 
 `seq_uc1_pr_review.mmd`, FR-GH-02..04. When the orchestrator answers 202 for a **new** job, the
@@ -403,10 +438,8 @@ Differences to know:
 ## Not started yet
 
 - `/v1/reviews`: SSE events; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
-- Findings accept / reject (`/v1/findings/{findingId}/suggestion/...`)
 - Rate limiting (FR-GW-05)
-- Storing posted comment ids (`suggestions.github_comment_id`)
-- Accept / reject tracking of posted suggestions (UC-3)
+- "Apply all Style fixes" in one commit
 
 ## Develop
 
@@ -418,7 +451,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-265 tests in 25 files (33 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+291 tests in 27 files (37 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
@@ -462,7 +495,9 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
    - Homepage URL: the Code-Sentinel repo URL. Webhook URL: the smee channel URL. Webhook secret:
      the value of `GITHUB_WEBHOOK_SECRET` in `services/gateway/.env`.
    - Repository permissions: **Pull requests: Read and write** (inline review comments),
-     **Checks: Read and write** (the Check Run), **Contents: Read** (Metadata: Read is automatic).
+     **Checks: Read and write** (the Check Run), **Contents: Read and write** (reading files, and committing
+     a fix someone accepts, UC-3) (Metadata: Read is automatic). After changing a permission, approve it on
+     each installation (Settings → Applications → Configure).
      Organization permissions: **Members: Read** (tells org admins from members when connecting).
    - Subscribe to events: **Pull request**. GitHub sends `installation` and
      `installation_repositories` to every App without a subscription.
