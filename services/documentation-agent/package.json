@@ -1,0 +1,31 @@
+{
+  "name": "@code-sentinel/documentation-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Documentation Agent: reads each changed file whole and suggests docstrings for public code the pull request touches, through the shared LLM pass.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@code-sentinel/agent-kit": "*",
+    "@code-sentinel/contracts": "*"
+  },
+  "devDependencies": {
+    "@code-sentinel/llm": "*",
+    "@code-sentinel/service-kit": "*",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}
