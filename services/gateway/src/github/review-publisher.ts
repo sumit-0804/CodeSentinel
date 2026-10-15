@@ -185,7 +185,7 @@ export class ReviewPublisher {
     try {
       const suggestions = await this.suggestions.forReview(reviewId);
       if (suggestions.length === 0) return;
-      const posted = (await Promise.all(githubReviewIds.map((id) => this.github.listReviewComments(ref, id)))).flat();
+      const posted = await this.github.listReviewComments(ref, githubReviewIds);
       const matched = matchPostedComments(suggestions, posted);
       await this.suggestions.recordPosted(matched);
       log.info("comment ids stored", { suggestions: matched.length });

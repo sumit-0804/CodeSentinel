@@ -99,8 +99,8 @@ export interface GitHubClient {
   completeCheckRun(ref: PullRequestRef, checkRunId: number, input: { conclusion: CheckConclusion; output: CheckRunOutput }): Promise<void>;
   /** Posts one review with `event: COMMENT`: it never approves or blocks the pull request. Returns GitHub's review id. */
   createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<number>;
-  /** The inline comments a review posted, with GitHub's ids, so fixes can be matched to their comment. */
-  listReviewComments(ref: PullRequestRef, reviewId: number): Promise<PostedReviewComment[]>;
+  /** The inline comments these reviews posted, with GitHub's ids, so fixes can be matched to their comment. */
+  listReviewComments(ref: PullRequestRef, reviewIds: number[]): Promise<PostedReviewComment[]>;
   /** Answers an inline comment in its thread. */
   replyToReviewComment(ref: PullRequestRef, commentId: number, body: string): Promise<void>;
   /** A file's text and blob sha at a branch or commit; `undefined` when GitHub answers 404. */

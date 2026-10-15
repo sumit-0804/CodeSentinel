@@ -153,12 +153,16 @@ export class OctokitGitHubClient implements GitHubClient {
     }
   }
 
-  async listReviewComments(ref: PullRequestRef, reviewId: number): Promise<PostedReviewComment[]> {
-    const comments: { id: number | bigint; path: string; line?: number | null; start_line?: number | null }[] = await this.forRef(ref).paginate(
-      "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/comments",
-      { owner: ref.owner, repo: ref.repo, pull_number: ref.pullNumber, review_id: reviewId, per_page: 100 },
-    );
-    return comments.map((comment) => ({
+  async listReviewComments(ref: PullRequestRef, reviewIds: number[]): Promise<PostedReviewComment[]> {
+    // The per-review comments endpoint leaves `line` and `start_line` null; the pull request's list has them.
+    const comments = await this.forRef(ref).paginate("GET /repos/{owner}/{repo}/pulls/{pull_number}/comments", {
+      owner: ref.owner,
+      repo: ref.repo,
+      pull_number: ref.pullNumber,
+      per_page: 100,
+    });
+    const wanted = new Set(reviewIds);
+    return comments.filter((comment) => comment.pull_request_review_id != null && wanted.has(Number(comment.pull_request_review_id))).map((comment) => ({
       id: Number(comment.id),
       path: comment.path,
       ...(comment.line != null ? { line: comment.line } : {}),

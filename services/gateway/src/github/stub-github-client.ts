@@ -96,13 +96,15 @@ export class StubGitHubClient implements GitHubClient {
     return this.reviews.length;
   }
 
-  async listReviewComments(_ref: PullRequestRef, reviewId: number): Promise<PostedReviewComment[]> {
-    return (this.reviews[reviewId - 1]?.comments ?? []).map((comment, index) => ({
-      id: reviewId * 1000 + index,
-      path: comment.path,
-      line: comment.line,
-      ...(comment.startLine !== undefined ? { startLine: comment.startLine } : {}),
-    }));
+  async listReviewComments(_ref: PullRequestRef, reviewIds: number[]): Promise<PostedReviewComment[]> {
+    return reviewIds.flatMap((reviewId) =>
+      (this.reviews[reviewId - 1]?.comments ?? []).map((comment, index) => ({
+        id: reviewId * 1000 + index,
+        path: comment.path,
+        line: comment.line,
+        ...(comment.startLine !== undefined ? { startLine: comment.startLine } : {}),
+      })),
+    );
   }
 
   async replyToReviewComment(ref: PullRequestRef, commentId: number, body: string): Promise<void> {
