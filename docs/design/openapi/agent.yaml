@@ -174,6 +174,16 @@ components:
           maxItems: 200
           items:
             $ref: './common.yaml#/components/schemas/ChangedFile'
+        otherChanges:
+          type: array
+          maxItems: 200
+          description: >
+            The pull request's other changed files, which went to another call of this agent, so a
+            change can be judged against linked changes elsewhere (a helper's new return value, a
+            renamed field). Context only: findings are never reported on these files. The
+            orchestrator sends their diffs up to LLM_OTHER_CHANGES_TOKENS; past that, only the path.
+          items:
+            $ref: '#/components/schemas/OtherChange'
         confidenceThreshold:
           $ref: './common.yaml#/components/schemas/Confidence'
           description: >
@@ -203,6 +213,19 @@ components:
             includeDocstringDrafts: true
             deadlineMs: 43000
             llmProvider: groq
+
+    OtherChange:
+      type: object
+      required: [path, changeType]
+      properties:
+        path:
+          type: string
+        changeType:
+          type: string
+          enum: [added, modified, renamed, deleted]
+        patch:
+          type: string
+          description: The file's diff hunks; absent once the context budget is spent.
 
     AgentReviewResponse:
       type: object

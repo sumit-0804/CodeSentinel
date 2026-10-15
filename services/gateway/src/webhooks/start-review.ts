@@ -5,16 +5,19 @@ import type { GitHubClient, PullRequestRef } from "../github/github-client.js";
 import type { ReviewPublisher } from "../github/review-publisher.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { EffectiveRepositoryConfig, RepositoryRecord, Stores } from "../persistence/stores.js";
+import { attachFileContents, DEFAULT_FILE_CONTENT_MAX_BYTES } from "./file-contents.js";
 import { filterPullRequestFiles } from "./file-filter.js";
 import { buildReviewJobRequest, type BuildReviewJobRequestInput, type PullRequestToReview } from "./review-job-request.js";
 
 export interface StartReviewDeps {
   stores: Pick<Stores, "reviews">;
-  github: Pick<GitHubClient, "listPullRequestFiles">;
+  github: Pick<GitHubClient, "listPullRequestFiles" | "getFileContent">;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
   /** Posts the review back to the pull request; omitted in tests that do not publish. */
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
+  /** Larger changed files go to the agents as diffs only (`FILE_CONTENT_MAX_BYTES`). */
+  fileContentMaxBytes?: number;
 }
 
 export interface StartReviewInput {
@@ -56,12 +59,20 @@ export async function startPullRequestReview(deps: StartReviewDeps, input: Start
     return { outcome: "no_reviewable_files", skippedFiles: filtered.skippedFiles };
   }
 
+  const files = await attachFileContents(github, {
+    ref,
+    headSha: pullRequest.headSha,
+    files: filtered.files,
+    maxBytes: deps.fileContentMaxBytes ?? DEFAULT_FILE_CONTENT_MAX_BYTES,
+    logger,
+    requestId,
+  });
   const { job, created } = await orchestrator.createReviewJob(
     buildReviewJobRequest({
       repository,
       config,
       pullRequest,
-      filtered,
+      filtered: { ...filtered, files },
       trigger: input.trigger,
       ...(input.triggeredByUserId ? { triggeredByUserId: input.triggeredByUserId } : {}),
     }),

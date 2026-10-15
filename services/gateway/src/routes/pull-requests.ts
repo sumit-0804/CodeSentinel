@@ -31,11 +31,12 @@ const RepositoryIdSchema = z.string().uuid();
 
 export interface PullRequestsRouterDeps {
   stores: Pick<Stores, "repositories" | "repositoryConfig" | "reviews">;
-  github: Pick<GitHubClient, "getPullRequest" | "listOpenPullRequests" | "listPullRequestFiles">;
+  github: Pick<GitHubClient, "getPullRequest" | "listOpenPullRequests" | "listPullRequestFiles" | "getFileContent">;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
   now?: () => Date;
+  fileContentMaxBytes?: number;
 }
 
 const conflict = (code: string, message: string) => new HttpError(409, code, message);
@@ -140,7 +141,14 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     let result;
     try {
       result = await startPullRequestReview(
-        { stores, github, orchestrator: deps.orchestrator, logger, ...(deps.publisher ? { publisher: deps.publisher } : {}) },
+        {
+          stores,
+          github,
+          orchestrator: deps.orchestrator,
+          logger,
+          ...(deps.publisher ? { publisher: deps.publisher } : {}),
+          ...(deps.fileContentMaxBytes !== undefined ? { fileContentMaxBytes: deps.fileContentMaxBytes } : {}),
+        },
         {
           repository,
           config,

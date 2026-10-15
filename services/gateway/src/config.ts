@@ -1,6 +1,8 @@
 import { DEFAULT_MFA_STEP_UP_MINUTES } from "@code-sentinel/contracts";
 import { z } from "zod";
 
+import { DEFAULT_FILE_CONTENT_MAX_BYTES } from "./webhooks/file-contents.js";
+
 export type GatewaySeed = "none" | "dev";
 
 export interface GatewayConfig {
@@ -28,6 +30,8 @@ export interface GatewayConfig {
   reviewPollTimeoutMs: number;
   /** How recent the TOTP code on a token must be for configuration writes (A7). */
   mfaStepUpMinutes: number;
+  /** Changed files up to this size go to the agents whole; larger ones as diffs only. 0 sends diffs only. */
+  fileContentMaxBytes: number;
 }
 
 /** Thrown by `loadGatewayConfig` with every invalid variable listed at once. */
@@ -74,6 +78,7 @@ const EnvSchema = z.object({
   ORCHESTRATOR_TIMEOUT_MS: integer(1000, 30000, 5000),
   REVIEW_POLL_TIMEOUT_MS: integer(10_000, 1_800_000, 300_000),
   MFA_STEP_UP_MINUTES: integer(1, 60, DEFAULT_MFA_STEP_UP_MINUTES),
+  FILE_CONTENT_MAX_BYTES: integer(0, 1_000_000, DEFAULT_FILE_CONTENT_MAX_BYTES),
   SERVICE_TOKEN: secret(1),
   SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   GITHUB_WEBHOOK_SECRET: secret(16),
@@ -166,6 +171,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     seed: values.GATEWAY_SEED,
     reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
     mfaStepUpMinutes: values.MFA_STEP_UP_MINUTES,
+    fileContentMaxBytes: values.FILE_CONTENT_MAX_BYTES,
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");

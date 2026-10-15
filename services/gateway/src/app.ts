@@ -71,6 +71,7 @@ export function createApp(deps: AppDeps): Express {
       github,
       orchestrator,
       logger,
+      fileContentMaxBytes: config.fileContentMaxBytes,
       ...(publisher ? { publisher } : {}),
       ...(now ? { now } : {}),
     }),
@@ -95,7 +96,7 @@ export function createApp(deps: AppDeps): Express {
   v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
   v1.use(createReviewsRouter({ reviews: stores.reviews, suggestions: stores.suggestions }));
   v1.use(createFindingsRouter({ stores, github, logger, stepUp }));
-  v1.use(createPullRequestsRouter({ stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}), ...(now ? { now } : {}) }));
+  v1.use(createPullRequestsRouter({ stores, github, orchestrator, logger, fileContentMaxBytes: config.fileContentMaxBytes, ...(publisher ? { publisher } : {}), ...(now ? { now } : {}) }));
   app.use("/v1", v1);
 
   app.use(notFoundHandler());

@@ -162,6 +162,16 @@ describe("POST /webhooks/github: review flow", () => {
     expect(requestLog(target)).toMatchObject({ status: 202, outcome: "review_started", deliveryId: TEST_DELIVERY_ID });
   });
 
+  it("sends each changed file whole, read at the pull request's head", async () => {
+    const target = await webhookApp();
+    target.github.repoFiles.set("payments/retry_queue.py", { sha: "blob-1", text: "import time\n\ndef retry():\n    pass\n" });
+
+    await deliver(target, pullRequestEventPayload());
+
+    const job = ReviewJobRequestSchema.parse(target.orchestrator.createReviewJob.mock.calls[0]![0]);
+    expect(job.files[0]!.content).toBe("import time\n\ndef retry():\n    pass\n");
+  });
+
   it.each(["synchronize", "reopened"])("starts a review for pull_request.%s", async (action) => {
     const target = await webhookApp();
 

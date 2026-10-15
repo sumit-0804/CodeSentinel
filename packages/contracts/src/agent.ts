@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AgentKindSchema,
   ChangedFileSchema,
+  ChangeTypeSchema,
   ConfidenceSchema,
   FindingSchema,
   LanguageSchema,
@@ -29,12 +30,22 @@ export const AgentReviewOptionsSchema = z
   .passthrough();
 export type AgentReviewOptions = z.infer<typeof AgentReviewOptionsSchema>;
 
+/** A changed file reviewed in another call, given as context only; `patch` is absent past the context budget. */
+export const OtherChangeSchema = z.object({
+  path: z.string(),
+  changeType: ChangeTypeSchema,
+  patch: z.string().optional(),
+});
+export type OtherChange = z.infer<typeof OtherChangeSchema>;
+
 export const AgentReviewRequestSchema = z.object({
   /** Correlation id only. The agent does not persist it. */
   reviewId: z.string().uuid(),
   /** Repository-level hint. Per-file language on each entry wins. */
   language: LanguageSchema.optional(),
   files: z.array(ChangedFileSchema).min(1).max(200),
+  /** The pull request's other changed files, so linked changes can be judged together; never reported on. */
+  otherChanges: z.array(OtherChangeSchema).max(200).optional(),
   /** Passed for information; the threshold is applied by the orchestrator (FR-ORC-06). */
   confidenceThreshold: ConfidenceSchema.optional(),
   options: AgentReviewOptionsSchema.optional(),

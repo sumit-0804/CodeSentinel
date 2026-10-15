@@ -65,12 +65,17 @@ components:
         patch:
           type: string
           description: >
-            Unified diff hunks for this file only. Agents receive changed hunks rather than whole
-            files so that no more of the codebase reaches an LLM provider than the analysis needs
-            (NFR-06).
-        contextBefore:
+            Unified diff hunks for this file. They mark what the pull request changed: agents report
+            findings only on added lines.
+        content:
           type: string
-          description: Optional surrounding lines, when the agent needs more than the hunk to judge.
+          description: >
+            The whole file at the pull request head, so an agent can judge a change by the code
+            around it (a null check further up, a helper defined below, an existing docstring).
+            Sent only for files at most FILE_CONTENT_MAX_BYTES (default 36 000), and dropped by the
+            orchestrator when a file would not fit one LLM call; absent for deleted files and when
+            GitHub could not return the file. Only changed files are sent, never the rest of the
+            repository (NFR-06).
 
     SkippedFile:
       type: object

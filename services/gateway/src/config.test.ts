@@ -39,7 +39,13 @@ describe("loadGatewayConfig", () => {
       seed: "dev",
       reviewPollTimeoutMs: 300_000,
       mfaStepUpMinutes: 10,
+      fileContentMaxBytes: 36_000,
     });
+  });
+
+  it("reads FILE_CONTENT_MAX_BYTES, where 0 sends diffs only", () => {
+    expect(loadGatewayConfig({ ...FULL_ENV, FILE_CONTENT_MAX_BYTES: "0" }).fileContentMaxBytes).toBe(0);
+    expect(configError({ ...FULL_ENV, FILE_CONTENT_MAX_BYTES: "-1" }).problems).toEqual(["FILE_CONTENT_MAX_BYTES must be between 0 and 1000000"]);
   });
 
   it("reads MFA_STEP_UP_MINUTES and rejects values outside 1–60", () => {

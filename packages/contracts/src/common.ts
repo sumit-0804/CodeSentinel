@@ -40,9 +40,10 @@ export const ChangedFileSchema = z.object({
   changeType: ChangeTypeSchema.default("modified"),
   /** Present only when changeType is renamed. */
   previousPath: z.string().optional(),
-  /** Unified diff hunks for this file only, never the whole file (NFR-06). */
+  /** Unified diff hunks; findings are reported only on their added lines. */
   patch: z.string(),
-  contextBefore: z.string().optional(),
+  /** The whole file at the pull request head, so agents read the change in context; absent when over the size cap or deleted. */
+  content: z.string().optional(),
 });
 export type ChangedFile = z.infer<typeof ChangedFileSchema>;
 

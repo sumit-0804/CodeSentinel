@@ -39,6 +39,17 @@ describe("AgentReviewRequestSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("carries whole files and the pull request's other changes", () => {
+    const parsed = AgentReviewRequestSchema.parse({
+      ...exampleAgentReviewRequest,
+      files: [{ ...exampleChangedFile, content: "import os\n" }],
+      otherChanges: [{ path: "app/utils.py", changeType: "modified", patch: "@@ -1 +1 @@\n-a\n+b\n" }, { path: "app/big.py", changeType: "added" }],
+    });
+    expect(parsed.files[0]!.content).toBe("import os\n");
+    expect(parsed.otherChanges).toHaveLength(2);
+    expect(AgentReviewRequestSchema.safeParse({ ...exampleAgentReviewRequest, otherChanges: [{ path: "x.py" }] }).success).toBe(false);
+  });
 });
 
 describe("AgentReviewResponseSchema", () => {

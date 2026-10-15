@@ -24,6 +24,7 @@ export interface GithubWebhookRouterDeps {
   /** Posts the finished review back to the pull request; omitted in tests that do not publish. */
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
   now?: () => Date;
+  fileContentMaxBytes?: number;
 }
 
 /**
@@ -37,6 +38,7 @@ export function createGithubWebhookRouter({
   orchestrator,
   logger,
   publisher,
+  fileContentMaxBytes,
   now = () => new Date(),
 }: GithubWebhookRouterDeps): Router {
   const router = Router();
@@ -140,7 +142,7 @@ export function createGithubWebhookRouter({
       try {
         // The follow-ups (Check Run, cancelling the older review) run in the background, so GitHub gets its 202 fast.
         const result = await startPullRequestReview(
-          { stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}) },
+          { stores, github, orchestrator, logger, ...(publisher ? { publisher } : {}), ...(fileContentMaxBytes !== undefined ? { fileContentMaxBytes } : {}) },
           {
             repository,
             config,
