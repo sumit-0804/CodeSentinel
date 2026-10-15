@@ -21,19 +21,23 @@ apps/            User-facing apps
 services/        Deployable services (one per SOA component)
   gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
   orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
-  security-agent/ Security Agent — SAST and secret rules on added lines, plus an LLM pass
+  security-agent/ Security Agent — SAST and secret rules on added lines, plus an LLM pass over the whole files
   style-agent/   Style Agent — ESLint/Prettier and Ruff/Black in a per-request Docker sandbox, no LLM
+  performance-agent/ Performance Agent — N+1 queries, blocking calls and repeated work, by LLM over the whole files
+  logic-agent/   Logic Agent — null handling, off-by-one and unhandled errors, by LLM over the whole files
+  documentation-agent/ Documentation Agent — docstrings for public code the PR touches, by LLM (always info)
 packages/        Shared libraries
   contracts/     zod schemas + types mirroring docs/design/openapi (every service imports these)
   llm/           Groq (primary) and Gemini (secondary) clients, quota budget, Gemini embeddings
-  agent-kit/     Shared base of the agent services — agent.yaml routes, per-file skips, deadline, diff parsing
+  agent-kit/     Shared base of the agent services — agent.yaml routes, per-file skips, deadline, diff parsing, LLM pass
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
   db/            Prisma 7 schema, migrations and client for the Supabase Postgres database
 docs/            Course deliverables and design artifacts
 ```
 
-The agent services and clients land here as their work packages start (see
-`docs/CodeSentinel_Project_Plan.pdf`).
+Every agent gets each changed file whole (up to the gateway's `FILE_CONTENT_MAX_BYTES`) with the
+pull request's lines marked, and reports findings only on added lines. Files linked by imports are
+reviewed in the same LLM call, and every call also sees the rest of the pull request's diffs.
 
 ## Getting started
 
@@ -51,8 +55,9 @@ npm run typecheck
 The monorepo uses npm workspaces with [Turborepo](https://turbo.build/) for task running.
 
 To run the pipeline locally:
-- Copy each service's `.env.example` to `.env`, all four with the same `SERVICE_TOKEN`.
-- Point the gateway's `ORCHESTRATOR_URL` and the orchestrator's `AGENT_SECURITY_URL` / `AGENT_STYLE_URL` at `http://127.0.0.1:<port>`. An agent without a URL is skipped.
+- Copy each service's `.env.example` to `.env`, all seven with the same `SERVICE_TOKEN`.
+- Point the gateway's `ORCHESTRATOR_URL` and the orchestrator's `AGENT_<KIND>_URL` at `http://127.0.0.1:<port>`: Security 8081, Style 8082, Performance 8083, Logic 8084, Documentation 8085. An agent without a URL is skipped ("Not deployed" on the PR page).
+- Each LLM agent reads its own `GROQ_API_KEY`. Groq limits are per account, so an agent can use another account's key; name the account in the orchestrator's `GROQ_ACCOUNT_<KIND>` so it gets its own quota budget. All agents can share one `GEMINI_API_KEY` as the fallback.
 - The gateway and the orchestrator use Supabase when `DATABASE_URL` is set (the same value in both), and memory otherwise. See the [gateway](services/gateway/README.md#persistence) and [orchestrator](services/orchestrator/README.md#persistence) Persistence sections.
 
 Then, after `npm run build`, start each service in its own terminal:
@@ -67,6 +72,18 @@ npm run start -w @code-sentinel/security-agent
 
 ```bash
 npm run start -w @code-sentinel/style-agent
+```
+
+```bash
+npm run start -w @code-sentinel/performance-agent
+```
+
+```bash
+npm run start -w @code-sentinel/logic-agent
+```
+
+```bash
+npm run start -w @code-sentinel/documentation-agent
 ```
 
 ```bash

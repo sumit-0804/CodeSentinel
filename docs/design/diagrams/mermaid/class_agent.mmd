@@ -17,14 +17,15 @@ classDiagram
         #analyze(ChangedFile)* Finding[]
         #detectLanguage(ChangedFile) Language
         #skip(ChangedFile, reason) void
+        #runLlmPass(ChangedFile[], LlmPassOptions) Finding[]
     }
 
     class SecurityAgent {
         -sastRules : RuleSet
         -secretPatterns : PatternSet
-        #analyze(ChangedFile) Finding[]
-        -scanInjection(hunk) Finding[]
-        -scanSecrets(hunk) Finding[]
+        #analyze(ChangedFile[]) Finding[]
+        -scanInjection(addedLine) Finding[]
+        -scanSecrets(addedLine) Finding[]
     }
 
     class StyleAgent {
@@ -34,21 +35,19 @@ classDiagram
     }
 
     class PerformanceAgent {
-        #analyze(ChangedFile) Finding[]
-        -detectNPlusOne(hunk) Finding[]
-        -detectBlockingCall(hunk) Finding[]
+        -prompt : LlmPassOptions
+        #analyze(ChangedFile[]) Finding[]
     }
 
     class LogicAgent {
-        #analyze(ChangedFile) Finding[]
-        -checkNullHandling(hunk) Finding[]
-        -checkBoundaries(hunk) Finding[]
+        -prompt : LlmPassOptions
+        #analyze(ChangedFile[]) Finding[]
     }
 
     class DocumentationAgent {
-        #analyze(ChangedFile) Finding[]
-        -missingDocstrings(hunk) Finding[]
-        -draftDocstring(symbol) string
+        -prompt : LlmPassOptions
+        #analyze(ChangedFile[]) Finding[]
+        -keepDocstringRules(Finding[]) Finding[]
     }
 
     class LinterDispatcher {
@@ -85,5 +84,6 @@ classDiagram
     LogicAgent --> LlmClient
     DocumentationAgent --> LlmClient
 
-    note for ReviewAgent "All five services implement this one contract,\nwhich is what lets each be called, tested and\nreused independently (FR-SEC-04, NFR-10)."
-    note for StyleAgent "The only agent with no LlmClient. Its fixes are\nrule-based and therefore safe to apply without\ndeveloper review (NFR-07)."
+    note for ReviewAgent "All five services implement this one contract,<br/>which is what lets each be called, tested and<br/>reused independently (FR-SEC-04, NFR-10)."
+    note for LogicAgent "Logic, Performance and Documentation have no rules:<br/>one LLM call over the whole changed files, linked<br/>files together, findings only on added lines.<br/>No LLM answer fails the run (503 llm_failed)."
+    note for StyleAgent "The only agent with no LlmClient. Its fixes are<br/>rule-based and therefore safe to apply without<br/>developer review (NFR-07)."

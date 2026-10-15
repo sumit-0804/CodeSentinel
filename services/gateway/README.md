@@ -175,8 +175,22 @@ without a recent authenticator code (see [Step-up](#authentication)). Each row w
 | `copied` | kept, `changeType: added` |
 
 Language comes from the extension: `js/mjs/cjs/jsx` → `javascript`, `ts/mts/cts/tsx` → `typescript`,
-`py` → `python`, anything else → `unknown`, which is still sent (agents skip it as
-`unsupported_language`, and the Documentation agent may still use it).
+`py` → `python`, anything else → `unknown`, which is still sent (the Security Agent scans it for
+secrets; the others skip it as `unsupported_language`).
+
+**Files sent to the agents** (`webhooks/file-contents.ts`, for both the webhook and a re-run). The
+agents read each change in context, so each kept file that isn't deleted is read whole at the head
+commit (`GET /contents`) and sent as `ChangedFile.content` next to its diff:
+- **Size cap:** a file over `FILE_CONTENT_MAX_BYTES` (36 000 by default, about one LLM call) goes
+  as its diff only. `0` turns whole files off.
+- **Concurrency:** 5 reads at a time. No new read starts after 4 s, because GitHub expects the
+  webhook's answer within 10 s.
+- **Failures:** a missing or unreadable file goes without `content`, with a warning. The review
+  never fails because of it.
+- **Logging:** the `changed files read` log line counts `attached`, `oversized`, `failed` and
+  `outOfTime`.
+
+Only the pull request's changed files are sent, never the rest of the repository (NFR-06).
 
 ## Review history
 
@@ -279,8 +293,9 @@ there is never a second Check Run or review.
    confidence threshold (0.8 by default, FR-ORC-06) that either carries a fix or comes from the
    Security, Logic or Performance agent:
    - a fix is a ```` ```suggestion ```` block the author commits with one click; Style's
-     Prettier/Black fixes are labelled deterministic, the Security Agent's LLM fixes AI-suggested
-     (review before committing). Nothing is ever pushed to the branch (FR-GH-04);
+     Prettier/Black fixes are labelled deterministic, the LLM fixes of the Security, Logic,
+     Performance and Documentation agents AI-suggested (review before committing). Nothing is
+     pushed to the branch unless someone accepts a fix (FR-GH-04, UC-3 below);
    - Style lint findings without a fix are not posted inline; they are Check Run annotations;
    - at most 50 comments, highest ranked first; the rest are counted in the Check Run;
    - if GitHub refuses the review (422, a line it will not accept), each comment is posted on its
@@ -382,6 +397,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `REVIEW_POLL_TIMEOUT_MS` | `300000` | How long to wait for a review job before completing its Check Run as timed out | integer 10000..1800000 |
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `MFA_STEP_UP_MINUTES` | `10` | How long an authenticator code counts for on step-up routes | integer 1..60 |
+| `FILE_CONTENT_MAX_BYTES` | `36000` | Changed files up to this size go to the agents whole; larger ones as diffs only. `0` sends diffs only | integer 0..1000000 |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
@@ -451,7 +467,7 @@ npm run build -w @code-sentinel/gateway
 npm run lint  -w @code-sentinel/gateway
 ```
 
-291 tests in 27 files (37 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
+296 tests in 28 files (37 are the Prisma suite, which runs when `TEST_DATABASE_URL` is set; locally,
 point it at the Docker Postgres in the [db README](../../packages/db/README.md)). They run
 the real app on an ephemeral port (`withServer` from `@code-sentinel/service-kit/testing`) with global
 `fetch`, stub the orchestrator and GitHub, sign Supabase tokens with a local ES256 key and JWKS
@@ -526,10 +542,11 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
 npx smee-client --url <smee channel URL> --target http://127.0.0.1:3000/webhooks/github
 ```
 
-Start the orchestrator, the Security and Style agents, and the gateway (see the root README), then
+Start the orchestrator, the five agents and the gateway (see the root README), then
 open a pull request from `demo/risky-change` to `main` in the playground. The gateway log shows
 `review_started` with the real files, and the orchestrator job ends with Security findings (SQL
-injection, the AWS key, `innerHTML`) and Style findings with Prettier fixes. **Redeliver** from the
+injection, the AWS key, `innerHTML`), Style findings with Prettier fixes, and whatever the Logic,
+Performance and Documentation agents find in the changed files. **Redeliver** from the
 App's *Advanced → Recent Deliveries* page gives `duplicate_ignored`; a new push gives a new job.
 
 The database setup was run live on 11-Oct (playground PR #4): the gateway logged `stores: postgres`,

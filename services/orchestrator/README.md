@@ -162,22 +162,39 @@ Changed lines are the `+` / `-` lines of each patch; gateway-dropped files count
 Groq is the primary provider and Gemini the secondary ([`plans/large-diffs.md`](../../plans/large-diffs.md)).
 The orchestrator never calls an LLM itself; it decides which provider's quota each agent request
 may use, so production never receives a 429. At startup `loadLlmLimits()` reads the keys and
-limits and `createLlmRouting()` builds one `QuotaBudget` per configured provider, shared by every
-review in the process.
+limits and `createLlmRouting()` builds the budgets, shared by every review in the process:
+- **Gemini:** one `QuotaBudget`.
+- **Groq:** one `QuotaBudget` per **account**. Groq limits are per organization, not per key, so an
+  agent whose `.env` holds another account's `GROQ_API_KEY` is named in `GROQ_ACCOUNT_<AGENT>`, and
+  agents on the same name share a budget. Unset is `default`, the account of the orchestrator's own
+  `GROQ_API_KEY`.
 
 For each LLM agent (security, performance, logic, documentation):
 
 1. **Timeout** is `max(job.agentTimeoutMs, LLM_AGENT_TIMEOUT_MS)`: 45 s by default, because a
    Gemini call took 22 s on the free tier on 27-Sep.
-2. **Plan** (`planLlmReview`): source files first, then smallest first; a file over
-   `LLM_MAX_FILE_TOKENS` is `too_large`, anything past `LLM_REVIEW_MAX_TOKENS` is `over_budget`,
-   and the rest is packed into batches of up to `LLM_MAX_BATCH_TOKENS`.
-3. **Reserve** each batch (`reserveBatch`), costing diff tokens + prompt reserve + max output: on
-   Groq when the batch fits one Groq call (about 3.4K diff tokens at 8K TPM) and Groq has room now,
-   otherwise on Gemini, otherwise wait for the first to free up. If nothing frees up at least 5 s
+2. **Plan** (`planLlmReview`). The gateway sends each changed file whole (`content`) next to its
+   diff, and a file's tokens count both.
+   - **Group linked files** (`budget/related-files.ts`): files that import one another, among the
+     files this PR changed, form a group that goes into one call, so a change is read with the
+     changed code it uses. It covers relative and `@/` / `~/` JS/TS imports (ESM `./x.js` matches
+     `x.ts`) and Python absolute and relative imports. An ambiguous module name links nothing.
+   - **Order:** groups go source first, then smallest first.
+   - **Too big:** a whole file over `LLM_MAX_FILE_TOKENS` is sent as its diff; a diff over it is
+     `too_large`. A group over `LLM_MAX_BATCH_TOKENS` sends its largest files as diffs until it
+     fits, and is split into consecutive batches only if it still does not.
+   - **Budget:** anything past `LLM_REVIEW_MAX_TOKENS` is `over_budget`.
+   - **Other changes:** every batch also carries the rest of the PR's diffs as `otherChanges`,
+     linked files first, up to `LLM_OTHER_CHANGES_TOKENS`, then paths only. The agents read them
+     as context and never report on them.
+3. **Reserve** each batch (`reserveBatch`), costing file tokens + other-changes tokens + prompt
+   reserve + max output: on Groq, on the agent's own account, when the batch fits one Groq call
+   (about 3.4K tokens at 8K TPM) and that account has room now; otherwise on Gemini; otherwise
+   wait for the first to free up. Whole files rarely fit one Groq call, so most reviews run on
+   Gemini (1M context, 250K TPM), and small ones stay on Groq. If nothing frees up at least 5 s
    before the deadline, the rest of the agent's files are `over_budget` and the run carries
    `llm_quota_exhausted`.
-4. **Send** each reserved batch at once with `options.llmProvider`, then **settle**
+4. **Send** each reserved batch at once with `options.llmProvider` and `otherChanges`, then **settle**
    (`settleCall`) with the agent's reported token counts: a call that made no LLM request gives its
    reservation back, and a Groq call Gemini answered is charged to Gemini. A failed call keeps its
    estimate.
@@ -185,7 +202,8 @@ For each LLM agent (security, performance, logic, documentation):
    batch failed, the run takes that failure's status but keeps the other batches' findings.
 
 Without any LLM key the orchestrator logs a warning and LLM agents get one request with no
-`llmProvider`, so they run their rule-based checks only.
+`llmProvider`: Security runs its rule-based checks only, and the LLM-only agents (Logic,
+Performance, Documentation) answer 503 `llm_failed`, so their runs show as failed.
 
 ## Configuration
 
@@ -202,6 +220,7 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | `JOB_RETENTION_MS` | `3600000` | In memory only: how long a finished job stays readable, integer 60000..86400000 |
 | `LLM_AGENT_TIMEOUT_MS` | `45000` | Minimum timeout for LLM agents, integer 1000..120000 |
 | `GROQ_*`, `GEMINI_*`, `LLM_*` | see [`packages/llm`](../../packages/llm/README.md) | Provider keys and limits of **this environment's** keys, and the batch sizes |
+| `GROQ_ACCOUNT_SECURITY`, `_PERFORMANCE`, `_LOGIC`, `_DOCUMENTATION` | `default` | Which Groq account (organization) the agent's own `GROQ_API_KEY` belongs to; agents on one name share one Groq budget. Lowercase name, up to 32 characters |
 | `AGENT_SECURITY_URL` | unset | Security agent base URL |
 | `AGENT_STYLE_URL` | unset | Style agent base URL |
 | `AGENT_PERFORMANCE_URL` | unset | Performance agent base URL |
@@ -234,7 +253,7 @@ Tests stub `fetch` through the `AgentClient` constructor and run the HTTP app on
 
 **Manual check** (Git Bash, from `services/orchestrator/` after `npm run build` at the root):
 
-1. Start with no agents: `PORT=8080 SERVICE_TOKEN=local-service-token AGENT_SECURITY_URL= AGENT_STYLE_URL= AGENT_PERFORMANCE_URL= AGENT_LOGIC_URL= AGENT_DOCUMENTATION_URL= node dist/server.js`.
+1. Start with no agents (each agent has a manual check in its own README): `PORT=8080 SERVICE_TOKEN=local-service-token AGENT_SECURITY_URL= AGENT_STYLE_URL= AGENT_PERFORMANCE_URL= AGENT_LOGIC_URL= AGENT_DOCUMENTATION_URL= node dist/server.js`.
 2. `POST /internal/v1/review-jobs` with the bearer token, `Idempotency-Key: smoke-1` and
    `exampleReviewJobRequest` from `@code-sentinel/contracts/examples` as the body: 202 `queued`.
 3. `GET /internal/v1/review-jobs/{jobId}`: `failed`, every enabled agent `skipped` with

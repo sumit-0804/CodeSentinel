@@ -40,9 +40,10 @@ them. The caller still validates the returned JSON (with zod): the model output 
 | `GEMINI_EMBED_RPM` / `TPM` / `RPD` | unset | From the key's quota page; embeddings stay off until all three are set |
 | `LLM_QUOTA_HEADROOM` | `0.8` | Share of every limit we use, in (0, 1] |
 | `LLM_MAX_OUTPUT_TOKENS` | `2000` | Output cap per call; counts against TPM |
-| `LLM_MAX_FILE_TOKENS` | `6000` | A larger file is `too_large` |
-| `LLM_MAX_BATCH_TOKENS` | `12000` | Diff tokens per call (Groq batches are further capped by its TPM) |
-| `LLM_REVIEW_MAX_TOKENS` | `24000` | Diff tokens per LLM agent per review; the rest is `over_budget` |
+| `LLM_MAX_FILE_TOKENS` | `12000` | A larger whole file is sent as its diff; a larger diff is `too_large` |
+| `LLM_MAX_BATCH_TOKENS` | `40000` | File tokens per call, so linked files fit together (Groq batches are further capped by its TPM; bigger ones go to Gemini). Agents need the same value, or they refuse the batch |
+| `LLM_REVIEW_MAX_TOKENS` | `80000` | File tokens per LLM agent per review; the rest is `over_budget` |
+| `LLM_OTHER_CHANGES_TOKENS` | `4000` | Diffs of the pull request's other files sent with each call as context (then paths only). Agents need the same value |
 | `LLM_PROMPT_RESERVE_TOKENS` | `1000` | System prompt allowance per call |
 
 Development and production use separate keys, each with its own limits.

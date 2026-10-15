@@ -19,16 +19,18 @@ sequenceDiagram
     else signature valid
         GW->>DB: look up repository + enabled agents + threshold
         DB-->>GW: config (agents, threshold, timeout)
+        GW->>GH: list PR files, then read each changed file whole at the head
+        GH-->>GW: diffs + file contents (over 36 KB → diff only)
         GW->>OR: POST /internal/v1/review-jobs (Idempotency-Key = delivery id)
         OR-->>GW: 202 { jobId, reviewId }
         GW-->>GH: 202 accepted
         GW->>GH: create Check Run in progress (within 5s, AC-01)
     end
 
-    Note over OR,AG: fan-out — all enabled agents called in parallel (FR-ORC-01)
+    Note over OR,AG: fan-out — all enabled agents called in parallel (FR-ORC-01).<br/>Files linked by imports go in one call, with the PR's other diffs as context.
 
     par Security
-        OR->>AG: POST /v1/review (diff hunks only, NFR-06)
+        OR->>AG: POST /v1/review (whole changed files + diffs, findings on added lines only)
         AG-->>OR: findings[] + confidence
     and Style
         OR->>AG: POST /v1/review
