@@ -117,7 +117,7 @@ export function createLlmClient(limits: LlmLimits, options: { fetch?: FetchLike 
   return new LlmClient({
     ...(limits.groq ? { groq: new GroqProvider({ ...limits.groq, ...fetchOption }) } : {}),
     ...(limits.gemini ? { gemini: new GeminiProvider({ ...limits.gemini, ...fetchOption }) } : {}),
-    maxInputTokens: limits.maxBatchTokens + limits.promptReserveTokens,
+    maxInputTokens: limits.maxBatchTokens + limits.otherChangesTokens + limits.promptReserveTokens,
     maxOutputTokens: limits.maxOutputTokens,
   });
 }

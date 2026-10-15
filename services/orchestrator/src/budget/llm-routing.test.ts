@@ -23,6 +23,7 @@ function routing({ groq = true, gemini = true } = {}) {
       ...(groq ? { groq: new QuotaBudget({ requestsPerMinute: 30, tokensPerMinute: 8000, requestsPerDay: 1000, tokensPerDay: 200000 }, { headroom: 0.8, now: clock }) } : {}),
       ...(gemini ? { gemini: new QuotaBudget({ requestsPerMinute: 15, tokensPerMinute: 250000, requestsPerDay: 500 }, { headroom: 0.8, now: clock }) } : {}),
     },
+    groqByAgent: {},
     plan: { maxFileTokens: 6000, maxBatchTokens: 12000, reviewMaxTokens: 24000 },
     overheadTokens: 3000,
     groqMaxBatchTokens: 3400,
@@ -52,6 +53,30 @@ describe("createLlmRouting", () => {
     expect(Object.keys(r!.budgets)).toEqual(["groq"]);
     expect(r!.groqMaxBatchTokens).toBe(3400);
     expect(createLlmRouting({ ...limits, groq: undefined }, 45000)).toBeUndefined();
+  });
+
+  it("gives each named Groq account its own budget, shared by the agents on it", async () => {
+    const limits = {
+      groq: { apiKey: "g", model: "m", limits: { requestsPerMinute: 30, tokensPerMinute: 8000, requestsPerDay: 1000, tokensPerDay: 200000 } },
+      headroom: 0.8,
+      maxOutputTokens: 2000,
+      maxFileTokens: 12000,
+      maxBatchTokens: 40000,
+      reviewMaxTokens: 80000,
+      otherChangesTokens: 4000,
+      promptReserveTokens: 1000,
+    };
+
+    const r = createLlmRouting(limits, 45000, { security: "default", logic: "cara", performance: "sid", documentation: "cara" })!;
+
+    expect(r.groqByAgent.security).toBeUndefined();
+    expect(r.groqByAgent.logic).toBe(r.groqByAgent.documentation);
+    expect(r.groqByAgent.logic).not.toBe(r.groqByAgent.performance);
+    // Each account has 6400 tokens a minute: Logic spending its own leaves Security's untouched.
+    expect((await reserveBatch(r, 3000, Date.now() + 45000, undefined, "logic"))?.provider).toBe("groq");
+    expect(await reserveBatch(r, 3000, Date.now() + 45000, undefined, "documentation")).toBeUndefined();
+    expect((await reserveBatch(r, 3000, Date.now() + 45000, undefined, "security"))?.provider).toBe("groq");
+    expect((await reserveBatch(r, 3000, Date.now() + 45000, undefined, "performance"))?.provider).toBe("groq");
   });
 });
 

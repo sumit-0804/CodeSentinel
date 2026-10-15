@@ -45,8 +45,8 @@ async function main(): Promise<void> {
   }
 
   const clients = createAgentClients(agentConfig);
-  // One quota budget per provider for the whole process, shared by every review.
-  const llmRouting = createLlmRouting(llmLimits, config.llmAgentTimeoutMs);
+  // One Gemini budget and one Groq budget per Groq account, shared by every review.
+  const llmRouting = createLlmRouting(llmLimits, config.llmAgentTimeoutMs, config.groqAccounts);
   if (!llmRouting) logger.warn("no LLM provider configured; LLM agents run their rule-based checks only");
   const { run } = buildReviewGraph({ clients, ...(llmRouting ? { llmRouting } : {}) });
 

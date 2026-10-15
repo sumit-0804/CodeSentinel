@@ -176,6 +176,7 @@ function routing({ gemini = true } = {}): LlmRouting {
       groq: new QuotaBudget({ requestsPerMinute: 30, tokensPerMinute: 8000, requestsPerDay: 1000, tokensPerDay: 200000 }, { headroom: 0.8, now: clock }),
       ...(gemini ? { gemini: new QuotaBudget({ requestsPerMinute: 15, tokensPerMinute: 250000, requestsPerDay: 500 }, { headroom: 0.8, now: clock }) } : {}),
     },
+    groqByAgent: {},
     plan: { maxFileTokens: 6000, maxBatchTokens: 3000, reviewMaxTokens: 24000 },
     overheadTokens: 3000,
     groqMaxBatchTokens: 3400,
@@ -201,6 +202,8 @@ describe("createFanOutNode with LLM routing", () => {
       [["a.py"], "groq"],
       [["b.py"], "gemini"],
     ]);
+    // Each call names the file the other call reviews, so linked changes are read together.
+    expect(calls.map(([request]) => request.otherChanges?.map((c) => c.path))).toEqual([["b.py"], ["a.py"]]);
     expect(calls[0]?.[1]).toMatchObject({ timeoutMs: 45000 });
     expect(calls[0]?.[0].options?.deadlineMs).toBe(43000);
     expect(update.agentRuns).toEqual([

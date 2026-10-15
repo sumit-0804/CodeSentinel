@@ -8,9 +8,10 @@ describe("loadLlmLimits", () => {
     expect(loadLlmLimits({})).toEqual({
       headroom: 0.8,
       maxOutputTokens: 2000,
-      maxFileTokens: 6000,
-      maxBatchTokens: 12000,
-      reviewMaxTokens: 24000,
+      maxFileTokens: 12000,
+      maxBatchTokens: 40000,
+      reviewMaxTokens: 80000,
+      otherChangesTokens: 4000,
       promptReserveTokens: 1000,
     });
   });

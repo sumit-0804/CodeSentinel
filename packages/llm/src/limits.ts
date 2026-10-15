@@ -20,6 +20,8 @@ export interface LlmLimits {
   maxFileTokens: number;
   maxBatchTokens: number;
   reviewMaxTokens: number;
+  /** Diffs of the pull request's other files sent with each call as context (`LLM_OTHER_CHANGES_TOKENS`). */
+  otherChangesTokens: number;
   promptReserveTokens: number;
 }
 
@@ -64,9 +66,10 @@ const EnvSchema = z.object({
     z.coerce.number({ invalid_type_error: "must be a number" }).gt(0, "must be in (0, 1]").max(1, "must be in (0, 1]").default(0.8),
   ),
   LLM_MAX_OUTPUT_TOKENS: intOr(2000),
-  LLM_MAX_FILE_TOKENS: intOr(6000),
-  LLM_MAX_BATCH_TOKENS: intOr(12000),
-  LLM_REVIEW_MAX_TOKENS: intOr(24000),
+  LLM_MAX_FILE_TOKENS: intOr(12000),
+  LLM_MAX_BATCH_TOKENS: intOr(40000),
+  LLM_REVIEW_MAX_TOKENS: intOr(80000),
+  LLM_OTHER_CHANGES_TOKENS: intOr(4000),
   LLM_PROMPT_RESERVE_TOKENS: intOr(1000),
 });
 
@@ -87,6 +90,7 @@ export function loadLlmLimits(env: Record<string, string | undefined> = process.
     maxFileTokens: v.LLM_MAX_FILE_TOKENS,
     maxBatchTokens: v.LLM_MAX_BATCH_TOKENS,
     reviewMaxTokens: v.LLM_REVIEW_MAX_TOKENS,
+    otherChangesTokens: v.LLM_OTHER_CHANGES_TOKENS,
     promptReserveTokens: v.LLM_PROMPT_RESERVE_TOKENS,
   };
   if (v.GROQ_API_KEY) {

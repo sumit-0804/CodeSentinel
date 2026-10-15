@@ -18,7 +18,10 @@ const PROVIDER_ORDER: readonly LlmProviderName[] = ["groq", "gemini"];
 export const MIN_CALL_MS = 5_000;
 
 export interface LlmRouting {
+  /** Gemini's budget, and Groq's for agents on the orchestrator's own (`default`) account. */
   budgets: Partial<Record<LlmProviderName, QuotaBudget>>;
+  /** Groq budgets of agents that call with their own account's key; Groq limits are per organization. */
+  groqByAgent: Partial<Record<AgentKind, QuotaBudget>>;
   plan: PlanLimits;
   /** Added to every call's diff tokens: system prompt allowance plus the output cap. */
   overheadTokens: number;
@@ -32,21 +35,44 @@ export interface LlmRouting {
 
 export interface ReservedCall {
   provider: LlmProviderName;
+  /** The budget the reservation was taken from, so settling charges the same account. */
+  budget: QuotaBudget;
   reservation: Reservation;
 }
 
-/** One budget per configured provider; undefined when no LLM provider is configured at all. */
-export function createLlmRouting(limits: LlmLimits, llmAgentTimeoutMs: number): LlmRouting | undefined {
+/**
+ * One Gemini budget and one Groq budget per Groq account (`GROQ_ACCOUNT_<AGENT>`, unset is
+ * `default`); undefined when no LLM provider is configured at all.
+ */
+export function createLlmRouting(
+  limits: LlmLimits,
+  llmAgentTimeoutMs: number,
+  groqAccounts: Partial<Record<AgentKind, string>> = {},
+): LlmRouting | undefined {
   const budgets: Partial<Record<LlmProviderName, QuotaBudget>> = {};
   if (limits.groq) budgets.groq = new QuotaBudget(limits.groq.limits, { headroom: limits.headroom });
   if (limits.gemini) budgets.gemini = new QuotaBudget(limits.gemini.limits, { headroom: limits.headroom });
   if (!budgets.groq && !budgets.gemini) return undefined;
 
+  const groqByAgent: Partial<Record<AgentKind, QuotaBudget>> = {};
+  const accounts = new Map<string, QuotaBudget>();
+  for (const [agent, name] of Object.entries(groqAccounts) as [AgentKind, string][]) {
+    if (!limits.groq || name === "default") continue;
+    if (!accounts.has(name)) accounts.set(name, new QuotaBudget(limits.groq.limits, { headroom: limits.headroom }));
+    groqByAgent[agent] = accounts.get(name)!;
+  }
+
   const overheadTokens = limits.promptReserveTokens + limits.maxOutputTokens;
   const groqCallTokens = limits.groq ? Math.floor(limits.groq.limits.tokensPerMinute * limits.headroom) : 0;
   return {
     budgets,
-    plan: { maxFileTokens: limits.maxFileTokens, maxBatchTokens: limits.maxBatchTokens, reviewMaxTokens: limits.reviewMaxTokens },
+    groqByAgent,
+    plan: {
+      maxFileTokens: limits.maxFileTokens,
+      maxBatchTokens: limits.maxBatchTokens,
+      reviewMaxTokens: limits.reviewMaxTokens,
+      otherChangesTokens: limits.otherChangesTokens,
+    },
     overheadTokens,
     groqMaxBatchTokens: Math.max(0, groqCallTokens - overheadTokens),
     llmAgentTimeoutMs,
@@ -59,24 +85,28 @@ export function createLlmRouting(limits: LlmLimits, llmAgentTimeoutMs: number): 
  * Reserves one call for a batch: on Groq when the batch fits Groq's per-call cap and its quota has
  * room now, otherwise on Gemini, otherwise waits for the earliest provider to free up. Returns
  * undefined when nothing can fit before `deadlineAt` (the agent is then `llm_quota_exhausted`).
+ * Groq is reserved on the `agent`'s own account when it has one.
  */
 export async function reserveBatch(
   routing: LlmRouting,
   batchTokens: number,
   deadlineAt: number,
   signal?: AbortSignal,
+  agent?: AgentKind,
 ): Promise<ReservedCall | undefined> {
   const cost = { requests: 1, tokens: batchTokens + routing.overheadTokens };
+  const budgetOf = (provider: LlmProviderName) => (provider === "groq" && agent && routing.groqByAgent[agent]) || routing.budgets[provider];
   const candidates = PROVIDER_ORDER.filter(
-    (provider) => routing.budgets[provider] && (provider !== "groq" || batchTokens <= routing.groqMaxBatchTokens),
+    (provider) => budgetOf(provider) && (provider !== "groq" || batchTokens <= routing.groqMaxBatchTokens),
   );
 
   for (;;) {
     signal?.throwIfAborted();
     let earliest: number | undefined;
     for (const provider of candidates) {
-      const result = routing.budgets[provider]!.tryReserve(cost);
-      if (result.ok) return { provider, reservation: result.reservation };
+      const budget = budgetOf(provider)!;
+      const result = budget.tryReserve(cost);
+      if (result.ok) return { provider, budget, reservation: result.reservation };
       if (result.retryAt) earliest = Math.min(earliest ?? Infinity, result.retryAt.getTime());
     }
     if (earliest === undefined || earliest > deadlineAt - MIN_CALL_MS) return undefined;
@@ -89,7 +119,7 @@ export async function reserveBatch(
  * reservation back; one Gemini answered after Groq failed is charged to Gemini instead.
  */
 export function settleCall(routing: LlmRouting, reserved: ReservedCall, llm: AgentLlmUsage | undefined): void {
-  const budget = routing.budgets[reserved.provider]!;
+  const budget = reserved.budget;
   const used = (llm?.promptTokens ?? 0) + (llm?.completionTokens ?? 0);
   if (!llm?.provider || used === 0) {
     budget.release(reserved.reservation);

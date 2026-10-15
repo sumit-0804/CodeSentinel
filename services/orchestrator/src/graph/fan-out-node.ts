@@ -5,6 +5,7 @@ import type {
   AgentRunSummary,
   ChangedFile,
   Finding,
+  OtherChange,
   SkippedFile,
 } from "@code-sentinel/contracts";
 import type { LlmProviderName } from "@code-sentinel/llm";
@@ -101,7 +102,7 @@ async function runLlmAgent(
   let exhausted = false;
 
   for (const batch of plan.batches) {
-    const reserved = exhausted ? undefined : await reserveBatch(routing, batch.tokens, deadlineAt, signal);
+    const reserved = exhausted ? undefined : await reserveBatch(routing, batch.tokens + batch.otherTokens, deadlineAt, signal, agent);
     if (!reserved) {
       exhausted = true;
       skipped.push(...batch.files.map((file) => ({ path: file.path, reason: "over_budget" as const })));
@@ -109,7 +110,7 @@ async function runLlmAgent(
     }
     const timeoutMs = Math.max(1, deadlineAt - routing.now());
     calls.push(
-      send(client, state, batch.files, timeoutMs, reserved.provider, signal).then((result) => {
+      send(client, state, batch.files, timeoutMs, reserved.provider, signal, batch.otherChanges).then((result) => {
         if (result.ok) settleCall(routing, reserved, result.response.llm);
         // A failed call keeps its estimate: the provider may have spent the tokens.
         return result;
@@ -147,10 +148,12 @@ async function send(
   timeoutMs: number,
   llmProvider: LlmProviderName | undefined,
   signal: AbortSignal | undefined,
+  otherChanges: OtherChange[] = [],
 ): Promise<BatchResult> {
   const request: AgentReviewRequest = {
     reviewId: state.reviewId,
     files,
+    ...(otherChanges.length ? { otherChanges } : {}),
     confidenceThreshold: state.confidenceThreshold,
     options: {
       deadlineMs: Math.max(0, timeoutMs - DEADLINE_MARGIN_MS),

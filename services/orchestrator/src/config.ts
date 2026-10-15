@@ -1,3 +1,4 @@
+import type { AgentKind } from "@code-sentinel/contracts";
 import { z } from "zod";
 
 export interface OrchestratorConfig {
@@ -10,6 +11,8 @@ export interface OrchestratorConfig {
   llmAgentTimeoutMs: number;
   /** Supabase Postgres (session pooler). Set → reviews are stored in `reviews`; unset → in memory. */
   databaseUrl?: string;
+  /** Which Groq account (organization) each LLM agent calls with; agents on one account share its quota. */
+  groqAccounts: Partial<Record<AgentKind, string>>;
 }
 
 /** Thrown by `loadOrchestratorConfig` with every invalid variable listed at once. */
@@ -22,6 +25,8 @@ export class OrchestratorConfigError extends Error {
     this.problems = problems;
   }
 }
+
+export const DEFAULT_GROQ_ACCOUNT = "default";
 
 /** `PORT=` in a .env file means "use the default", not "empty string". */
 const blankAsUndefined = (value: unknown) =>
@@ -38,6 +43,9 @@ const integer = (min: number, max: number, fallback: number) =>
       .default(fallback),
   );
 
+/** A Groq account name; agents left unset use `default`, the orchestrator's own GROQ_API_KEY account. */
+const account = z.preprocess(blankAsUndefined, z.string().regex(/^[a-z0-9_-]{1,32}$/, "must be a short lowercase name").default(DEFAULT_GROQ_ACCOUNT));
+
 const EnvSchema = z.object({
   PORT: integer(1, 65535, 8080),
   SERVICE_TOKEN: z.preprocess(blankAsUndefined, z.string().min(1, "must not be empty")),
@@ -47,6 +55,10 @@ const EnvSchema = z.object({
     blankAsUndefined,
     z.string().regex(/^postgres(ql)?:\/\/\S+$/, "must be a postgres:// or postgresql:// URL").optional(),
   ),
+  GROQ_ACCOUNT_SECURITY: account,
+  GROQ_ACCOUNT_PERFORMANCE: account,
+  GROQ_ACCOUNT_LOGIC: account,
+  GROQ_ACCOUNT_DOCUMENTATION: account,
   NODE_ENV: z.string().optional(),
 }).refine((values) => values.NODE_ENV !== "production" || values.DATABASE_URL !== undefined, {
   // In memory, a restart loses every review a deployed gateway is still waiting on.
@@ -76,6 +88,12 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
     serviceToken: values.SERVICE_TOKEN,
     jobRetentionMs: values.JOB_RETENTION_MS,
     llmAgentTimeoutMs: values.LLM_AGENT_TIMEOUT_MS,
+    groqAccounts: {
+      security: values.GROQ_ACCOUNT_SECURITY,
+      performance: values.GROQ_ACCOUNT_PERFORMANCE,
+      logic: values.GROQ_ACCOUNT_LOGIC,
+      documentation: values.GROQ_ACCOUNT_DOCUMENTATION,
+    },
     ...(values.DATABASE_URL !== undefined ? { databaseUrl: values.DATABASE_URL } : {}),
   };
 }
