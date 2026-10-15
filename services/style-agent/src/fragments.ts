@@ -23,16 +23,26 @@ const DEFAULT_EXTENSION: Partial<Record<Language, string>> = { python: "py", jav
 const KNOWN_EXTENSION = /\.(py|js|jsx|mjs|cjs|ts|tsx|mts|cts)$/i;
 
 /**
- * Turns every hunk with added lines into a fragment (FR-STY-01). Agents never see whole files
- * (NFR-06), so each hunk's new side is linted and formatted on its own; the extension picks the
- * linter and formatter inside the sandbox.
+ * What the sandbox lints and formats (FR-STY-01); the extension picks the tools. A file the gateway
+ * sent whole is one fragment covering every line, with this PR's lines marked added, so it parses
+ * as it really is. Otherwise each hunk with added lines is a fragment of its own, dedented and
+ * wrapped so it parses alone.
  */
 export function buildFragments(files: ChangedFile[]): Fragment[] {
   const fragments: Fragment[] = [];
   files.forEach((file, fileIndex) => {
     const extension = KNOWN_EXTENSION.exec(file.path)?.[1]?.toLowerCase() ?? DEFAULT_EXTENSION[file.language];
     if (!extension) return;
-    parsePatch(file.patch).hunks.forEach((hunk, hunkIndex) => {
+    const parsed = parsePatch(file.patch);
+    if (file.content !== undefined) {
+      if (!parsed.addedLines.length) return;
+      const added = new Set(parsed.addedLines.map((line) => line.line));
+      const text = file.content.replace(/\r\n/g, "\n").replace(/\n$/, "");
+      const hunk: Hunk = { newStart: 1, lines: text.split("\n").map((line, i) => ({ line: i + 1, text: line, added: added.has(i + 1) })) };
+      fragments.push({ file, hunk, indent: "", prefixLines: 0, suffixLines: 0, sandboxFile: { name: `f${fileIndex}.${extension}`, content: `${text}\n` } });
+      return;
+    }
+    parsed.hunks.forEach((hunk, hunkIndex) => {
       if (!hunk.lines.some((line) => line.added)) return;
       const indent = commonIndent(hunk.lines.map((line) => line.text));
       const body = hunk.lines.map((line) => line.text.slice(indent.length));

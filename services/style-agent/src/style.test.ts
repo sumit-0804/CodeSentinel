@@ -31,6 +31,51 @@ describe("buildFragments", () => {
   });
 });
 
+describe("whole-file fragments", () => {
+  // Lines 1-2 are old code; line 3 was added inside the function, so its hunk alone would not parse.
+  const whole: ChangedFile = {
+    ...file("src/w.ts", "@@ -1,3 +1,4 @@\n function f() {\n   var old =  1\n+  let fresh=2\n }\n"),
+    content: "function f() {\n  var old =  1\n  let fresh=2\n}\n",
+  };
+  const [fragment] = buildFragments([whole]);
+
+  it("sends the whole file unwrapped, with this PR's lines marked added", () => {
+    expect(fragment!.sandboxFile).toEqual({ name: "f0.ts", content: "function f() {\n  var old =  1\n  let fresh=2\n}\n" });
+    expect(fragment!.hunk.lines.map((line) => [line.line, line.added])).toEqual([
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, false],
+    ]);
+  });
+
+  it("reports diagnostics on added lines only, never on old code", () => {
+    const findings = fragmentFindings(fragment!, {
+      diagnostics: [
+        { line: 2, column: 3, ruleId: "eslint/no-var", message: "Unexpected var.", fixable: true },
+        { line: 3, column: 3, ruleId: "eslint/prefer-const", message: "fresh is never reassigned.", fixable: true },
+      ],
+    });
+
+    expect(findings.map((f) => [f.ruleId, f.location.lineStart])).toEqual([["style/eslint/prefer-const", 3]]);
+  });
+
+  it("fixes formatting of added lines and leaves old lines alone", () => {
+    const findings = fragmentFindings(fragment!, { diagnostics: [], formatted: "function f() {\n  var old = 1;\n  let fresh = 2;\n}\n" });
+
+    expect(findings).toEqual([
+      expect.objectContaining({
+        location: { filePath: "src/w.ts", lineStart: 3, lineEnd: 3 },
+        suggestion: expect.objectContaining({ originalSnippet: "  let fresh=2", suggestedSnippet: "  let fresh = 2;" }),
+      }),
+    ]);
+  });
+
+  it("skips a whole file with no added lines", () => {
+    expect(buildFragments([{ ...whole, patch: "@@ -1,2 +1,1 @@\n function f() {\n-  gone\n" }])).toEqual([]);
+  });
+});
+
 describe("fragmentFindings", () => {
   const [fragment] = buildFragments([file("src/a.ts", "@@ -10,3 +10,3 @@\n   const a = 1\n+  var b =  2\n+  let c=3\n")]);
 

@@ -111,8 +111,8 @@ interface Block {
   bEnd: number;
 }
 
-/** Past this many lines a hunk is compared as one block instead of line by line. */
-const MAX_DIFF_LINES = 400;
+/** Past this many lines a fragment is compared as one block instead of line by line (a whole file is at most ~36 KB). */
+const MAX_DIFF_LINES = 2_000;
 
 /** Lines that differ only in whitespace or a trailing `;` / `,` are the same line, reformatted. */
 const lineKey = (line: string) => line.replace(/\s+/g, "").replace(/[;,]+$/, "");

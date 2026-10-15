@@ -9,9 +9,13 @@ are safe to apply without review. Built on
 
 ## How a request is analyzed
 
-1. **Fragments** (`fragments.ts`): agents never see whole files (NFR-06), so every hunk with added
-   lines becomes its own small source file, named `f<file>_h<hunk>.<ext>`; the extension picks the
-   tools (FR-STY-01). The hunk's common indentation is removed first, so an indented method body
+1. **Fragments** (`fragments.ts`): the extension picks the tools (FR-STY-01).
+   - **Whole file** (the usual case): when the gateway sent the file (`ChangedFile.content`), it is
+     one fragment, `f<file>.<ext>`, linted and formatted exactly as it is, with the lines this PR
+     added marked. Nothing has to be wrapped or dedented, and the linters see the real imports and
+     scopes. Files with no added lines are skipped.
+   - **Hunks** (fallback, a file over the gateway's size cap): every hunk with added lines becomes
+     its own small source file, named `f<file>_h<hunk>.<ext>`. The hunk's common indentation is removed first, so an indented method body
    parses as top-level code, and put back on the output. A real hunk usually starts or ends
    inside a block (GitHub's hunk for `cart.js` in the live check began inside `total()` and
    closed it), so for JS/TS the braces are counted — outside strings and comments — and the
@@ -48,7 +52,8 @@ are safe to apply without review. Built on
      open) produces nothing; how many were left out is logged. A hunk from inside a function
      keeps its bare `return` parseable: ESLint retries it in CommonJS mode.
 
-Rules that need the whole file are off, because a hunk cannot show them: ESLint `no-undef`,
+Rules that need the whole file are still off, because the hunk fallback cannot show them and one
+sandbox config serves both paths: ESLint `no-undef`,
 `no-unused-vars`, `no-unreachable`; Ruff `F821`, `F401`, `F841`, `F811`, `E402`. See
 [`sandbox/eslint.config.mjs`](sandbox/eslint.config.mjs) and [`sandbox/ruff.toml`](sandbox/ruff.toml).
 
