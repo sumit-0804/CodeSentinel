@@ -6,7 +6,7 @@ sequenceDiagram
     participant GW as API Gateway
     participant OR as Orchestrator
     participant AG as Agent Services (×5)
-    participant VDB as ChromaDB
+    participant VDB as pgvector
     participant DB as PostgreSQL
 
     Dev->>GH: open or push to a pull request

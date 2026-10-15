@@ -46,7 +46,7 @@ classDiagram
 
     class LlmRequest {
         +systemPrompt : string
-        +diffHunks : string
+        +files : whole files + diffs
         +maxOutputTokens : int
         +temperature : number
     }
@@ -64,9 +64,9 @@ classDiagram
     LlmClient *-- GeminiProvider : secondary
     LlmClient ..> LlmRequest
     LlmClient ..> LlmResponse
-    ReviewPlanner ..> QuotaBudget : one budget per provider
+    ReviewPlanner ..> QuotaBudget : Gemini + one per Groq account
     LlmResponse ..> QuotaBudget : settles with token counts
     GeminiEmbedder ..> QuotaBudget : embedding quota
 
-    note for LlmClient "Groq (gpt-oss-120b) first, Gemini second:<br/>Groq when its quota fits, else Gemini, and<br/>Gemini retries a failed Groq call (fallbackDepth 1).<br/>Separate dev and prod keys (NFR-11, NFR-14).<br/>Over-budget input: file skipped, never split."
+    note for LlmClient "Groq (gpt-oss-120b) first, Gemini second:<br/>Groq when its quota fits, else Gemini, and<br/>Gemini retries a failed Groq call (fallbackDepth 1).<br/>Separate dev and prod keys (NFR-11, NFR-14).<br/>Linked files go in one call; a file too big to<br/>send whole goes as its diff, never split."
     note for QuotaBudget "Reserved by the orchestrator before fan-out,<br/>so production never receives a 429.<br/>Sliding 1-minute and rolling 24-hour windows."

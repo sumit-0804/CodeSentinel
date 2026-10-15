@@ -3,8 +3,8 @@ import type { Finding, SimilarPastIssue } from "@code-sentinel/contracts";
 /**
  * Storage-facing side of context-aware review (FR-VDB-01/02).
  *
- * Vectors live in ChromaDB; PostgreSQL keeps the `finding_embeddings` / `finding_similarities`
- * mapping so a finding can be traced both ways (see `docs/design/schema/schema.sql`).
+ * Vectors live in pgvector in the same Supabase database, next to `finding_embeddings` /
+ * `finding_similarities`, so a finding can be traced both ways (see `docs/design/schema/schema.sql`).
  * Retrieval is always scoped to one organization — no cross-tenant sharing (NFR-13).
  */
 export interface VectorRepository {
@@ -20,8 +20,8 @@ export interface VectorRepository {
 }
 
 /**
- * ChromaDB-backed implementation. Not wired yet — the Chroma client, embedding model and
- * collection-per-org layout are the next step on the vector-DB work package (W13–W14).
+ * Placeholder from before the move to pgvector (10-Oct); not wired. The vector-context work
+ * replaces it with a pgvector implementation.
  */
 export class ChromaVectorRepository implements VectorRepository {
   async index(_finding: Finding, _organizationId: string): Promise<void> {

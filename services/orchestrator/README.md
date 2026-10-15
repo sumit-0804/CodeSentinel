@@ -34,9 +34,9 @@ there.
 | Aggregate step | `aggregation/index.ts` → `aggregate()` | working |
 | `ContextNode` (FR-ORC-05) | `graph/context-node.ts`, `context/similar-issue-lookup.ts` | wired, thin: no-op until a `VectorRepository` is supplied |
 | `ThresholdNode` (FR-ORC-06) | `graph/threshold-node.ts` | wired, thin: records `confidenceThreshold` on the report only |
-| Vector store (FR-VDB-01/02) | `context/vector-repository.ts` | interface + Chroma stub |
+| Vector store (FR-VDB-01/02) | `context/vector-repository.ts` | interface + an unwired placeholder; pgvector implementation planned |
 | LLM batch planning (`planLlmReview`) | `budget/plan.ts` | working |
-| Groq → Gemini quota routing (one `QuotaBudget` per provider) | `budget/llm-routing.ts` | working |
+| Groq → Gemini quota routing (one `QuotaBudget` for Gemini, one per Groq account) | `budget/llm-routing.ts` | working |
 | Review coverage | `aggregation/coverage.ts` → `buildCoverage()` | working |
 
 ## HTTP API
@@ -235,7 +235,7 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 
 - `callbackUrl`: accepted but not called yet (a warning is logged); the gateway polls instead
 - `agentRuns` while a job is running: they appear only once the job finishes
-- Chroma `VectorRepository` implementation
+- pgvector `VectorRepository` implementation
 - Gemini embeddings into the vector store (`GeminiEmbedder` exists in `packages/llm`)
 
 ## Develop

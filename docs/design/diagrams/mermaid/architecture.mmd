@@ -27,7 +27,7 @@ flowchart TB
     subgraph DATA["DATA LAYER  "]
         direction LR
         PG[("<b>PostgreSQL</b><br/>reviews, findings, suggestions, agent runs<br/>users, installations, repository config")]
-        CH[("<b>ChromaDB — Vector Store</b><br/>embeddings of previously flagged issues<br/>similarity lookup for review context")]
+        CH[("<b>pgvector — Vector Store</b><br/>in Supabase PostgreSQL: embeddings of previously<br/>flagged issues, similarity lookup for review context")]
     end
 
     GH  -- "HTTPS / REST / JSON" --> GW

@@ -17,7 +17,7 @@ const agent: ReviewAgent = {
   languages: ["python", "javascript", "typescript"],
   usesLlm: true,
   maxDiffBytes: 1_000_000,
-  maxFileTokens: 6000,
+  maxFileTokens: 50_000,
   async analyze(files, ctx) {
     const { results, skipped } = await analyzePerFile(files, ctx, (file) => scan(parsePatch(file.patch)));
     return { findings: results, skipped };

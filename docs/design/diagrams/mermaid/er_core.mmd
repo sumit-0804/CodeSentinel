@@ -88,7 +88,7 @@ erDiagram
     FINDING_EMBEDDINGS {
         uuid        finding_id      PK, FK
         uuid        organization_id FK
-        text        collection      "ChromaDB collection"
+        text        collection      "pgvector table"
         text        vector_id
         text        embedding_model
         timestamptz indexed_at

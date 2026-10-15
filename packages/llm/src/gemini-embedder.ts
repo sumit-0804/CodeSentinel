@@ -10,7 +10,7 @@ import type { FetchLike } from "./types.js";
 export interface GeminiEmbedderOptions {
   apiKey: string;
   model: string;
-  /** Sent as `outputDimensionality`; ChromaDB stores 768-dimension vectors. */
+  /** Sent as `outputDimensionality`; pgvector stores 768-dimension vectors. */
   dimensions?: number;
   /** Every request is reserved here first, so embeddings never hit a 429. */
   budget?: QuotaBudget;

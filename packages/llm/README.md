@@ -1,7 +1,7 @@
 # @code-sentinel/llm
 
 The LLM layer (`class_llm.mmd`): **Groq is the primary review provider and Gemini the secondary**,
-with one quota budget per provider so production never receives a 429. Gemini also produces the
+with quota budgets (Gemini, and one per Groq account) so production never receives a 429. Gemini also produces the
 embeddings for the vector database. Design and numbers: [`plans/large-diffs.md`](../../plans/large-diffs.md)
 and [`plans/llm-agents.md`](../../plans/llm-agents.md).
 

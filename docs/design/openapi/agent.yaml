@@ -8,8 +8,9 @@ info:
     orchestrator call them through a single client and lets any one of them be deployed,
     tested and reused on its own (FR-SEC-04, NFR-10).
 
-    An agent never calls another agent and never writes to PostgreSQL. It receives a diff,
-    returns findings, and is otherwise stateless, so instances can be added or removed
+    An agent never calls another agent and never writes to PostgreSQL. It receives the changed
+    files with their diffs (whole files when available) and the rest of the pull request as context,
+    returns findings on added lines, and is otherwise stateless, so instances can be added or removed
     freely (NFR-03).
   contact:
     name: Team Code-Sentinel
@@ -40,8 +41,8 @@ paths:
   /v1/review:
     post:
       tags: [Review]
-      operationId: reviewDiff
-      summary: Analyze a diff and return findings
+      operationId: reviewChanges
+      summary: Analyze changed files and return findings
       description: >
         Called by the orchestrator, in parallel with the other agents (FR-ORC-01). The caller
         applies its own timeout and abandons the request if it is exceeded, so an agent should
