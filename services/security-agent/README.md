@@ -12,9 +12,13 @@ request, asks Groq (or Gemini) for what single-line rules cannot see. Built on
 1. **Rules** (`scan.ts`, always): every added line against the code rules for its language and
    every secret pattern. One finding per rule per line, with severity, confidence and CWE
    (FR-SEC-03). Comment lines skip code rules but not secret rules.
-2. **LLM pass** (`llm-pass.ts`, only with `options.llmProvider`): one call for the whole request.
-   The model sees each hunk with new-side line numbers, `+` for added lines, and **secrets already
-   masked**. Its answer must match a strict JSON schema, is validated again with zod, and a
+2. **LLM pass** (`llm-pass.ts`, only with `options.llmProvider`): one call for the whole request,
+   through agent-kit's shared `runLlmPass`. The model sees **each changed file whole** when the
+   gateway sent it (`ChangedFile.content`), every line numbered with `+` on the lines this PR added,
+   so it can judge whether input is really untrusted or already escaped further up. Without the
+   whole file it sees the hunks. It also sees the PR's other changed files as context
+   (`otherChanges`). **Secrets are masked** on every line, unchanged ones included. Its answer must
+   match a strict JSON schema, is validated again with zod, and a
    finding is kept only if it starts on an added line of a file in the request. A finding in the
    same file and **CWE family** as a rule finding, within 3 lines of it, is dropped as a duplicate.
    Model line numbers can drift: Gemini put a rule's SQL injection 2 lines early in the 27-Sep live

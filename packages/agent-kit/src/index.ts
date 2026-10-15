@@ -7,5 +7,14 @@ export type { AgentContext, AnalysisResult, ReviewAgent } from "./agent.js";
 export { createAgentService, type AgentServiceDeps } from "./app.js";
 export { AgentConfigError, loadAgentEnv, type AgentEnv } from "./config.js";
 export { hunkText, parsePatch, type Hunk, type NewLine, type ParsedPatch } from "./patch.js";
+export {
+  buildLlmPrompt,
+  LlmPassError,
+  mergeRuleAndLlmFindings,
+  runLlmPass,
+  type LlmFinding,
+  type LlmPassOptions,
+  type LlmPassResult,
+} from "./llm-pass.js";
 export { analyzePerFile, runReview, type RunReviewOptions } from "./review.js";
 export { startAgentService, type StartOptions } from "./server.js";

@@ -14,6 +14,7 @@ import express, { type Express, type Request } from "express";
 import helmet from "helmet";
 
 import type { ReviewAgent } from "./agent.js";
+import { LlmPassError } from "./llm-pass.js";
 import { runReview } from "./review.js";
 
 export interface AgentServiceDeps {
@@ -80,6 +81,11 @@ export function createAgentService({ agent, serviceToken, logger, llm }: AgentSe
       } catch (error) {
         if (error instanceof LlmUnavailableError) {
           throw new HttpError(503, "llm_unavailable", `LLM provider ${error.provider} is not configured on this agent`);
+        }
+        if (error instanceof LlmPassError) {
+          // An LLM-only agent with no answer has no result; a clean 200 would claim the code passed.
+          logger.warn("required llm pass failed", { reviewId: request.reviewId, reason: error.message, error: error.cause });
+          throw new HttpError(503, "llm_failed", `The agent's LLM call failed: ${error.message}`);
         }
         throw error;
       }

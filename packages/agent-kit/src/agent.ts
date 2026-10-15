@@ -7,6 +7,7 @@ import type {
   Finding,
   HealthStatus,
   Language,
+  OtherChange,
   SkippedFile,
 } from "@code-sentinel/contracts";
 import type { LlmClient, LlmProviderName } from "@code-sentinel/llm";
@@ -23,6 +24,8 @@ export interface AgentContext {
   deadlineAt: number;
   /** Present only when the orchestrator reserved quota (`options.llmProvider`) and a key is set. */
   llm?: { client: LlmClient; provider: LlmProviderName };
+  /** The pull request's other changed files, reviewed in other calls: context only, never reported on. */
+  otherChanges: OtherChange[];
   /** The request's `options`, including agent-specific switches. */
   options: AgentReviewOptions;
 }

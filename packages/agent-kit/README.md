@@ -41,7 +41,8 @@ startAgentService(agent, { defaultPort: 8081, serviceDir: fileURLToPath(new URL(
    `unsupported_language`; a patch over `maxFileTokens` (bytes / 3) is `too_large`.
 2. `analyze(files, ctx)` runs **once** with the rest. `ctx.signal` fires at `options.deadlineMs` or
    when the orchestrator hangs up; `ctx.llm` is `{ client, provider }` only when the orchestrator
-   reserved quota (`options.llmProvider`) and this agent has that key.
+   reserved quota (`options.llmProvider`) and this agent has that key; `ctx.otherChanges` holds the
+   pull request's other changed files (diffs, context only).
 3. The response gets `agent` on every finding, `serviceVersion`, `analyzedFileCount`, the kit's
    and the agent's `skippedFiles`, `llm` usage and `latencyMs`, and must pass
    `AgentReviewResponseSchema`. An agent that breaks the contract answers 500, not a bad body.
@@ -51,8 +52,18 @@ Helpers:
 - `analyzePerFile(files, ctx, fn)`: runs `fn` per file until `ctx.signal` fires and lists the
   unreached files as `over_budget`.
 - `parsePatch(patch)`: unified diff → hunks with new-side line numbers, and every added line.
-  Agents see hunks, never whole files (NFR-06), so findings must point at added lines.
+  Findings must point at added lines, even though agents may also get the whole file.
   `hunkText(hunk)` gives a hunk's new side as source text.
+- `runLlmPass(files, ctx, options)`: the one LLM call of an LLM agent. Each file goes whole
+  (`ChangedFile.content`, every line numbered, `+` on added lines) or as its hunks, then the
+  `otherChanges` as context; the agent gives its own system prompt, rule prefix and CWE policy.
+  The answer must match a strict schema; findings are kept only on added lines, and an AI fix only
+  when every replaced line was added. With `required` (LLM-only agents), no provider, a failed call
+  or a bad answer throws `LlmPassError`, answered as 503 `llm_failed`, so the run fails instead of
+  passing clean; otherwise it returns no findings and logs why.
+- `mergeRuleAndLlmFindings(rules, llm, key)`: drops an LLM finding within 3 lines of a rule finding
+  with the same `key`, moving its fix onto the rule finding.
+- `@code-sentinel/agent-kit/testing`: `fakeLlm(answer)`, `llmFinding()` and `wholeFile()` for agent tests.
 - `loadAgentEnv(env, { defaultPort, usesLlm })`: `PORT`, `SERVICE_TOKEN` (required), and for LLM
   agents an `LlmClient` from the `GROQ_*` / `GEMINI_*` variables
   ([`packages/llm`](../llm/README.md)). Every bad variable is reported at once.

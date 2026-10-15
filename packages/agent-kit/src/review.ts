@@ -57,6 +57,7 @@ export async function runReview(
     logger: options.logger,
     signal,
     deadlineAt,
+    otherChanges: request.otherChanges ?? [],
     options: request.options ?? {},
     ...(provider && options.llm ? { llm: { client: options.llm, provider } } : {}),
   };

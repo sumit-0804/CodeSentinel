@@ -171,4 +171,19 @@ describe("security agent", () => {
     expect(prompt).toContain("AKIA****");
     expect(buildPrompt([FILE])).toBe(prompt);
   });
+
+  it("sends the whole file when the gateway attached it, masking secrets on unchanged lines too", () => {
+    const whole: ChangedFile = {
+      ...FILE,
+      patch: "@@ -1,2 +1,3 @@\n KEY = 'AKIAIOSFODNN7EXAMPLE'\n+cur.execute(f\"SELECT {id}\")\n x = 1\n",
+      content: "KEY = 'AKIAIOSFODNN7EXAMPLE'\ncur.execute(f\"SELECT {id}\")\nx = 1\n",
+    };
+
+    const prompt = buildPrompt([whole]);
+
+    expect(prompt).toContain("    1   KEY = 'AKIA****'");
+    expect(prompt).toContain('    2 + cur.execute(f"SELECT {id}")');
+    expect(prompt).toContain("    3   x = 1");
+    expect(prompt).not.toContain("AKIAIOSFODNN7EXAMPLE");
+  });
 });
