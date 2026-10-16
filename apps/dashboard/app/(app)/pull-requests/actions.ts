@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import {
+  ApplyAllFixesResultSchema,
   PullRequestReviewRequestSchema,
   RejectSuggestionRequestSchema,
   ReviewAcceptedSchema,
@@ -58,6 +59,26 @@ async function decide(findingId: string, action: "accept" | "reject", body: unkn
 /** Commits a suggested fix onto the pull request branch (UC-3); the gateway asks for an authenticator code. */
 export async function commitFix(findingId: string): Promise<FixDecisionResult> {
   return decide(findingId, "accept", {});
+}
+
+export type ApplyAllResult = { ok: true; commitSha: string; applied: number; aiApplied: number; skipped: number } | { ok: false; message: string; code?: string };
+
+/** Commits every open fix of the review, Style and AI alike, in one commit; the gateway asks for an authenticator code. */
+export async function applyAllFixes(reviewId: string): Promise<ApplyAllResult> {
+  if (!z.string().uuid().safeParse(reviewId).success) return { ok: false, message: "That review isn't valid." };
+  const account = await getAccount();
+  if (!account.ok || !account.current) return { ok: false, message: "Choose an organization first." };
+
+  const result = await gatewayFetch(`/v1/reviews/${reviewId}/apply-all-fixes`, ApplyAllFixesResultSchema, {
+    method: "POST",
+    body: "{}",
+    headers: { "Content-Type": "application/json" },
+    organizationId: account.current.organizationId,
+  });
+  if (!result.ok) return { ok: false, message: fixFailureMessage(result), ...(result.code ? { code: result.code } : {}) };
+  revalidatePath("/pull-requests", "layout");
+  const { commitSha, applied, aiApplied, skipped } = result.data;
+  return { ok: true, commitSha, applied, aiApplied, skipped };
 }
 
 /** Dismisses a suggested fix with an optional reason; no code is written. */

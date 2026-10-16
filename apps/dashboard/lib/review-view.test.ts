@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Finding, ReviewListItem } from "@code-sentinel/contracts";
-import { exactTime, groupByFile, lanesOf, overviewOf, postedCount, timeAgo, verdictOf, verdictSentence } from "./review-view";
+import { exactTime, groupByFile, lanesOf, openFixes, overviewOf, postedCount, timeAgo, verdictOf, verdictSentence } from "./review-view";
 
 const summary = (criticalCount: number) => ({ criticalCount, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 0 });
 
@@ -69,6 +69,16 @@ describe("groupByFile / postedCount / timeAgo", () => {
       ["a.py", ["1", "3"]],
       ["b.py", ["2"]],
     ]);
+  });
+
+  it("counts the open fixes Apply all fixes would commit", () => {
+    const fixed = (state: "proposed" | "accepted", kind: "deterministic" | "ai_suggested", confidence = 0.9, id: string | undefined = "f") =>
+      ({ ...finding("a.py", "x"), ...(id ? { id } : {}), confidence, suggestion: { kind, state, originalSnippet: "a", suggestedSnippet: "b" } }) as Finding;
+
+    expect(openFixes([fixed("proposed", "ai_suggested"), fixed("proposed", "deterministic"), fixed("accepted", "deterministic"), fixed("proposed", "deterministic", 0.5), fixed("proposed", "deterministic", 0.9, "")], 0.8)).toEqual({
+      total: 2,
+      ai: 1,
+    });
   });
 
   it("counts findings at or above the threshold", () => {

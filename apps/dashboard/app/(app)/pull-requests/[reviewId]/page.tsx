@@ -6,10 +6,11 @@ import { ExternalLink } from "lucide-react";
 import { EmptyState, PageSkeleton } from "@/components/app/page-parts";
 import { Gauge } from "@/components/brand/verdict";
 import { VerdictPill } from "@/components/brand/verdict-pill";
+import { ApplyAllFixes } from "@/components/reviews/apply-all-fixes";
 import { RefreshWhileRunning } from "@/components/reviews/refresh-while-running";
 import { RerunButton } from "@/components/reviews/rerun-button";
 import { ReviewReport } from "@/components/reviews/review-report";
-import { lanesOf, timeAgo, verdictOf, verdictSentence } from "@/lib/review-view";
+import { lanesOf, openFixes, timeAgo, verdictOf, verdictSentence } from "@/lib/review-view";
 import { getReview } from "@/lib/reviews";
 
 export const metadata: Metadata = { title: "Pull request" };
@@ -82,7 +83,10 @@ async function ReviewContent({ params }: PageProps<"/pull-requests/[reviewId]">)
           </div>
           <div className="grid justify-items-start gap-4 md:justify-items-end">
             <Gauge lanes={lanesOf(review.agentResults)} size="sm" />
-            {number !== undefined ? <RerunButton repositoryId={review.repositoryId} pullRequestNumber={number} size="sm" /> : null}
+            <div className="flex flex-wrap gap-2.5 md:justify-end">
+              {number !== undefined ? <ApplyAllFixes reviewId={review.reviewId} {...openFixes(review.findings, threshold)} /> : null}
+              {number !== undefined ? <RerunButton repositoryId={review.repositoryId} pullRequestNumber={number} size="sm" /> : null}
+            </div>
           </div>
         </div>
       </div>

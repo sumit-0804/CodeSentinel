@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { SuggestionDecisionSchema } from "@code-sentinel/contracts";
+import { ApplyAllFixesResultSchema, SuggestionDecisionSchema } from "@code-sentinel/contracts";
 import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
 import { withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it, vi } from "vitest";
@@ -63,6 +63,24 @@ async function setup({ edit, pulls = [pull()], stepUp = true }: { edit?: (seed: 
       status: "completed",
       confidenceThreshold: 0.8,
       createdAt: new Date(),
+      report: {
+        reviewId: REVIEW_ID,
+        status: "completed",
+        summary: { criticalCount: 1, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 1 },
+        agentRuns: [],
+        findings: [
+          {
+            agent: "security",
+            ruleId: "security/sql-injection",
+            title: "SQL built from string formatting",
+            description: "Use parameters.",
+            location: { filePath: "app/payments.py", lineStart: 2, lineEnd: 3 },
+            severity: "critical",
+            confidence: 0.9,
+            suggestion: { kind: "ai_suggested", originalSnippet: "query = f\"SELECT {c}\"\ncur.execute(query)", suggestedSnippet: "cur.execute(\"SELECT ?\", (c,))" },
+          },
+        ],
+      },
     });
     seed.suggestions.push(suggestion());
     edit?.(seed);
@@ -91,6 +109,35 @@ async function setup({ edit, pulls = [pull()], stepUp = true }: { edit?: (seed: 
 
 const ACCEPT = `/v1/findings/${FINDING_ID}/suggestion/accept`;
 const REJECT = `/v1/findings/${FINDING_ID}/suggestion/reject`;
+
+describe("POST /v1/reviews/{id}/apply-all-fixes", () => {
+  const APPLY_ALL = `/v1/reviews/${REVIEW_ID}/apply-all-fixes`;
+
+  it("commits every open fix in one commit, records who asked, and then has nothing left to apply", async () => {
+    const { call, github, stores } = await setup();
+
+    const { status, body } = await call(APPLY_ALL);
+
+    expect(status).toBe(200);
+    expect(ApplyAllFixesResultSchema.parse(body)).toEqual({ reviewId: REVIEW_ID, commitSha: github.multiCommits[0]!.commitSha, applied: 1, aiApplied: 1, skipped: 0 });
+    expect(github.multiCommits[0]).toMatchObject({ branch: "fix/retry", parentSha: HEAD, message: "Apply 1 Code Sentinel fix" });
+    expect(github.pullRequestComments[0]!.body).toContain("as a member on the Code Sentinel dashboard asked");
+    await expect(stores.suggestions.findByFinding(EXAMPLE_ORGANIZATION_ID, FINDING_ID)).resolves.toMatchObject({ state: "accepted", resolutionCommitSha: github.multiCommits[0]!.commitSha });
+
+    const again = await call(APPLY_ALL);
+    expect([again.status, again.body.code]).toEqual([409, "nothing_to_apply"]);
+  });
+
+  it("asks for an authenticator code first, and answers 404 for another organization's review", async () => {
+    const noCode = await setup({ stepUp: false });
+    expect((await noCode.call(APPLY_ALL)).body.code).toBe("mfa_required");
+    expect(noCode.github.multiCommits).toEqual([]);
+
+    const other = await setup({ edit: (seed) => (seed.reviews[0]!.organizationId = randomUUID()) });
+    expect((await other.call(APPLY_ALL)).body.code).toBe("review_not_found");
+    expect((await other.call("/v1/reviews/not-a-uuid/apply-all-fixes")).status).toBe(404);
+  });
+});
 
 describe("POST /v1/findings/{id}/suggestion/accept", () => {
   it("commits the fix onto the pull request branch, replies on its comment and records the decision", async () => {

@@ -372,8 +372,8 @@ paths:
       summary: Accept a suggested fix
       description: >
         Commits the suggested fix to the pull request branch as the GitHub App, then records the
-        decision. This endpoint is the only path by which Code Sentinel writes to a branch, and it
-        runs only on an explicit action (FR-GH-04). Any member of the finding's organization may
+        decision. Code Sentinel writes to a branch only on an explicit action: this endpoint, or
+        Apply all fixes (below, and the Check Run button) (FR-GH-04). Any member of the finding's organization may
         accept, with a signed-in session and a TOTP step-up from the last `MFA_STEP_UP_MINUTES`
         (403 mfa_required), since it writes code.
 
@@ -402,6 +402,53 @@ paths:
             `head_moved` (newer commits since the review; re-run it), `fork_not_supported` (the App
             can't push to a fork), `file_changed` (the lines no longer match), or
             `github_permission_missing` (the App needs Contents: Read and write).
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '502':
+          description: '`github_unavailable`.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
+  /v1/reviews/{reviewId}/apply-all-fixes:
+    parameters:
+      - $ref: '#/components/parameters/ReviewId'
+    post:
+      tags: [Findings]
+      operationId: applyAllFixes
+      summary: Apply every open fix of a review in one commit
+      description: >
+        Commits every open fix of the review, Style's exact fixes and the AI-suggested ones, as one
+        commit on the pull request branch (UC-3). Open means proposed, for the reviewed commit, with
+        its finding at or above the threshold. Where two fixes touch the same lines, the one higher
+        in Security > Logic > Performance > Style > Documentation is kept; a fix whose lines changed
+        is skipped. Each applied fix is recorded as accepted, and one comment on the pull request
+        lists what was applied and skipped. Any member, with a TOTP step-up (403 mfa_required). The
+        Check Run's Apply all fixes button does the same through the webhook. The commit is a push,
+        so the pull request is reviewed again.
+      responses:
+        '200':
+          description: Committed and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyAllFixesResult'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          description: '`review_not_found`: unknown or another organization''s review.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '409':
+          description: >
+            `nothing_to_apply` (no open fixes, or none still applies), `pull_request_closed`,
+            `head_moved` (newer commits since the review, or a push while committing),
+            `fork_not_supported`, or `github_permission_missing` (the App needs Contents: Read and write).
           content:
             application/json:
               schema:
@@ -1055,6 +1102,27 @@ components:
         resolvedAt:
           type: string
           format: date-time
+
+    ApplyAllFixesResult:
+      type: object
+      required: [reviewId, commitSha, applied, aiApplied, skipped]
+      properties:
+        reviewId:
+          type: string
+          format: uuid
+        commitSha:
+          type: string
+        applied:
+          type: integer
+          minimum: 1
+        aiApplied:
+          type: integer
+          minimum: 0
+          description: How many of the applied fixes were AI-suggested rather than exact.
+        skipped:
+          type: integer
+          minimum: 0
+          description: Fixes left out because they overlapped an applied fix or their lines changed.
 
     Repository:
       type: object

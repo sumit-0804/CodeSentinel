@@ -288,7 +288,9 @@ Each decision is written only while the fix is `proposed`, so two people decidin
 - **Where:** an **Apply all fixes** button on the Code-Sentinel Check Run, shown only while the review has open fixes
   ("N fixes (M AI) in one commit"). Clicking it sends a `check_run` `requested_action` webhook (`apply_all`); the
   gateway finds the review by its Check Run id, answers 202 `fixes_applying` and commits in the background. GitHub
-  only offers the button to people with write access. The dashboard has the same action (below).
+  only offers the button to people with write access. The dashboard's **Apply all fixes** on the PR page calls
+  **`POST /v1/reviews/{id}/apply-all-fixes`** (any member, with the TOTP step-up; 404 `review_not_found`, 409 with the
+  codes above or `nothing_to_apply`), which answers `{ reviewId, commitSha, applied, aiApplied, skipped }`.
 - **What it includes:** Style's exact fixes **and** the AI-suggested fixes of Security, Logic, Performance and
   Documentation. This was a deliberate change on 16 Oct: AI fixes used to be one click each (FR-GH-04, NFR-07). The
   button is still a person's action and says how many AI fixes it carries; single-fix commit and dismiss are unchanged.

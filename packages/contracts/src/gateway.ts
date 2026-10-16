@@ -129,6 +129,18 @@ export const SuggestionDecisionSchema = z.object({
 });
 export type SuggestionDecision = z.infer<typeof SuggestionDecisionSchema>;
 
+/** 200 body of POST /v1/reviews/{reviewId}/apply-all-fixes: every open fix committed in one commit. */
+export const ApplyAllFixesResultSchema = z.object({
+  reviewId: z.string().uuid(),
+  commitSha: z.string(),
+  applied: z.number().int().min(1),
+  /** How many of the applied fixes were AI-suggested rather than exact. */
+  aiApplied: z.number().int().min(0),
+  /** Fixes left out: they overlapped a fix that was applied, or their lines changed. */
+  skipped: z.number().int().min(0),
+});
+export type ApplyAllFixesResult = z.infer<typeof ApplyAllFixesResultSchema>;
+
 export const RepositorySchema = z.object({
   repositoryId: z.string().uuid(),
   fullName: z.string(),

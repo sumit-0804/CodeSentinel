@@ -67,7 +67,13 @@ export function groupByFile(findings: Finding[]): { path: string; findings: Find
   return [...groups].map(([path, items]) => ({ path, findings: items }));
 }
 
-export const postedCount = (confidences: number[], threshold: number) => confidences.filter((c) => c >= threshold - 1e-9).length;
+/** Fixes "Apply all fixes" would commit: undecided, recorded, and posted (at or above the threshold). */
+export function openFixes(findings: Finding[], threshold: number): { total: number; ai: number } {
+  const open = findings.filter((f) => f.id && f.suggestion?.state === "proposed" && f.confidence >= threshold - 1e-9);
+  return { total: open.length, ai: open.filter((f) => f.suggestion?.kind === "ai_suggested").length };
+}
+
+export const postedCount =(confidences: number[], threshold: number) => confidences.filter((c) => c >= threshold - 1e-9).length;
 
 /** "just now", "4 min ago", "3 h ago", "2 days ago". */
 export function timeAgo(iso: string, now: Date = new Date()): string {

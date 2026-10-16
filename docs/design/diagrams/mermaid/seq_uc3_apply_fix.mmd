@@ -42,6 +42,19 @@ sequenceDiagram
             end
         end
 
+    else Apply all fixes (PR page, or the button on the Check Run)
+        Dev->>UI: Apply all fixes (N), confirm (says how many are AI-suggested)
+        UI->>GW: POST /v1/reviews/{id}/apply-all-fixes (TOTP step-up)
+        Note right of GW: from GitHub: check_run requested_action "apply_all" webhook, answered 202
+        GW->>DB: the review's open fixes (proposed, posted, reviewed commit)
+        GW->>GH: get the pull request, read each file at the head
+        GW->>GW: keep the higher-priority fix where two overlap, apply bottom-up,<br/>skip a fix whose lines changed
+        GW->>GH: one commit for every file (Git Data API: tree, commit, move branch without force)
+        GH-->>GW: commit sha
+        GW->>DB: each applied fix: state = accepted, commit sha
+        GW->>GH: one PR comment: what was applied and skipped
+        GW-->>UI: 200 { commitSha, applied, aiApplied, skipped }
+
     else Dismiss
         Dev->>UI: Dismiss (reason, optional comment)
         UI->>GW: POST /v1/findings/{id}/suggestion/reject
@@ -50,6 +63,6 @@ sequenceDiagram
         UI-->>Dev: Dismissed — the finding stays visible, no code changed
     end
 
-    Note over GW,DB: Code Sentinel never writes to a branch on its own.<br/>Accepting is the only path to a commit (FR-GH-04, AC-04).
+    Note over GW,DB: Code Sentinel never writes to a branch on its own.<br/>Commit fix and Apply all fixes are the only paths to a commit (FR-GH-04, AC-04).
 
     Note over GW,DB: The commit is a push, so the pull request is reviewed again.<br/>When that review completes, older proposed fixes become superseded,<br/>including fixes committed with GitHub's own Commit suggestion button.

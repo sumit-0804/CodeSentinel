@@ -9,6 +9,8 @@ const MESSAGES: Record<string, string> = {
   github_permission_missing: "The GitHub App can't write to this repository yet. An admin needs to grant Contents: Read and write on GitHub.",
   github_unavailable: "GitHub didn't answer. Try again in a moment.",
   finding_not_found: "This finding isn't in your organization any more.",
+  review_not_found: "This review isn't in your organization any more.",
+  nothing_to_apply: "There are no open fixes left to apply, or none still matches the code. Re-run the review.",
   mfa_required: "Enter a code from your authenticator app to commit this fix.",
 };
 

@@ -1,29 +1,32 @@
-import { RejectSuggestionRequestSchema, type SuggestionDecision } from "@code-sentinel/contracts";
+import { RejectSuggestionRequestSchema, type ApplyAllFixesResult, type SuggestionDecision } from "@code-sentinel/contracts";
 import { badGateway, badRequest, HttpError, notFound, type Logger } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 import { z } from "zod";
 
 import { assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
+import { applyAllFixes } from "../github/apply-all-fixes.js";
 import { commitSuggestion } from "../github/apply-suggestion.js";
 import type { GitHubClient, PullRequestInfo } from "../github/github-client.js";
 import type { Stores, SuggestionRecord } from "../persistence/stores.js";
 
 export interface FindingsRouterDeps {
-  stores: Pick<Stores, "suggestions" | "repositories">;
-  github: Pick<GitHubClient, "getPullRequest" | "getFileContent" | "updateFile" | "replyToReviewComment">;
+  stores: Pick<Stores, "suggestions" | "repositories" | "reviews">;
+  github: Pick<GitHubClient, "getPullRequest" | "getFileContent" | "updateFile" | "replyToReviewComment" | "commitFiles" | "commentOnPullRequest">;
   logger: Logger;
   stepUp: StepUpPolicy;
 }
 
 const FindingIdSchema = z.string().uuid();
+const ReviewIdSchema = z.string().uuid();
 const conflict = (code: string, message: string) => new HttpError(409, code, message);
 const decided = () => conflict("suggestion_decided", "This fix was already accepted, dismissed, or replaced by a newer review");
 const githubUnavailable = () => badGateway("github_unavailable", "GitHub did not answer; try again in a moment");
 
 /**
- * UC-3: accept a suggested fix (commit it onto the pull request branch) or reject it. Any member of
- * the finding's organization may decide; accepting writes code, so it also needs a TOTP step-up.
+ * UC-3: accept a suggested fix (commit it onto the pull request branch), reject it, or apply every
+ * open fix of a review in one commit. Any member of the organization may decide; committing writes
+ * code, so it also needs a TOTP step-up.
  */
 export function createFindingsRouter({ stores, github, logger, stepUp }: FindingsRouterDeps): Router {
   const router = Router();
@@ -88,6 +91,37 @@ export function createFindingsRouter({ stores, github, logger, stepUp }: Finding
       res.json(body);
     },
   );
+
+  // Every open fix of a review in one commit, Style and AI alike; writes code, so it needs the step-up too.
+  router.post("/reviews/:reviewId/apply-all-fixes", requireOrganization, async (req: Request<{ reviewId: string }>, res: GatewayResponse) => {
+    const principal = res.locals.principal!;
+    const id = ReviewIdSchema.safeParse(req.params.reviewId);
+    const review = id.success ? await stores.reviews.get(principal.organizationId!, id.data) : undefined;
+    if (!review) throw notFound("review_not_found", "No such review in this organization");
+    assertStepUp(principal, stepUp);
+
+    const repository = await stores.repositories.findForOrganization(principal.organizationId!, review.repositoryId);
+    if (!repository) throw conflict("pull_request_closed", "This review's repository is no longer connected");
+    let outcome;
+    try {
+      outcome = await applyAllFixes(
+        { suggestions: stores.suggestions, github, now: () => new Date(stepUp.now()) },
+        { review, repository, userId: principal.userId, requestedBy: "a member on the Code Sentinel dashboard" },
+      );
+    } catch (error) {
+      logger.warn("applying all fixes failed", { requestId: res.locals.requestId, reviewId: review.reviewId, error });
+      throw githubUnavailable();
+    }
+    if (!outcome.ok) throw conflict(outcome.code, outcome.message);
+    const body: ApplyAllFixesResult = {
+      reviewId: review.reviewId,
+      commitSha: outcome.commitSha,
+      applied: outcome.applied,
+      aiApplied: outcome.aiApplied,
+      skipped: outcome.skipped,
+    };
+    res.json(body);
+  });
 
   router.post(
     "/findings/:findingId/suggestion/reject",
