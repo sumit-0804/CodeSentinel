@@ -3,13 +3,14 @@ import { badGateway, badRequest, type Logger } from "@code-sentinel/service-kit"
 import express, { Router, type Request } from "express";
 
 import type { GatewayResponse } from "../auth/principal.js";
+import { applyAllFixes } from "../github/apply-all-fixes.js";
 import type { GitHubClient } from "../github/github-client.js";
-import type { ReviewPublisher } from "../github/review-publisher.js";
+import { APPLY_ALL_ACTION, type ReviewPublisher } from "../github/review-publisher.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { Stores } from "../persistence/stores.js";
 import { matchesReviewBranches } from "./branch-match.js";
-import { isReviewAction, PullRequestEventSchema } from "./github-payload.js";
+import { CheckRunActionEventSchema, isReviewAction, PullRequestEventSchema } from "./github-payload.js";
 import { handleInstallationEvent } from "./installation-events.js";
 import { pullRequestFromEvent } from "./review-job-request.js";
 import { createSignatureMiddleware } from "./signature.js";
@@ -17,7 +18,7 @@ import { startPullRequestReview } from "./start-review.js";
 
 export interface GithubWebhookRouterDeps {
   secret: string;
-  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations" | "reviews">;
+  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations" | "reviews" | "suggestions">;
   github: GitHubClient;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
@@ -28,8 +29,8 @@ export interface GithubWebhookRouterDeps {
 }
 
 /**
- * `POST /webhooks/github`: signature first, then installation events (A6) or the decision tree of
- * `seq_uc1_pr_review.mmd` (FR-GW-03/04, FR-GH-01).
+ * `POST /webhooks/github`: signature first, then installation events (A6), the Check Run's "Apply all
+ * fixes" button, or the decision tree of `seq_uc1_pr_review.mmd` (FR-GW-03/04, FR-GH-01).
  */
 export function createGithubWebhookRouter({
   secret,
@@ -91,6 +92,27 @@ export function createGithubWebhookRouter({
           throw reject("invalid_payload", badRequest("invalid_payload", `Payload is not a valid ${event} event`));
         }
         accept(outcome, outcome === "event_ignored" ? "event_ignored" : "installation_synced");
+        return;
+      }
+
+      if (event === "check_run" && action === "requested_action") {
+        const clicked = CheckRunActionEventSchema.safeParse(payload);
+        if (!clicked.success || clicked.data.requested_action.identifier !== APPLY_ALL_ACTION) {
+          accept("event_ignored", "event_ignored");
+          return;
+        }
+        const { check_run, repository: repo, sender } = clicked.data;
+        const [review, repository] = await Promise.all([stores.reviews.findByCheckRun(check_run.id), stores.repositories.findByGithubRepoId(repo.id)]);
+        if (!review || !repository || review.repositoryId !== repository.repositoryId) {
+          accept("review_unknown", "event_ignored");
+          return;
+        }
+        logFields.reviewId = review.reviewId;
+        // GitHub only offers the button to people with write access, and waits ~10 s for an answer: commit in the background.
+        void applyAllFixes({ suggestions: stores.suggestions, github, now }, { review, repository, requestedBy: `@${sender.login} (Check Run)` })
+          .then((outcome) => logger.info("apply all fixes", { requestId: res.locals.requestId, reviewId: review.reviewId, ...outcome }))
+          .catch((error: unknown) => logger.warn("apply all fixes failed", { requestId: res.locals.requestId, reviewId: review.reviewId, error }));
+        accept("fixes_applying", "fixes_applying", review.reviewId);
         return;
       }
 

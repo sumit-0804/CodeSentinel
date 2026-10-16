@@ -51,9 +51,12 @@ paths:
       operationId: receiveGithubWebhook
       summary: Receive a GitHub webhook event
       description: >
-        Subscribed to pull_request (opened, synchronize, reopened) plus the installation events
-        (FR-GH-01). The HMAC-SHA256 signature is verified before the payload is read at all; an
-        unsigned or badly signed request is rejected and never forwarded (FR-GW-03).
+        Subscribed to pull_request (opened, synchronize, reopened), the installation events
+        (FR-GH-01) and check_run. A check_run requested_action with identifier apply_all (the
+        "Apply all fixes" button on the Code-Sentinel Check Run) commits every open fix of that
+        review in one commit, in the background (UC-3). The HMAC-SHA256 signature is verified before
+        the payload is read at all; an unsigned or badly signed request is rejected and never
+        forwarded (FR-GW-03).
 
         Returns 202 as soon as the event is queued. GitHub gets its response in well under its
         delivery timeout, and the review itself runs asynchronously.
@@ -102,10 +105,11 @@ paths:
                     description: Absent when the event did not warrant a review.
                   action:
                     type: string
-                    enum: [review_started, duplicate_ignored, event_ignored, repository_disabled, installation_synced, branch_ignored]
+                    enum: [review_started, duplicate_ignored, event_ignored, repository_disabled, installation_synced, branch_ignored, fixes_applying]
                     description: >
                       branch_ignored: the pull request merges into a branch the repository's
-                      review branches don't match, so no review runs.
+                      review branches don't match, so no review runs. fixes_applying: Apply all
+                      fixes was clicked; reviewId is the review whose fixes are being committed.
         '400':
           description: >
             Correctly signed, but X-GitHub-Event or X-GitHub-Delivery is missing (missing_header), or

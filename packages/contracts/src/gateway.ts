@@ -23,6 +23,8 @@ export const WebhookActionSchema = z.enum([
   "repository_disabled",
   "installation_synced",
   "branch_ignored",
+  /** "Apply all fixes" was clicked on the Check Run; the commit is made in the background. */
+  "fixes_applying",
 ]);
 export type WebhookAction = z.infer<typeof WebhookActionSchema>;
 

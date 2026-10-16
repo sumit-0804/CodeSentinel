@@ -1,20 +1,19 @@
-import type { AgentKind, CheckConclusion as StoredConclusion, Finding, ReviewJob, SkippedFile } from "@code-sentinel/contracts";
+import type { AgentKind, CheckConclusion as StoredConclusion, ReviewJob, SkippedFile } from "@code-sentinel/contracts";
 import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
-import type { ReviewStore, SuggestionRecord, SuggestionStore } from "../persistence/stores.js";
+import type { ReviewStore, SuggestionStore } from "../persistence/stores.js";
+import { findingFixKey, openFixes, suggestionFixKey } from "./apply-all-fixes.js";
 import { matchPostedComments } from "./apply-suggestion.js";
-import { githubStatus, type CheckConclusion, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
+import { githubStatus, type CheckConclusion, type CheckRunAction, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
 import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, postedFixes, reviewComments } from "./review-output.js";
 
 /** `reviews.check_conclusion` uses its own words for GitHub's conclusions. */
 const STORED_CONCLUSION: Record<CheckConclusion, StoredConclusion> = { success: "pass", failure: "fail", neutral: "neutral" };
 
-/** A fix identified by who found it and where, the same for a report finding and a stored suggestion. */
-const fixKey = (agent: AgentKind, ruleId: string, filePath: string, lineStart: number, lineEnd: number) => `${agent}|${ruleId}|${filePath}|${lineStart}|${lineEnd}`;
-const findingFixKey = (finding: Finding) => fixKey(finding.agent, finding.ruleId, finding.location.filePath, finding.location.lineStart, finding.location.lineEnd);
-const suggestionFixKey = (s: SuggestionRecord) => fixKey(s.agent, s.ruleId, s.filePath, s.lineStart, s.lineEnd);
+/** The Check Run button that commits every open fix at once (`webhooks/github-webhook.ts` handles the click). */
+export const APPLY_ALL_ACTION = "apply_all";
 
 export interface ReviewPublisherDeps {
   github: Pick<GitHubClient, "createCheckRun" | "completeCheckRun" | "createReview" | "listReviewComments">;
@@ -115,8 +114,9 @@ export class ReviewPublisher {
     const output = job
       ? checkRunOutput(job, threshold, blockingAgents, notes)
       : { title: "Review timed out", summary: notes.join("\n\n"), annotations: [] };
-    await this.github.completeCheckRun(ref, checkRunId, { conclusion, output });
-    log.info("review published to GitHub", { checkRunId, conclusion, annotations: output.annotations.length });
+    const actions = job ? await this.applyAllAction(job, threshold, headSha, log) : [];
+    await this.github.completeCheckRun(ref, checkRunId, { conclusion, output, ...(actions.length ? { actions } : {}) });
+    log.info("review published to GitHub", { checkRunId, conclusion, annotations: output.annotations.length, applyAll: actions.length > 0 });
     try {
       await this.reviews?.recordCheckRun(input.reviewId, { checkRunId, conclusion: STORED_CONCLUSION[conclusion] });
     } catch (error) {
@@ -182,6 +182,21 @@ export class ReviewPublisher {
       notes.push(`${refused.length} inline comment${refused.length === 1 ? "" : "s"} could not be placed on the diff: ${refused.map((c) => `\`${c.path}:${c.line}\``).join(", ")}.`);
     }
     return notes;
+  }
+
+  /** "Apply all fixes" on the Check Run when the review left open fixes; none if they can't be read. Never throws. */
+  private async applyAllAction(job: ReviewJob, threshold: number, headSha: string, log: Logger): Promise<CheckRunAction[]> {
+    if (!this.suggestions || job.status === "cancelled") return [];
+    try {
+      const fixes = openFixes(job.report, threshold, headSha, await this.suggestions.forReview(job.reviewId));
+      if (fixes.length === 0) return [];
+      const ai = fixes.filter((fix) => fix.kind === "ai_suggested").length;
+      const description = `${fixes.length} fix${fixes.length === 1 ? "" : "es"}${ai ? ` (${ai} AI)` : ""} in one commit`;
+      return [{ label: "Apply all fixes", identifier: APPLY_ALL_ACTION, description: description.slice(0, 40) }];
+    } catch (error) {
+      log.warn("could not count the open fixes", { error });
+      return [];
+    }
   }
 
   /**

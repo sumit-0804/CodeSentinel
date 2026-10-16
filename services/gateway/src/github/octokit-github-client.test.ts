@@ -126,6 +126,48 @@ describe("OctokitGitHubClient", () => {
     });
   });
 
+  it("commits several files as one commit on the head, keeping modes, and adds a Check Run button", async () => {
+    const calls: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/access_tokens")) {
+        return json(201, { token: "ghs_installation", expires_at: new Date(Date.now() + 3_600_000).toISOString(), permissions: {}, repository_selection: "selected" });
+      }
+      calls.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body: JSON.parse(String(init?.body ?? "{}")) });
+      if (url.pathname.endsWith("/git/trees/head1")) return json(200, { sha: "tree0", tree: [{ path: "bin/run.sh", mode: "100755" }, { path: "a.py", mode: "100644" }] });
+      if (url.pathname.endsWith("/git/trees")) return json(201, { sha: "tree1" });
+      if (url.pathname.endsWith("/git/commits")) return json(201, { sha: "commit1" });
+      return json(200, {});
+    });
+    const github = new OctokitGitHubClient({ appId: 12345, privateKey, fetch: fetchImpl });
+    const ref = { installationId: 42, owner: "octo", repo: "playground", pullNumber: 7 };
+
+    const sha = await github.commitFiles(ref, { branch: "feature/x", parentSha: "head1", message: "Apply 2 fixes", files: [{ path: "a.py", text: "a" }, { path: "bin/run.sh", text: "b" }] });
+    await github.completeCheckRun(ref, 9, { conclusion: "success", output: { title: "t", summary: "s", annotations: [] }, actions: [{ label: "Apply all fixes", identifier: "apply_all", description: "2 fixes in one commit" }] });
+    await github.commentOnPullRequest(ref, "done");
+
+    expect(sha).toBe("commit1");
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /repos/octo/playground/git/trees/head1?recursive=1",
+      "POST /repos/octo/playground/git/trees",
+      "POST /repos/octo/playground/git/commits",
+      // Octokit encodes the ref's slashes; GitHub decodes them.
+      "PATCH /repos/octo/playground/git/refs/heads%2Ffeature%2Fx",
+      "PATCH /repos/octo/playground/check-runs/9",
+      "POST /repos/octo/playground/issues/7/comments",
+    ]);
+    expect(calls[1]!.body).toEqual({
+      base_tree: "tree0",
+      tree: [
+        { path: "a.py", mode: "100644", type: "blob", content: "a" },
+        { path: "bin/run.sh", mode: "100755", type: "blob", content: "b" },
+      ],
+    });
+    expect(calls[2]!.body).toEqual({ message: "Apply 2 fixes", tree: "tree1", parents: ["head1"] });
+    expect(calls[3]!.body).toEqual({ sha: "commit1", force: false });
+    expect(calls[4]!.body).toMatchObject({ actions: [{ label: "Apply all fixes", identifier: "apply_all", description: "2 fixes in one commit" }] });
+  });
+
   it("lists every repository an installation covers, across pages", async () => {
     const repo = (id: number, extra: Record<string, unknown> = {}) => ({ id, full_name: `octo/r${id}`, private: true, default_branch: "main", language: "Python", ...extra });
     const fetchImpl = vi.fn<typeof fetch>(async (input) => {

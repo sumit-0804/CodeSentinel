@@ -45,5 +45,15 @@ export const InstallationRepositoriesEventSchema = z.object({
 });
 export type InstallationRepositoriesEvent = z.infer<typeof InstallationRepositoriesEventSchema>;
 
+/** `check_run` with `requested_action`: someone clicked a button the gateway put on its Check Run. */
+export const CheckRunActionEventSchema = z.object({
+  action: z.literal("requested_action"),
+  check_run: z.object({ id: z.number().int() }),
+  requested_action: z.object({ identifier: z.string() }),
+  repository: z.object({ id: z.number().int() }),
+  sender: z.object({ login: z.string() }),
+});
+export type CheckRunActionEvent = z.infer<typeof CheckRunActionEventSchema>;
+
 export const isReviewAction = (action: unknown): boolean =>
   typeof action === "string" && (REVIEW_ACTIONS as readonly string[]).includes(action);

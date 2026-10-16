@@ -322,6 +322,17 @@ export function describeStoresContract(
       await expect(stores.reviews.get(ids.organizationId, reviewId)).resolves.toMatchObject({ checkConclusion: "fail" });
     });
 
+    it("finds a review by its Check Run id", async () => {
+      // Unique per run: the Postgres contract tests share one database.
+      const checkRunId = 1_000_000 + Math.floor(Math.random() * 1_000_000_000);
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.reviews.push(review(ids, 9, 1, { githubCheckRunId: checkRunId }));
+      });
+
+      await expect(stores.reviews.findByCheckRun(checkRunId)).resolves.toMatchObject({ organizationId: ids.organizationId, prNumber: 9 });
+      await expect(stores.reviews.findByCheckRun(checkRunId + 1)).resolves.toBeUndefined();
+    });
+
     it("finds a pull request's queued and running reviews, and only that pull request's", async () => {
       let running: SeedReview | undefined;
       let queued: SeedReview | undefined;

@@ -199,6 +199,8 @@ export interface ReviewStore {
   list(organizationId: string, filter: ReviewListFilter): Promise<{ rows: ReviewRecord[]; total: number }>;
   /** `undefined` for an unknown review or one in another organization. */
   get(organizationId: string, reviewId: string): Promise<ReviewRecord | undefined>;
+  /** The review whose Check Run this is, for a button clicked on GitHub; `undefined` when none. */
+  findByCheckRun(checkRunId: number): Promise<ReviewRecord | undefined>;
   /** Stores the Check Run's id and conclusion; a review that doesn't exist (yet) is left alone. */
   recordCheckRun(reviewId: string, checkRun: { checkRunId: number; conclusion: CheckConclusion }): Promise<void>;
   /** The pull request's reviews still queued or running, so a newer commit can cancel them. */
@@ -268,7 +270,8 @@ export interface SuggestionStore {
   /** Marks the suggestions posted as inline comments, with GitHub's comment ids. */
   recordPosted(posted: { suggestionId: string; commentId: number }[]): Promise<void>;
   /** Records a decision only while the suggestion is `proposed`; `false` when someone or something decided first. */
-  accept(suggestionId: string, decision: { userId: string; commitSha?: string; at: Date }): Promise<boolean>;
+  /** `userId` is absent when the fix was applied from GitHub's Check Run button, by someone with no dashboard account here. */
+  accept(suggestionId: string, decision: { userId?: string; commitSha?: string; at: Date }): Promise<boolean>;
   reject(suggestionId: string, decision: { userId: string; reason?: RejectionReason; comment?: string; at: Date }): Promise<boolean>;
 }
 

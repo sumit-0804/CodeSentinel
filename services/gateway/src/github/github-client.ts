@@ -55,6 +55,16 @@ export interface CheckRunOutput {
   annotations: CheckAnnotation[];
 }
 
+/** A button on the Check Run; clicking it sends a `check_run` `requested_action` webhook with `identifier`. */
+export interface CheckRunAction {
+  /** At most 20 characters. */
+  label: string;
+  /** At most 20 characters. */
+  identifier: string;
+  /** At most 40 characters. */
+  description: string;
+}
+
 /** An inline pull request review comment on the new side of the diff. */
 export interface ReviewComment {
   path: string;
@@ -98,7 +108,7 @@ export interface GitHubClient {
   /** Creates an `in_progress` Check Run on `headSha` and returns its id. */
   createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number>;
   /** Completes a Check Run; annotations beyond GitHub's 50-per-request limit are sent in batches. */
-  completeCheckRun(ref: PullRequestRef, checkRunId: number, input: { conclusion: CheckConclusion; output: CheckRunOutput }): Promise<void>;
+  completeCheckRun(ref: PullRequestRef, checkRunId: number, input: { conclusion: CheckConclusion; output: CheckRunOutput; actions?: CheckRunAction[] }): Promise<void>;
   /** Posts one review with `event: COMMENT`: it never approves or blocks the pull request. Returns GitHub's review id. */
   createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<number>;
   /** The inline comments these reviews posted, with GitHub's ids, so fixes can be matched to their comment. */
@@ -109,6 +119,13 @@ export interface GitHubClient {
   getFileContent(ref: RepositoryRef, input: { path: string; gitRef: string }): Promise<{ sha: string; text: string } | undefined>;
   /** Commits a new version of one file onto a branch (Contents: write); returns the commit's sha. */
   updateFile(ref: RepositoryRef, input: { path: string; text: string; blobSha: string; branch: string; message: string }): Promise<string>;
+  /**
+   * Commits new versions of several files onto a branch as **one** commit whose parent is `parentSha`
+   * (Git Data API, Contents: write). The branch only moves if it still points at `parentSha`; returns the commit's sha.
+   */
+  commitFiles(ref: RepositoryRef, input: { branch: string; parentSha: string; files: { path: string; text: string }[]; message: string }): Promise<string>;
+  /** A plain comment on the pull request's conversation. */
+  commentOnPullRequest(ref: PullRequestRef, body: string): Promise<void>;
 }
 
 /** The HTTP status of a failed GitHub call (Octokit's `RequestError` carries it), if any. */

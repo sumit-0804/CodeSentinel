@@ -1,5 +1,6 @@
 import type {
   CheckConclusion,
+  CheckRunAction,
   CheckRunOutput,
   GitHubClient,
   InstallationRepository,
@@ -19,6 +20,7 @@ export interface RecordedCheckRun {
   status: "in_progress" | "completed";
   conclusion?: CheckConclusion;
   output?: CheckRunOutput;
+  actions?: CheckRunAction[];
 }
 
 export interface RecordedReview {
@@ -48,6 +50,8 @@ export class StubGitHubClient implements GitHubClient {
   readonly repoFiles = new Map<string, { sha: string; text: string }>();
   readonly commits: { path: string; text: string; blobSha: string; branch: string; message: string; commitSha: string }[] = [];
   readonly replies: { ref: PullRequestRef; commentId: number; body: string }[] = [];
+  readonly multiCommits: { branch: string; parentSha: string; files: { path: string; text: string }[]; message: string; commitSha: string }[] = [];
+  readonly pullRequestComments: { ref: PullRequestRef; body: string }[] = [];
   private readonly files: PullRequestFile[];
 
   constructor(files: PullRequestFile[] = []) {
@@ -91,7 +95,7 @@ export class StubGitHubClient implements GitHubClient {
   async completeCheckRun(
     _ref: PullRequestRef,
     checkRunId: number,
-    input: { conclusion: CheckConclusion; output: CheckRunOutput },
+    input: { conclusion: CheckConclusion; output: CheckRunOutput; actions?: CheckRunAction[] },
   ): Promise<void> {
     const run = this.checkRuns.find((candidate) => candidate.id === checkRunId);
     if (!run) throw Object.assign(new Error(`Check Run ${checkRunId} not found`), { status: 404 });
@@ -130,5 +134,20 @@ export class StubGitHubClient implements GitHubClient {
     this.commits.push({ ...structuredClone(input), commitSha });
     this.repoFiles.set(input.path, { sha: `blob-${commitSha}`, text: input.text });
     return commitSha;
+  }
+
+  /** Refuses (422) when an open pull request on `branch` has moved past `parentSha`, like a non-forced ref update. */
+  async commitFiles(_ref: RepositoryRef, input: { branch: string; parentSha: string; files: { path: string; text: string }[]; message: string }): Promise<string> {
+    const pull = this.pullRequests.find((p) => p.headRef === input.branch && p.state === "open");
+    if (pull && pull.headSha !== input.parentSha) throw Object.assign(new Error("Update is not a fast forward"), { status: 422 });
+    const commitSha = `${this.multiCommits.length + 1}`.padStart(40, "d");
+    this.multiCommits.push({ ...structuredClone(input), commitSha });
+    for (const file of input.files) this.repoFiles.set(file.path, { sha: `blob-${commitSha}-${file.path}`, text: file.text });
+    if (pull) pull.headSha = commitSha;
+    return commitSha;
+  }
+
+  async commentOnPullRequest(ref: PullRequestRef, body: string): Promise<void> {
+    this.pullRequestComments.push({ ref: { ...ref }, body });
   }
 }

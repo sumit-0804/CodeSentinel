@@ -291,6 +291,10 @@ export class InMemoryStores implements Stores {
         const review = data.reviews.find((r) => r.reviewId === reviewId && r.organizationId === organizationId);
         return review ? toRecord(review) : undefined;
       },
+      findByCheckRun: async (checkRunId) => {
+        const review = data.reviews.find((r) => r.githubCheckRunId === checkRunId);
+        return review ? toRecord(review) : undefined;
+      },
       recordCheckRun: async (reviewId, { checkRunId, conclusion }) => {
         const review = data.reviews.find((r) => r.reviewId === reviewId);
         if (review) Object.assign(review, { githubCheckRunId: checkRunId, checkConclusion: conclusion });
@@ -334,7 +338,12 @@ export class InMemoryStores implements Stores {
         }
       },
       accept: async (suggestionId, { userId, commitSha, at }) =>
-        decide(suggestionId, { state: "accepted", resolvedByUserId: userId, resolvedAt: new Date(at), ...(commitSha ? { resolutionCommitSha: commitSha } : {}) }),
+        decide(suggestionId, {
+          state: "accepted",
+          ...(userId ? { resolvedByUserId: userId } : {}),
+          resolvedAt: new Date(at),
+          ...(commitSha ? { resolutionCommitSha: commitSha } : {}),
+        }),
       reject: async (suggestionId, { userId, reason, comment, at }) =>
         decide(suggestionId, {
           state: "rejected",

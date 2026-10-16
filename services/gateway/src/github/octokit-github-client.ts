@@ -5,6 +5,7 @@ import { paginateRest } from "@octokit/plugin-paginate-rest";
 import {
   githubStatus,
   type CheckConclusion,
+  type CheckRunAction,
   type CheckRunOutput,
   type GitHubClient,
   type InstallationRepository,
@@ -137,7 +138,7 @@ export class OctokitGitHubClient implements GitHubClient {
   async completeCheckRun(
     ref: PullRequestRef,
     checkRunId: number,
-    input: { conclusion: CheckConclusion; output: CheckRunOutput },
+    input: { conclusion: CheckConclusion; output: CheckRunOutput; actions?: CheckRunAction[] },
   ): Promise<void> {
     const octokit = this.forRef(ref);
     const { annotations, ...text } = input.output;
@@ -149,6 +150,7 @@ export class OctokitGitHubClient implements GitHubClient {
         repo: ref.repo,
         check_run_id: checkRunId,
         ...(index === 0 ? { status: "completed", conclusion: input.conclusion, completed_at: new Date().toISOString() } : {}),
+        ...(index === 0 && input.actions?.length ? { actions: input.actions } : {}),
         output: {
           ...text,
           annotations: batch.map((annotation) => ({
@@ -218,6 +220,37 @@ export class OctokitGitHubClient implements GitHubClient {
       branch: input.branch,
     });
     return data.commit.sha ?? "";
+  }
+
+  async commitFiles(ref: RepositoryRef, input: { branch: string; parentSha: string; files: { path: string; text: string }[]; message: string }): Promise<string> {
+    const octokit = this.forRef(ref);
+    const repo = { owner: ref.owner, repo: ref.repo };
+    // Keep each file's mode (an executable script stays executable); a truncated tree falls back to a plain file.
+    const { data: parent } = await octokit.request("GET /repos/{owner}/{repo}/git/trees/{tree_sha}", { ...repo, tree_sha: input.parentSha, recursive: "1" });
+    const modes = new Map(parent.tree.map((entry) => [entry.path, entry.mode]));
+    const { data: tree } = await octokit.request("POST /repos/{owner}/{repo}/git/trees", {
+      ...repo,
+      base_tree: parent.sha,
+      tree: input.files.map((file) => ({ path: file.path, mode: modes.get(file.path) === "100755" ? ("100755" as const) : ("100644" as const), type: "blob" as const, content: file.text })),
+    });
+    const { data: commit } = await octokit.request("POST /repos/{owner}/{repo}/git/commits", {
+      ...repo,
+      message: input.message,
+      tree: tree.sha,
+      parents: [input.parentSha],
+    });
+    // Not forced: if someone pushed meanwhile, GitHub answers 422 and nothing changes.
+    await octokit.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", { ...repo, ref: `heads/${input.branch}`, sha: commit.sha, force: false });
+    return commit.sha;
+  }
+
+  async commentOnPullRequest(ref: PullRequestRef, body: string): Promise<void> {
+    await this.forRef(ref).request("POST /repos/{owner}/{repo}/issues/{issue_number}/comments", {
+      owner: ref.owner,
+      repo: ref.repo,
+      issue_number: ref.pullNumber,
+      body,
+    });
   }
 
   async createReview(ref: PullRequestRef, input: { commitId: string; body: string; comments: ReviewComment[] }): Promise<number> {

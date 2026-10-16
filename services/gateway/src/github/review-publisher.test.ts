@@ -184,6 +184,26 @@ describe("ReviewPublisher", () => {
     expect(github.checkRuns.at(-1)?.status).toBe("completed");
   });
 
+  it("puts Apply all fixes on the Check Run only while the review has open fixes", async () => {
+    const withFix: Finding = { ...sqli, suggestion: { kind: "ai_suggested", originalSnippet: "x", suggestedSnippet: "y" } };
+    const open = { suggestionId: "11111111-1111-4111-8111-111111111111", agent: "security", ruleId: "security/sql-injection", filePath: "app/payments.py", lineStart: 14, lineEnd: 14, kind: "ai_suggested", state: "proposed", headSha: INPUT.headSha };
+    const run = async (rows: unknown[]) => {
+      const github = new StubGitHubClient();
+      const p = new ReviewPublisher({
+        github,
+        orchestrator: { getReviewJob: async () => job("completed", [withFix]) },
+        logger: noopLogger,
+        suggestions: { forReview: async () => rows as never, recordPosted: async () => {} },
+        sleep: async () => {},
+      });
+      await p.follow(INPUT);
+      return github.checkRuns[0]!.actions;
+    };
+
+    expect(await run([open])).toEqual([{ label: "Apply all fixes", identifier: "apply_all", description: "1 fix (1 AI) in one commit" }]);
+    expect(await run([{ ...open, state: "accepted" }])).toBeUndefined();
+  });
+
   it("completes a cancelled job's Check Run as superseded, without comments", async () => {
     const { p, github, recordCheckRun } = publisher([job("running"), job("cancelled")]);
 

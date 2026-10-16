@@ -282,6 +282,23 @@ A finding's fix is a `suggestions` row the orchestrator writes as `proposed`.
   It's 409 `suggestion_decided` if the fix was already decided.
 
 Each decision is written only while the fix is `proposed`, so two people deciding at once can't both win.
+
+**Apply all fixes** (`github/apply-all-fixes.ts`): every open fix of a review in **one commit**. "Open" means
+`proposed`, for the reviewed commit, and its finding was posted (at or above the threshold).
+- **Where:** an **Apply all fixes** button on the Code-Sentinel Check Run, shown only while the review has open fixes
+  ("N fixes (M AI) in one commit"). Clicking it sends a `check_run` `requested_action` webhook (`apply_all`); the
+  gateway finds the review by its Check Run id, answers 202 `fixes_applying` and commits in the background. GitHub
+  only offers the button to people with write access. The dashboard has the same action (below).
+- **What it includes:** Style's exact fixes **and** the AI-suggested fixes of Security, Logic, Performance and
+  Documentation. This was a deliberate change on 16 Oct: AI fixes used to be one click each (FR-GH-04, NFR-07). The
+  button is still a person's action and says how many AI fixes it carries; single-fix commit and dismiss are unchanged.
+- **Checks:** the same as one fix (open, not a fork, still the reviewed head). Where two fixes touch the same lines,
+  the one higher in Security > Logic > Performance > Style > Documentation wins; a fix whose lines changed is skipped.
+- **How:** each file is edited bottom-up, then one commit through the Git Data API (tree with each file's mode kept,
+  commit on the reviewed head, branch moved without force, so a push in between makes it fail as `head_moved`).
+- **After:** each applied fix is `accepted` with the commit sha (no user when it came from GitHub's button), and **one**
+  comment on the pull request lists what was applied and what was skipped. The commit is a push, so the pull request
+  is reviewed again.
 Another organization's finding, an unknown one, or one without a fix is 404 `finding_not_found`.
 
 ## Publishing the review to the pull request
@@ -328,7 +345,8 @@ there is never a second Check Run or review.
    (✅ findings and provider, ⚠️ no result, ⏸️ LLM analysis deferred, ➖ not configured), skipped
    files with reasons, how many findings fell below the threshold, and any posting problems.
    Every finding at or above the threshold is an annotation on its lines (`failure` / `warning` /
-   `notice`), sent 50 per request.
+   `notice`), sent 50 per request. When the review left open fixes, the Check Run gets an **Apply all fixes**
+   button ([below](#accepting-or-rejecting-a-fix-uc-3)).
 
 If the Check Run cannot be created (for example a missing permission), the review is still
 posted and the failure is logged with the request id.
@@ -530,8 +548,9 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
      a fix someone accepts, UC-3) (Metadata: Read is automatic). After changing a permission, approve it on
      each installation (Settings → Applications → Configure).
      Organization permissions: **Members: Read** (tells org admins from members when connecting).
-   - Subscribe to events: **Pull request**. GitHub sends `installation` and
-     `installation_repositories` to every App without a subscription.
+   - Subscribe to events: **Pull request** and **Check run** (the Apply all fixes button sends `check_run`
+     `requested_action`). GitHub sends `installation` and `installation_repositories` to every App without a
+     subscription.
    - Where can it be installed: **Any account**, so organizations and teammates can install it.
    - **Identifying and authorizing users:** Callback URL `http://localhost:3001/onboarding/github/callback`
      (the dashboard), **Expire user authorization tokens** on, **Request user authorization (OAuth)

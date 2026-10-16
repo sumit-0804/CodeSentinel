@@ -125,8 +125,8 @@ export function nothingToReviewOutput(skippedFiles: readonly { path: string; rea
   return { title: "Nothing to review", summary: lines.join("\n").slice(0, MAX_SUMMARY), annotations: [] };
 }
 
-/** Which agent's fix a shared comment carries when several findings there have one. */
-const FIX_PRIORITY: readonly AgentKind[] = ["security", "logic", "performance", "style", "documentation"];
+/** Which agent's fix wins when several touch the same lines: in a shared comment, and in "Apply all fixes". */
+export const FIX_PRIORITY: readonly AgentKind[] = ["security", "logic", "performance", "style", "documentation"];
 
 /** Findings in the same file on overlapping lines; the report's ranking order is kept inside each place. */
 interface Place {

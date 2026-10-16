@@ -280,6 +280,10 @@ export class PrismaStores implements Stores {
         const row = await prisma.review.findFirst({ where: { id: reviewId, organizationId }, include: REVIEW_INCLUDE });
         return row ? toReviewRecord(row) : undefined;
       },
+      findByCheckRun: async (checkRunId) => {
+        const row = await prisma.review.findFirst({ where: { githubCheckRunId: BigInt(checkRunId) }, include: REVIEW_INCLUDE });
+        return row ? toReviewRecord(row) : undefined;
+      },
       recordCheckRun: async (reviewId, { checkRunId, conclusion }) => {
         await prisma.review.updateMany({ where: { id: reviewId }, data: { githubCheckRunId: BigInt(checkRunId), checkConclusion: conclusion } });
       },
@@ -314,7 +318,7 @@ export class PrismaStores implements Stores {
       accept: async (suggestionId, { userId, commitSha, at }) => {
         const { count } = await prisma.suggestion.updateMany({
           where: { id: suggestionId, state: "proposed" },
-          data: { state: "accepted", resolvedByUserId: userId, resolvedAt: at, resolutionCommitSha: commitSha ?? null },
+          data: { state: "accepted", resolvedByUserId: userId ?? null, resolvedAt: at, resolutionCommitSha: commitSha ?? null },
         });
         return count === 1;
       },
