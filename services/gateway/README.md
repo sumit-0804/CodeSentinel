@@ -253,7 +253,8 @@ These routes are scoped to the caller's organization; another organization's rep
 A finding's fix is a `suggestions` row the orchestrator writes as `proposed`.
 - **Comment ids:** after posting the inline comments, the publisher reads them back from the pull request's
   comment list (`GET …/pulls/{n}/comments`; the per-review list leaves the line numbers empty) and stores each
-  fix's comment id (`posted_to_github`, `github_comment_id`), matched by file and line range (`matchPostedComments`).
+  fix's comment id (`posted_to_github`, `github_comment_id`), matched by file and line range (`matchPostedComments`),
+  for the fixes actually put in a comment (one per place).
 - **Review detail:** `GET /v1/reviews/{id}` adds each fix's row to its finding: `id` (the finding id) and
   `suggestion.id`, `state`, `commitSha` or `rejectionReason`.
 
@@ -295,27 +296,35 @@ there is never a second Check Run or review.
    `partial`, `failed` or `cancelled`, up to `REVIEW_POLL_TIMEOUT_MS` (5 min). Orchestrator errors
    are retried until then; a 404 (job gone) stops at once.
 3. **One review, `event: COMMENT`** (never approves or blocks), when the repository has
-   `postInlineComments` on. It has one inline comment per finding at or above the repository's
-   confidence threshold (0.8 by default, FR-ORC-06) that either carries a fix or comes from the
-   Security, Logic or Performance agent:
+   `postInlineComments` on. It covers the findings at or above the repository's confidence threshold
+   (0.8 by default, FR-ORC-06) that either carry a fix or come from the Security, Logic or
+   Performance agent, with **one inline comment per place**: findings in the same file on
+   overlapping lines share a comment (`review-output.ts`):
+   - the comment starts "**Flagged by Security and Logic**" when more than one agent is there, then
+     each agent's note by severity, including the agents of a finding the orchestrator clubbed
+     (`alsoReportedBy`);
+   - it carries **at most one fix**, picked Security > Logic > Performance > Style > Documentation, and
+     spans exactly that fix's lines, so committing it replaces the right ones. Other fixes there are
+     mentioned ("Another fix (Style) is on the Code Sentinel dashboard") and can be committed from
+     the PR page; only the posted fix is paired with the comment's id (`postedFixes`);
    - a fix is a ```` ```suggestion ```` block the author commits with one click; Style's
      Prettier/Black fixes are labelled deterministic, the LLM fixes of the Security, Logic,
      Performance and Documentation agents AI-suggested (review before committing). Nothing is
      pushed to the branch unless someone accepts a fix (FR-GH-04, UC-3 below);
    - Style lint findings without a fix are not posted inline; they are Check Run annotations;
-   - at most 50 comments, highest ranked first; the rest are counted in the Check Run;
+   - at most 50 comments (places), highest ranked first; the rest are counted in the Check Run;
    - if GitHub refuses the review (422, a line it will not accept), each comment is posted on its
      own and the ones still refused are listed in the Check Run summary.
 4. **Complete the Check Run** (FR-GH-02):
 
    | Conclusion | When |
    | --- | --- |
-   | `failure` | a finding at or above the threshold is `critical` (from any agent, whatever its mode), or is a `warning` from an agent in `block` mode; also on a partial review |
+   | `failure` | a finding at or above the threshold is `critical` (from any agent, whatever its mode), or is a `warning` from an agent in `block` mode (any of a clubbed finding's agents); also on a partial review |
    | `neutral` | otherwise, when the review is `partial`, `failed`, `cancelled`, or did not finish in time |
    | `success` | otherwise |
 
    The summary says which agents blocked the merge and with how many critical findings and
-   warnings, then the counts by severity, coverage (files and changed lines), one line per agent
+   warnings, then the counts by severity, "N findings in M places" when some share a place, coverage (files and changed lines), one line per agent
    (✅ findings and provider, ⚠️ no result, ⏸️ LLM analysis deferred, ➖ not configured), skipped
    files with reasons, how many findings fell below the threshold, and any posting problems.
    Every finding at or above the threshold is an annotation on its lines (`failure` / `warning` /

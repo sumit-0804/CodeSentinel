@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CombinedReport, Finding, ReviewJob } from "@code-sentinel/contracts";
-import { checkRunConclusion, checkRunOutput, droppedComments, MAX_REVIEW_COMMENTS, nothingToReviewOutput, reviewComments } from "./review-output.js";
+import { checkRunConclusion, checkRunOutput, droppedComments, MAX_REVIEW_COMMENTS, nothingToReviewOutput, postedFixes, reviewComments } from "./review-output.js";
 
 const finding = (overrides: Partial<Finding> = {}): Finding => ({
   agent: "security",
@@ -187,5 +187,51 @@ describe("reviewComments", () => {
     const many = Array.from({ length: MAX_REVIEW_COMMENTS + 5 }, (_, i) => finding({ location: { filePath: "a.py", lineStart: i + 1, lineEnd: i + 1 } }));
     expect(reviewComments(job(many), 0.8)).toHaveLength(MAX_REVIEW_COMMENTS);
     expect(droppedComments(job(many), 0.8)).toBe(5);
+  });
+
+  it("posts one comment per place with every agent's note, carrying the highest-priority fix on its own lines", () => {
+    const styleOnSameLines = finding({ ...styleFix, location: { filePath: "app/payments.py", lineStart: 13, lineEnd: 14 } });
+    const securityFix = finding({ suggestion: { kind: "ai_suggested", originalSnippet: "x", suggestedSnippet: "safe()" } });
+    const logicNote = finding({ agent: "logic", ruleId: "logic/llm", title: "Customer id is never checked", description: "None reaches the query.", severity: "warning", cweId: undefined, location: { filePath: "app/payments.py", lineStart: 14, lineEnd: 16 } });
+
+    const comments = reviewComments(job([securityFix, logicNote, styleOnSameLines]), 0.8);
+
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({ path: "app/payments.py", line: 14 });
+    expect(comments[0]).not.toHaveProperty("startLine");
+    const body = comments[0]!.body;
+    expect(body.startsWith("**Flagged by Security, Style and Logic**")).toBe(true);
+    expect(body).toContain("**🟠 Warning · Logic** — Customer id is never checked\n\nNone reaches the query.");
+    expect(body).toContain("```suggestion\nsafe()\n```\n_AI-suggested fix from Security: review it before committing._");
+    expect(body).toContain("_Another fix (Style) is on the Code Sentinel dashboard._");
+    expect(postedFixes(job([securityFix, logicNote, styleOnSameLines]), 0.8)).toEqual([securityFix]);
+  });
+
+  it("lists a clubbed finding's other agents in its comment and counts places in the Check Run", () => {
+    const clubbed = finding({
+      duplicateCount: 2,
+      alsoReportedBy: [{ agent: "logic", ruleId: "logic/llm", title: "Query built from input", description: "Use parameters.", severity: "critical", confidence: 0.9 }],
+    });
+
+    const body = reviewComments(job([clubbed]), 0.8)[0]!.body;
+    expect(body).toContain("**Flagged by Security and Logic**");
+    expect(body).toContain("**🔴 Critical · Logic** — Query built from input");
+
+    const output = checkRunOutput(job([clubbed, finding({ agent: "logic", ruleId: "logic/x", cweId: undefined })]), 0.8, BLOCK_SECURITY);
+    expect(output.summary).toContain("2 findings in 1 place.");
+  });
+});
+
+describe("clubbed findings and merge blocking", () => {
+  it("blocks on a clubbed warning when any of its agents is set to block the merge", () => {
+    const warning = finding({
+      agent: "performance",
+      severity: "warning",
+      alsoReportedBy: [{ agent: "security", ruleId: "security/x", title: "t", description: "d", severity: "warning", confidence: 0.9 }],
+    });
+
+    expect(checkRunConclusion(job([warning]), 0.8, BLOCK_SECURITY)).toBe("failure");
+    expect(checkRunConclusion(job([warning]), 0.8, [])).toBe("success");
+    expect(checkRunOutput(job([warning]), 0.8, BLOCK_SECURITY).summary).toContain("Merge blocked by **Security** and **Performance**: 1 warning.");
   });
 });

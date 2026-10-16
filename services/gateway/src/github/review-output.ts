@@ -40,12 +40,17 @@ export function postable(report: CombinedReport, threshold: number): Finding[] {
 
 /**
  * Postable findings that block the merge: every critical one, whichever agent found it (FR-GH-02),
- * and the warnings of agents in `block` mode. Comment mode only keeps warnings from blocking.
+ * and the warnings of agents in `block` mode, counting every agent of a clubbed finding. Comment
+ * mode only keeps warnings from blocking.
  */
 function blockingFindings(report: CombinedReport, threshold: number, blockingAgents: readonly AgentKind[]): Finding[] {
   return postable(report, threshold).filter(
-    (finding) => finding.severity === "critical" || (finding.severity === "warning" && blockingAgents.includes(finding.agent)),
+    (finding) => finding.severity === "critical" || (finding.severity === "warning" && reportingAgents(finding).some((agent) => blockingAgents.includes(agent))),
   );
+}
+
+function reportingAgents(finding: Finding): AgentKind[] {
+  return [finding.agent, ...(finding.alsoReportedBy ?? []).map((note) => note.agent)];
 }
 
 /**
@@ -78,12 +83,14 @@ export function checkRunOutput(job: ReviewJob, threshold: number, blockingAgents
     : "No issues found";
 
   const lines: string[] = [`**${title}** · review \`${report.status}\``, ""];
+  const placeCount = places(shown).length;
+  if (placeCount < shown.length) lines.push(`${plural(shown.length, "finding")} in ${plural(placeCount, "place")}.`, "");
   const blocking = blockingFindings(report, threshold, blockingAgents);
   if (blocking.length > 0) {
     const critical = blocking.filter((finding) => finding.severity === "critical").length;
     const warnings = blocking.length - critical;
     const counts = [critical ? plural(critical, "critical finding") : "", warnings ? plural(warnings, "warning") : ""].filter(Boolean).join(" and ");
-    lines.push(`Merge blocked by ${agentNames(blocking)}: ${counts}.`, "");
+    lines.push(`Merge blocked by ${agentList(blocking.flatMap(reportingAgents), true)}: ${counts}.`, "");
   }
   if (report.coverage) {
     const c = report.coverage;
@@ -118,34 +125,84 @@ export function nothingToReviewOutput(skippedFiles: readonly { path: string; rea
   return { title: "Nothing to review", summary: lines.join("\n").slice(0, MAX_SUMMARY), annotations: [] };
 }
 
+/** Which agent's fix a shared comment carries when several findings there have one. */
+const FIX_PRIORITY: readonly AgentKind[] = ["security", "logic", "performance", "style", "documentation"];
+
+/** Findings in the same file on overlapping lines; the report's ranking order is kept inside each place. */
+interface Place {
+  path: string;
+  start: number;
+  end: number;
+  findings: Finding[];
+}
+
+function places(findings: Finding[]): Place[] {
+  const found: Place[] = [];
+  for (const finding of findings) {
+    const { filePath, lineStart, lineEnd } = finding.location;
+    const place = found.find((p) => p.path === filePath && lineStart <= p.end && p.start <= lineEnd);
+    if (place) {
+      place.findings.push(finding);
+      place.start = Math.min(place.start, lineStart);
+      place.end = Math.max(place.end, lineEnd);
+    } else {
+      found.push({ path: filePath, start: lineStart, end: lineEnd, findings: [finding] });
+    }
+  }
+  return found;
+}
+
+/** The fix a place's comment carries: by agent priority, then confidence. */
+function chosenFix(place: Place): Finding | undefined {
+  return place.findings
+    .filter((finding) => finding.suggestion)
+    .sort((a, b) => FIX_PRIORITY.indexOf(a.agent) - FIX_PRIORITY.indexOf(b.agent) || b.confidence - a.confidence)[0];
+}
+
+/** Postable findings that get an inline comment: every one with a fix, plus Security, Logic and Performance without one. */
+function commentPlaces(job: ReviewJob, threshold: number): Place[] {
+  if (!job.report) return [];
+  return places(postable(job.report, threshold).filter((finding) => finding.suggestion || INLINE_AGENTS.has(finding.agent)));
+}
+
 /**
- * FR-GH-03 / FR-GH-04: one inline comment per postable finding that carries a fix, plus Security,
- * Logic and Performance findings without one. A fix is a ```suggestion block the author commits
- * with one click; nothing is ever pushed. At most `MAX_REVIEW_COMMENTS`, highest ranked first.
+ * FR-GH-03 / FR-GH-04: **one inline comment per place** (same file, overlapping lines), listing every
+ * agent's note there. It carries at most one ```suggestion, picked by `FIX_PRIORITY`, and spans exactly
+ * that fix's lines so committing it replaces the right ones. At most `MAX_REVIEW_COMMENTS`, highest ranked first.
  */
 export function reviewComments(job: ReviewJob, threshold: number): ReviewComment[] {
-  if (!job.report) return [];
-  return postable(job.report, threshold)
-    .filter((finding) => finding.suggestion || INLINE_AGENTS.has(finding.agent))
+  return commentPlaces(job, threshold)
     .slice(0, MAX_REVIEW_COMMENTS)
-    .map((finding) => {
-      const { filePath, lineStart, lineEnd } = finding.location;
-      return { path: filePath, line: lineEnd, ...(lineStart < lineEnd ? { startLine: lineStart } : {}), body: commentBody(finding) };
+    .map((place) => {
+      const fix = chosenFix(place);
+      const [start, end] = fix ? [fix.location.lineStart, fix.location.lineEnd] : [place.start, place.end];
+      return { path: place.path, line: end, ...(start < end ? { startLine: start } : {}), body: commentBody(place, fix) };
     });
 }
 
-/** How many postable findings would be inline comments beyond the cap. */
-export function droppedComments(job: ReviewJob, threshold: number): number {
-  if (!job.report) return 0;
-  const eligible = postable(job.report, threshold).filter((finding) => finding.suggestion || INLINE_AGENTS.has(finding.agent)).length;
-  return Math.max(0, eligible - MAX_REVIEW_COMMENTS);
+/** The findings whose fix is in a posted comment, so stored suggestions are paired only with those comments. */
+export function postedFixes(job: ReviewJob, threshold: number): Finding[] {
+  return commentPlaces(job, threshold)
+    .slice(0, MAX_REVIEW_COMMENTS)
+    .flatMap((place) => chosenFix(place) ?? []);
 }
 
-function commentBody(finding: Finding): string {
-  const heading = `**${SEVERITY_LABEL[finding.severity]} · ${AGENT_LABEL[finding.agent]}** — ${finding.title}${finding.cweId ? ` (${finding.cweId})` : ""}`;
-  const parts = [heading, "", finding.description];
-  if (finding.suggestion) {
-    const snippet = finding.suggestion.suggestedSnippet;
+/** How many places would be inline comments beyond the cap. */
+export function droppedComments(job: ReviewJob, threshold: number): number {
+  return Math.max(0, commentPlaces(job, threshold).length - MAX_REVIEW_COMMENTS);
+}
+
+function noteHeading(note: Pick<Finding, "severity" | "agent" | "title" | "cweId">): string {
+  return `**${SEVERITY_LABEL[note.severity]} · ${AGENT_LABEL[note.agent]}** — ${note.title}${note.cweId ? ` (${note.cweId})` : ""}`;
+}
+
+function commentBody(place: Place, fix: Finding | undefined): string {
+  const notes = place.findings.flatMap((finding) => [finding, ...(finding.alsoReportedBy ?? [])]);
+  const parts: string[] = [];
+  if (notes.length > 1) parts.push(`**Flagged by ${agentList(notes.map((note) => note.agent))}**`, "");
+  parts.push(...notes.flatMap((note, i) => [...(i > 0 ? [""] : []), noteHeading(note), "", note.description]));
+  if (fix?.suggestion) {
+    const snippet = fix.suggestion.suggestedSnippet;
     // A fence longer than any backtick run inside the snippet, so the snippet cannot close it.
     const fence = "`".repeat(Math.max(3, ...[...snippet.matchAll(/`+/g)].map((run) => run[0].length + 1)));
     parts.push(
@@ -153,10 +210,14 @@ function commentBody(finding: Finding): string {
       `${fence}suggestion`,
       snippet,
       fence,
-      finding.suggestion.kind === "deterministic"
-        ? `_Deterministic fix (${finding.ruleId.replace(/^style\//, "")}): safe to apply._`
-        : "_AI-suggested fix: review it before committing._",
+      fix.suggestion.kind === "deterministic"
+        ? `_Deterministic fix (${fix.ruleId.replace(/^style\//, "")}): safe to apply._`
+        : `_AI-suggested fix${notes.length > 1 ? ` from ${AGENT_LABEL[fix.agent]}` : ""}: review it before committing._`,
     );
+  }
+  const otherFixes = place.findings.filter((finding) => finding.suggestion && finding !== fix);
+  if (otherFixes.length) {
+    parts.push("", `_Another fix (${agentList(otherFixes.map((finding) => finding.agent))}) is on the Code Sentinel dashboard._`);
   }
   return parts.join("\n");
 }
@@ -188,11 +249,11 @@ function agentLine(run: AgentRunSummary): string {
   return `- ⚠️ ${name} — no result (${run.status === "timed_out" ? "timed out" : (run.errorCode ?? "failed")})${took}`;
 }
 
-/** "Security and Logic", in contract order. */
-function agentNames(findings: Finding[]): string {
-  const names = Object.keys(AGENT_LABEL)
-    .filter((agent) => findings.some((finding) => finding.agent === agent))
-    .map((agent) => `**${AGENT_LABEL[agent as AgentKind]}**`);
+/** "Security and Logic" (bold when asked), each agent once, in contract order. */
+function agentList(agents: AgentKind[], bold = false): string {
+  const names = (Object.keys(AGENT_LABEL) as AgentKind[])
+    .filter((agent) => agents.includes(agent))
+    .map((agent) => (bold ? `**${AGENT_LABEL[agent]}**` : AGENT_LABEL[agent]));
   return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
 }
 

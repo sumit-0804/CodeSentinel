@@ -1,15 +1,20 @@
-import type { AgentKind, CheckConclusion as StoredConclusion, ReviewJob, SkippedFile } from "@code-sentinel/contracts";
+import type { AgentKind, CheckConclusion as StoredConclusion, Finding, ReviewJob, SkippedFile } from "@code-sentinel/contracts";
 import type { Logger } from "@code-sentinel/service-kit";
 
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
-import type { ReviewStore, SuggestionStore } from "../persistence/stores.js";
+import type { ReviewStore, SuggestionRecord, SuggestionStore } from "../persistence/stores.js";
 import { matchPostedComments } from "./apply-suggestion.js";
 import { githubStatus, type CheckConclusion, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
-import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, reviewComments } from "./review-output.js";
+import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, postedFixes, reviewComments } from "./review-output.js";
 
 /** `reviews.check_conclusion` uses its own words for GitHub's conclusions. */
 const STORED_CONCLUSION: Record<CheckConclusion, StoredConclusion> = { success: "pass", failure: "fail", neutral: "neutral" };
+
+/** A fix identified by who found it and where, the same for a report finding and a stored suggestion. */
+const fixKey = (agent: AgentKind, ruleId: string, filePath: string, lineStart: number, lineEnd: number) => `${agent}|${ruleId}|${filePath}|${lineStart}|${lineEnd}`;
+const findingFixKey = (finding: Finding) => fixKey(finding.agent, finding.ruleId, finding.location.filePath, finding.location.lineStart, finding.location.lineEnd);
+const suggestionFixKey = (s: SuggestionRecord) => fixKey(s.agent, s.ruleId, s.filePath, s.lineStart, s.lineEnd);
 
 export interface ReviewPublisherDeps {
   github: Pick<GitHubClient, "createCheckRun" | "completeCheckRun" | "createReview" | "listReviewComments">;
@@ -152,7 +157,7 @@ export class ReviewPublisher {
     try {
       const githubReviewId = await this.github.createReview(ref, { commitId: headSha, body, comments });
       log.info("review comments posted", { comments: comments.length });
-      await this.recordCommentIds(ref, job.reviewId, [githubReviewId], log);
+      await this.recordCommentIds(ref, job, threshold, [githubReviewId], log);
       return notes;
     } catch (error) {
       if (githubStatus(error) !== 422) {
@@ -172,18 +177,22 @@ export class ReviewPublisher {
         log.warn("GitHub refused a review comment", { path: comment.path, line: comment.line, status: githubStatus(error) });
       }
     }
-    await this.recordCommentIds(ref, job.reviewId, githubReviewIds, log);
+    await this.recordCommentIds(ref, job, threshold, githubReviewIds, log);
     if (refused.length) {
       notes.push(`${refused.length} inline comment${refused.length === 1 ? "" : "s"} could not be placed on the diff: ${refused.map((c) => `\`${c.path}:${c.line}\``).join(", ")}.`);
     }
     return notes;
   }
 
-  /** Stores which inline comment carries which fix (UC-3), so accepting it can reply there. Never throws. */
-  private async recordCommentIds(ref: PullRequestRef, reviewId: string, githubReviewIds: number[], log: Logger): Promise<void> {
+  /**
+   * Stores which inline comment carries which fix (UC-3), so accepting it can reply there. Only the fixes
+   * actually put in a comment are paired: another fix on the same lines stays dashboard-only. Never throws.
+   */
+  private async recordCommentIds(ref: PullRequestRef, job: ReviewJob, threshold: number, githubReviewIds: number[], log: Logger): Promise<void> {
     if (!this.suggestions || githubReviewIds.length === 0) return;
     try {
-      const suggestions = await this.suggestions.forReview(reviewId);
+      const carried = new Set(postedFixes(job, threshold).map(findingFixKey));
+      const suggestions = (await this.suggestions.forReview(job.reviewId)).filter((suggestion) => carried.has(suggestionFixKey(suggestion)));
       if (suggestions.length === 0) return;
       const posted = await this.github.listReviewComments(ref, githubReviewIds);
       const matched = matchPostedComments(suggestions, posted);

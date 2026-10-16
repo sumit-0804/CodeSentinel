@@ -157,14 +157,18 @@ describe("ReviewPublisher", () => {
     expect(lines.some((line) => line.message === "could not create the Check Run" && line.status === 403)).toBe(true);
   });
 
-  it("stores which posted comment carries which fix, and never fails the review over it", async () => {
+  it("stores which posted comment carries which fix, only for the fix in the comment, and never fails the review over it", async () => {
     const github = new StubGitHubClient();
-    const suggestion = { suggestionId: "11111111-1111-4111-8111-111111111111", filePath: "app/payments.py", lineStart: 14, lineEnd: 14 };
-    const forReview = vi.fn(async () => [suggestion as never]);
+    const withFix: Finding = { ...sqli, suggestion: { kind: "ai_suggested", originalSnippet: "x", suggestedSnippet: "y" } };
+    const styleFix: Finding = { ...sqli, agent: "style", ruleId: "style/ruff", severity: "info", confidence: 1, suggestion: { kind: "deterministic", originalSnippet: "x", suggestedSnippet: "z" } };
+    const where = { filePath: "app/payments.py", lineStart: 14, lineEnd: 14 };
+    const suggestion = { suggestionId: "11111111-1111-4111-8111-111111111111", agent: "security", ruleId: "security/sql-injection", ...where };
+    const notPosted = { suggestionId: "22222222-2222-4222-8222-222222222222", agent: "style", ruleId: "style/ruff", ...where };
+    const forReview = vi.fn(async () => [notPosted as never, suggestion as never]);
     const recordPosted = vi.fn(async () => {});
     const p = new ReviewPublisher({
       github,
-      orchestrator: { getReviewJob: async () => job("completed") },
+      orchestrator: { getReviewJob: async () => job("completed", [withFix, styleFix]) },
       logger: noopLogger,
       suggestions: { forReview, recordPosted },
       sleep: async () => {},
