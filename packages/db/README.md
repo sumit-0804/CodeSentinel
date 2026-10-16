@@ -8,6 +8,8 @@ the orchestrator use. The database is **Supabase Postgres**: `code-sentinel-dev`
   [`prisma/migrations/`](prisma/migrations/).
 - [`docs/design/schema/schema.sql`](../../docs/design/schema/schema.sql) is **generated** from them for
   the design documents (`npm run schema:sql`, see its header). Never edit it by hand.
+- [`docs/design/diagrams/database_schema.png`](../../docs/design/diagrams/database_schema.png) is the
+  ER diagram of all 15 tables (drawn in Excalidraw); redraw it when a table or relation changes.
 - Only the `public` schema is ours. Supabase owns `auth` (users, OAuth identities, sessions, TOTP
   factors). `users` mirrors `auth.users` by id; the gateway writes the row the first time it sees a
   verified access token, so there is no cross-schema trigger to maintain.
