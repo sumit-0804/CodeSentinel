@@ -218,6 +218,30 @@ components:
           minimum: 1
           default: 1
           description: How many agents reported this same issue before de-duplication (FR-ORC-03).
+        alsoReportedBy:
+          type: array
+          description: >
+            Other agents that reported the same issue (same file, overlapping lines, same CWE family,
+            CWE or rule). The finding's own agent is the one whose explanation and fix are kept.
+          items:
+            $ref: '#/components/schemas/AlsoReported'
+
+    AlsoReported:
+      type: object
+      required: [agent, ruleId, title, description, severity, confidence]
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentKind'
+        ruleId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: '#/components/schemas/Severity'
+        confidence:
+          $ref: '#/components/schemas/Confidence'
 
     AgentRunSummary:
       type: object

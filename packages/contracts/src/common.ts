@@ -115,6 +115,17 @@ export const SimilarPastIssueSchema = z.object({
 });
 export type SimilarPastIssue = z.infer<typeof SimilarPastIssueSchema>;
 
+/** Another agent's note on a finding the orchestrator clubbed with it (same file, overlapping lines, same issue). */
+export const AlsoReportedSchema = z.object({
+  agent: AgentKindSchema,
+  ruleId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  severity: SeveritySchema,
+  confidence: ConfidenceSchema,
+});
+export type AlsoReported = z.infer<typeof AlsoReportedSchema>;
+
 export const FindingSchema = z.object({
   id: z.string().uuid().optional(),
   agent: AgentKindSchema,
@@ -130,6 +141,8 @@ export const FindingSchema = z.object({
   similarPastIssues: z.array(SimilarPastIssueSchema).optional(),
   /** How many agents reported this same issue before de-duplication (FR-ORC-03). */
   duplicateCount: z.number().int().min(1).optional(),
+  /** Other agents that reported the same issue here; `agent` is the one whose explanation and fix are kept. */
+  alsoReportedBy: z.array(AlsoReportedSchema).optional(),
 });
 export type Finding = z.infer<typeof FindingSchema>;
 

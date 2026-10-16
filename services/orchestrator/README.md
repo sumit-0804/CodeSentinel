@@ -115,7 +115,7 @@ the `CombinedReport`.
 | Node | Reads from `ReviewState` | Writes |
 | --- | --- | --- |
 | `fanOut` | `reviewId`, `files`, `enabledAgents`, `confidenceThreshold`, `agentTimeoutMs`, `requestId` | appends `rawFindings`, `agentRuns`, `agentSkippedFiles` |
-| `aggregate` | `rawFindings`, `agentRuns`, `files`, `gatewaySkippedFiles`, `agentSkippedFiles` | `report` (deduped, ranked, status, `skippedFiles`, `coverage`) |
+| `aggregate` | `rawFindings`, `agentRuns`, `files`, `gatewaySkippedFiles`, `agentSkippedFiles` | `report` (deduped, clubbed across agents, ranked, status, `skippedFiles`, `coverage`) |
 | `context` | `report`, `organizationId`, `includeSimilarPastIssues` | `report.findings[].similarPastIssues` |
 | `threshold` | `report`, `confidenceThreshold` | `report.confidenceThreshold` |
 
@@ -124,7 +124,15 @@ the `CombinedReport`.
 abandons it. How an agent is called depends on whether it uses an LLM (see **LLM routing** below):
 the Style Agent, and every agent when no LLM key is configured, get one request with all files. The run's abort `signal` is passed to every call, so cancelling a job
 stops its agents. Responses are validated against `AgentReviewResponseSchema`, and the
-orchestrator-owned finding fields (`id`, `similarPastIssues`, `duplicateCount`) are stripped.
+orchestrator-owned finding fields (`id`, `similarPastIssues`, `duplicateCount`, `alsoReportedBy`) are stripped.
+
+`aggregate` first drops exact duplicates (same file, lines and rule), then **clubs the same issue
+across agents** (`FindingAggregator.club`): findings from different agents in the same file, on
+overlapping lines, with the same `issueKey` (CWE family, else CWE, else rule id; shared from
+`packages/contracts/src/cwe-families.ts`) become one. It keeps the group's highest severity and the
+explanation and fix of one finding (one with a fix if any has one, else the most confident); the others are
+listed in `alsoReportedBy`, and `duplicateCount` says how many were merged. Findings without a
+shared CWE stay separate here; the gateway still posts overlapping ones as one comment.
 
 `threshold` does not filter findings: `CombinedReport` has no per-finding "postable" flag, so the
 gateway applies the recorded threshold when it posts suggestions.

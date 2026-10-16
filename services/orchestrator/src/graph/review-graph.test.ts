@@ -82,7 +82,7 @@ describe("buildReviewGraph", () => {
       {
         security: responding("security"),
         logic: responding("logic", {
-          findings: [{ ...exampleFinding, agent: "logic", ruleId: "logic/off-by-one", severity: "warning" }],
+          findings: [{ ...exampleFinding, agent: "logic", ruleId: "logic/off-by-one", cweId: "CWE-193", severity: "warning" }],
         }),
         documentation: silentAgent("documentation"),
       },

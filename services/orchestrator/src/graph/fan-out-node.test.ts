@@ -49,6 +49,7 @@ describe("createFanOutNode", () => {
       ...exampleFinding,
       id: "3f0e2a5c-9d1b-4f7a-8c6e-5b4a3d2c1e0f",
       duplicateCount: 4,
+      alsoReportedBy: [{ agent: "logic", ruleId: "logic/x", title: "x", description: "x", severity: "info", confidence: 0.5 }],
       similarPastIssues: [{ findingId: "3f0e2a5c-9d1b-4f7a-8c6e-5b4a3d2c1e0f", similarityScore: 0.9, title: "x" }],
     };
     const fanOut = createFanOutNode({

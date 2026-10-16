@@ -45,15 +45,16 @@ export function deriveStatus(agentRuns: AgentRunSummary[]): ReviewStatus {
 
 /**
  * The aggregation step of the review graph (`AggregateNode` in the class diagram): take the raw
- * findings collected from the fan-out, de-duplicate them, rank by severity, and roll up the
+ * findings collected from the fan-out, de-duplicate them, club the same issue across agents, rank by severity, and roll up the
  * summary counts into a `CombinedReport`.
  *
  * Context lookup (similar past issues) and the confidence-threshold pass run as separate nodes
  * after this one.
  */
 export function aggregate(input: AggregateInput): CombinedReport {
-  const deduped = new FindingAggregator().dedupe(input.rawFindings);
-  const findings = new SeverityRanker().rank(deduped);
+  const aggregator = new FindingAggregator();
+  const clubbed = aggregator.club(aggregator.dedupe(input.rawFindings));
+  const findings = new SeverityRanker().rank(clubbed);
 
   const report: CombinedReport = {
     reviewId: input.reviewId,

@@ -10,3 +10,4 @@ export * from "./common.js";
 export * from "./agent.js";
 export * from "./orchestrator.js";
 export * from "./gateway.js";
+export { issueKey } from "./cwe-families.js";

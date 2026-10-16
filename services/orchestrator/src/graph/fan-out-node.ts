@@ -191,8 +191,8 @@ function failedRun(agent: AgentKind, reason: unknown): AgentRunSummary {
   }
 }
 
-/** `id`, `similarPastIssues` and `duplicateCount` belong to the orchestrator, never to an agent. */
+/** `id`, `similarPastIssues`, `duplicateCount` and `alsoReportedBy` belong to the orchestrator, never to an agent. */
 function stripOrchestratorFields(finding: Finding): Finding {
-  const { id: _id, similarPastIssues: _similar, duplicateCount: _duplicates, ...agentOwned } = finding;
+  const { id: _id, similarPastIssues: _similar, duplicateCount: _duplicates, alsoReportedBy: _also, ...agentOwned } = finding;
   return agentOwned;
 }

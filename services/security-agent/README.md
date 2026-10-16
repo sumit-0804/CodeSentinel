@@ -23,7 +23,7 @@ request, asks Groq (or Gemini) for what single-line rules cannot see. Built on
    same file and **CWE family** as a rule finding, within 3 lines of it, is dropped as a duplicate.
    Model line numbers can drift: Gemini put a rule's SQL injection 2 lines early in the 27-Sep live
    check. Models also pick sibling CWEs: Groq called the AWS key CWE-321 where the rule says
-   CWE-798 (10-Oct dry run). The families are in `cwe-families.ts`: hardcoded credentials (798, 259,
+   CWE-798 (10-Oct dry run). The families are in `packages/contracts/src/cwe-families.ts`, shared with the orchestrator, which clubs findings from different agents by the same key: hardcoded credentials (798, 259,
    321, 522, 547), SQL injection (89, 564, 943), command injection (78, 77, 88), code injection
    (94, 95), XSS (79, 80), path traversal (22, 23, 35, 73), deserialization (502) and open redirect
    (601). A CWE outside them only matches itself.

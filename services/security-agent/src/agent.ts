@@ -1,6 +1,6 @@
 import { analyzePerFile, mergeRuleAndLlmFindings, type ReviewAgent } from "@code-sentinel/agent-kit";
+import { issueKey } from "@code-sentinel/contracts";
 
-import { issueKey } from "./cwe-families.js";
 import { runSecurityLlmPass } from "./llm-pass.js";
 import { capabilityRules } from "./rules.js";
 import { scanFile } from "./scan.js";
