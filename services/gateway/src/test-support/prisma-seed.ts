@@ -40,9 +40,7 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         githubOrgId: BigInt(githubOrgId),
         ...(org.accountType ? { accountType: org.accountType } : {}),
         displayName: org.displayName ?? displayNames.get(org.organizationId) ?? "Test Org",
-        ...(org.defaultConfidenceThreshold !== undefined ? { defaultConfidenceThreshold: org.defaultConfidenceThreshold } : {}),
-        ...(org.defaultReviewBranches !== undefined ? { defaultReviewBranches: org.defaultReviewBranches } : {}),
-      },
+        ...(org.defaultConfidenceThreshold !== undefined ? { defaultConfidenceThreshold: org.defaultConfidenceThreshold } : {}),      },
     });
   }
   for (const row of seed.organizationAgentDefaults) {

@@ -32,7 +32,6 @@ import {
 export interface SeedOrganization {
   organizationId: string;
   defaultConfidenceThreshold?: number;
-  defaultReviewBranches?: string[];
   /** GitHub identity of the account; set for organizations created by an installation. */
   githubOrgId?: number;
   login?: string;
@@ -195,7 +194,6 @@ export class InMemoryStores implements Stores {
       return {
         ...(org.defaultConfidenceThreshold !== undefined ? { threshold: org.defaultConfidenceThreshold } : {}),
         modes: modesOf(data.organizationAgentDefaults.filter((row) => row.organizationId === organizationId)),
-        reviewBranches: [...(org.defaultReviewBranches ?? [])],
       };
     };
     const configInputs = (repository: SeedRepository): RepositoryConfigInputs => {
@@ -213,7 +211,7 @@ export class InMemoryStores implements Stores {
         useOrgDefaults: repository.useOrgDefaults ?? true,
         ...(stored ? { settings } : {}),
         repositoryModes: modesOf(agentRows),
-        organization: organizationDefaults(repository.organizationId) ?? { modes: {}, reviewBranches: [] },
+        organization: organizationDefaults(repository.organizationId) ?? { modes: {} },
         ...(latest?.updatedAt ? { updatedAt: latest.updatedAt } : {}),
         ...(latest?.updatedBy ? { updatedBy: latest.updatedBy } : {}),
       });
@@ -252,7 +250,6 @@ export class InMemoryStores implements Stores {
         const org = data.organizations.find((o) => o.organizationId === organizationId);
         if (!org) return;
         if (update.confidenceThreshold !== undefined) org.defaultConfidenceThreshold = update.confidenceThreshold;
-        if (update.reviewBranches !== undefined) org.defaultReviewBranches = [...update.reviewBranches];
         for (const { agent, mode } of update.agents ?? []) {
           const row = data.organizationAgentDefaults.find((r) => r.organizationId === organizationId && r.agent === agent);
           if (row) row.mode = mode;

@@ -697,9 +697,10 @@ paths:
         show "inherited from the organization" rather than an unexplained mode or 80%. A repository
         in another organization answers 404, like an unknown one.
 
-        Agent modes and review branches come from the organization's review defaults while
-        useOrgDefaults is true, and from the repository's own settings otherwise; either way, an
-        agent with nothing set uses the platform default (block for Security, comment for the rest).
+        Agent modes come from the organization's review defaults while useOrgDefaults is true, and
+        from the repository's own settings otherwise; either way, an agent with nothing set uses the
+        platform default (block for Security, comment for the rest). Review branches are always the
+        repository's own; with none set, its default branch is reviewed.
       responses:
         '200':
           description: Effective configuration.
@@ -767,8 +768,8 @@ paths:
       operationId: getReviewDefaults
       summary: Read an organization's review defaults
       description: >
-        Agent modes, confidence threshold and review branches for the organization's repositories
-        that follow the defaults. Open to any member.
+        Agent modes and confidence threshold for the organization's repositories that follow the
+        defaults. Branches to review are set per repository. Open to any member.
         Another organization answers 404.
       responses:
         '200':
@@ -1262,7 +1263,7 @@ components:
           type: boolean
         useOrgDefaults:
           type: boolean
-          description: True when agent modes and branches come from the organization's review defaults.
+          description: True when agent modes come from the organization's review defaults. Branches are always the repository's own.
         agents:
           type: array
           description: Every agent's effective mode, in contract order.
@@ -1326,7 +1327,7 @@ components:
 
     ReviewDefaults:
       type: object
-      required: [organizationId, agents, confidenceThreshold, reviewBranches]
+      required: [organizationId, agents, confidenceThreshold]
       properties:
         organizationId:
           type: string
@@ -1338,8 +1339,6 @@ components:
             $ref: '#/components/schemas/AgentSetting'
         confidenceThreshold:
           $ref: './common.yaml#/components/schemas/Confidence'
-        reviewBranches:
-          $ref: '#/components/schemas/ReviewBranches'
 
     ReviewDefaultsUpdate:
       type: object
@@ -1349,8 +1348,6 @@ components:
           $ref: '#/components/schemas/AgentModeUpdates'
         confidenceThreshold:
           $ref: './common.yaml#/components/schemas/Confidence'
-        reviewBranches:
-          $ref: '#/components/schemas/ReviewBranches'
 
     CurrentUser:
       type: object

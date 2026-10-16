@@ -128,19 +128,20 @@ its installation is **marked removed, never deleted**, and comes back with its h
 
 How each repository is reviewed (A9, UC-4). Every agent has a **mode**:
 
-| Mode | Runs | Posts findings | Fails the Check Run on a critical finding |
-| --- | --- | --- | --- |
-| `off` | no | no | no |
-| `comment` | yes | yes | no (the Check Run is `neutral`) |
-| `block` | yes | yes | yes |
+| Mode | Runs | Posts findings | Fails the Check Run on a critical finding | Fails it on a warning |
+| --- | --- | --- | --- | --- |
+| `off` | no | no | no | no |
+| `comment` | yes | yes | yes | no |
+| `block` | yes | yes | yes | yes |
 
 **Where values come from** (`resolveEffectiveConfig()`, `persistence/effective-config.ts`):
-- **Agent modes and branches:** while `repositories.use_org_defaults` is true (the default), from the
-  organization's review defaults (`organization_agent_defaults`, `organizations.default_review_branches`);
-  otherwise from the repository's own rows (`repository_agent_config`, `repository_settings.review_branches`).
-  An agent with nothing set uses the **platform default: `block` for Security, `comment` for the rest**.
+- **Agent modes:** while `repositories.use_org_defaults` is true (the default), from the organization's
+  review defaults (`organization_agent_defaults`); otherwise from the repository's own rows
+  (`repository_agent_config`). An agent with nothing set uses the **platform default: `block` for Security,
+  `comment` for the rest**.
 - **Confidence threshold:** the repository override, then the organization default, then 0.8 (unchanged).
-- **Branches to review:** names or globs a pull request must merge **into** (`main`, `release/*`,
+- **Branches to review:** always the repository's own (`repository_settings.review_branches`), whatever
+  `use_org_defaults` says; organizations don't set branches. Names or globs a pull request must merge **into** (`main`, `release/*`,
   `hotfix/**`), matched with `picomatch`: case-sensitive, `*` is one path segment and `**` any number
   (so `**` means every branch). Nothing set means the repository's default branch only. Up to 20
   patterns of 1–100 characters, no spaces or `..`.

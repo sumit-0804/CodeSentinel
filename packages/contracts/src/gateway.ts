@@ -252,11 +252,11 @@ export const RepositoryConfigSchema = z.object({
   fullName: z.string(),
   defaultBranch: z.string(),
   reviewEnabled: z.boolean(),
-  /** True: agent modes and branches come from the organization's review defaults. */
+  /** True: agent modes come from the organization's review defaults. Branches are always the repository's own. */
   useOrgDefaults: z.boolean(),
   /** In `AgentKindSchema` order. */
   agents: z.array(AgentSettingSchema),
-  /** The repository's own patterns, used when it doesn't follow the defaults. */
+  /** The repository's own patterns; empty means its default branch only. */
   reviewBranches: ReviewBranchesSchema,
   /** The patterns that apply now; never empty (the default branch when nothing is set). */
   effectiveReviewBranches: z.array(z.string()).min(1),
@@ -309,8 +309,6 @@ export const ReviewDefaultsSchema = z.object({
   /** In `AgentKindSchema` order; `source` is `organization_default` or `platform_default`. */
   agents: z.array(AgentSettingSchema),
   confidenceThreshold: ConfidenceSchema,
-  /** Empty means each repository's default branch. */
-  reviewBranches: ReviewBranchesSchema,
 });
 export type ReviewDefaults = z.infer<typeof ReviewDefaultsSchema>;
 
@@ -318,7 +316,6 @@ export type ReviewDefaults = z.infer<typeof ReviewDefaultsSchema>;
 export const ReviewDefaultsUpdateSchema = z.object({
   agents: AgentModeUpdatesSchema.optional(),
   confidenceThreshold: ConfidenceSchema.optional(),
-  reviewBranches: ReviewBranchesSchema.optional(),
 });
 export type ReviewDefaultsUpdate = z.infer<typeof ReviewDefaultsUpdateSchema>;
 

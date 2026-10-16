@@ -255,10 +255,10 @@ describe("POST /webhooks/github: review flow", () => {
     expect(requestLog(target)).toMatchObject({ outcome: "branch_ignored", baseRef: "main" });
   });
 
-  it("reviews a pull request into a branch the organization defaults list", async () => {
+  it("reviews by the repository's own branches even while it follows the organization defaults", async () => {
     const target = await webhookApp({
       edit: (seed) => {
-        seed.organizations[0]!.defaultReviewBranches = ["develop", "main"];
+        seed.repositorySettings.push({ repositoryId: seed.repositories[0]!.repositoryId, reviewBranches: ["develop", "main"] });
       },
     });
 

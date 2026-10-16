@@ -46,7 +46,6 @@ export interface RepositorySettingsInput {
 export interface OrganizationDefaultsInput {
   threshold?: number;
   modes: AgentModes;
-  reviewBranches: string[];
 }
 
 /** Everything a repository's configuration is resolved from (UC-4). */
@@ -86,9 +85,9 @@ function resolveThreshold(inputs: RepositoryConfigInputs): Pick<EffectiveReposit
   return { confidenceThreshold: PLATFORM_DEFAULT_CONFIDENCE_THRESHOLD, thresholdSource: "platform_default" };
 }
 
-/** The base-branch patterns that apply; nothing set means the default branch only. */
+/** The repository's own base-branch patterns, whether or not it follows the defaults; nothing set means the default branch only. */
 function resolveReviewBranches(inputs: RepositoryConfigInputs): string[] {
-  const patterns = inputs.useOrgDefaults ? inputs.organization.reviewBranches : (inputs.settings?.reviewBranches ?? []);
+  const patterns = inputs.settings?.reviewBranches ?? [];
   return patterns.length > 0 ? [...patterns] : [inputs.defaultBranch];
 }
 
@@ -137,7 +136,6 @@ export function toReviewDefaults(organizationId: string, organization: Organizat
     organizationId,
     agents: resolveAgentSettings({ useOrgDefaults: true, repositoryModes: {}, organization }),
     confidenceThreshold: organization.threshold ?? PLATFORM_DEFAULT_CONFIDENCE_THRESHOLD,
-    reviewBranches: [...organization.reviewBranches],
   };
 }
 
@@ -162,6 +160,5 @@ export function applyReviewDefaultsUpdate(organization: OrganizationDefaultsInpu
   return {
     ...(threshold !== undefined ? { threshold } : {}),
     modes: withModes(organization.modes, update.agents),
-    reviewBranches: update.reviewBranches ?? organization.reviewBranches,
   };
 }

@@ -55,7 +55,6 @@ CREATE TABLE "organizations" (
     "account_type" "account_type" NOT NULL DEFAULT 'organization',
     "display_name" TEXT NOT NULL,
     "default_confidence_threshold" DECIMAL(4,3) NOT NULL DEFAULT 0.800,
-    "default_review_branches" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

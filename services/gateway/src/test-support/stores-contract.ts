@@ -173,9 +173,9 @@ export function describeStoresContract(
       expect(config?.reviewBranches).toEqual(["main", "release/*"]);
     });
 
-    it("uses the organization's modes and branches when the repository follows the defaults", async () => {
+    it("uses the organization's modes but the repository's own branches when it follows the defaults", async () => {
       const { stores, ids } = await build(({ seed, ids }) => {
-        seed.organizations[0]!.defaultReviewBranches = ["develop"];
+        seed.repositorySettings.push({ repositoryId: ids.repositoryId, reviewBranches: ["develop"] });
         seed.organizationAgentDefaults.push({ organizationId: ids.organizationId, agent: "security", mode: "comment" });
         seed.repositoryAgentConfig.push({ repositoryId: ids.repositoryId, agent: "logic", mode: "block" });
       });
@@ -229,11 +229,11 @@ export function describeStoresContract(
     it("reads and updates the organization's review defaults", async () => {
       const { stores, ids } = await build();
 
-      await expect(stores.repositoryConfig.getReviewDefaults(ids.organizationId)).resolves.toEqual({ threshold: 0.75, modes: {}, reviewBranches: [] });
+      await expect(stores.repositoryConfig.getReviewDefaults(ids.organizationId)).resolves.toEqual({ threshold: 0.75, modes: {} });
 
       await stores.repositoryConfig.updateReviewDefaults(
         ids.organizationId,
-        { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.6, reviewBranches: ["main", "release/*"] },
+        { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.6 },
         ids.userId,
       );
       await stores.repositoryConfig.updateReviewDefaults(ids.organizationId, { agents: [{ agent: "logic", mode: "block" }] }, ids.userId);
@@ -241,7 +241,6 @@ export function describeStoresContract(
       await expect(stores.repositoryConfig.getReviewDefaults(ids.organizationId)).resolves.toEqual({
         threshold: 0.6,
         modes: { security: "comment", logic: "block" },
-        reviewBranches: ["main", "release/*"],
       });
     });
   });

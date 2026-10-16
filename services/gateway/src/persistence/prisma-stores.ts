@@ -169,7 +169,7 @@ export class PrismaStores implements Stores {
         include: {
           settings: true,
           agentConfig: true,
-          organization: { select: { defaultConfidenceThreshold: true, defaultReviewBranches: true, agentDefaults: true } },
+          organization: { select: { defaultConfidenceThreshold: true, agentDefaults: true } },
         },
       });
       if (!row) return undefined;
@@ -200,7 +200,6 @@ export class PrismaStores implements Stores {
         organization: {
           threshold: organization.defaultConfidenceThreshold.toNumber(),
           modes: modesOf(organization.agentDefaults),
-          reviewBranches: organization.defaultReviewBranches,
         },
         ...(latest ? { updatedAt: latest.updatedAt } : {}),
         ...(latest?.updatedBy ? { updatedBy: latest.updatedBy } : {}),
@@ -238,18 +237,15 @@ export class PrismaStores implements Stores {
       getReviewDefaults: async (organizationId) => {
         const org = await prisma.organization.findUnique({
           where: { id: organizationId },
-          select: { defaultConfidenceThreshold: true, defaultReviewBranches: true, agentDefaults: true },
+          select: { defaultConfidenceThreshold: true, agentDefaults: true },
         });
         if (!org) return undefined;
-        return { threshold: org.defaultConfidenceThreshold.toNumber(), modes: modesOf(org.agentDefaults), reviewBranches: org.defaultReviewBranches };
+        return { threshold: org.defaultConfidenceThreshold.toNumber(), modes: modesOf(org.agentDefaults) };
       },
       updateReviewDefaults: async (organizationId, update, updatedBy) => {
         await prisma.$transaction(async (tx) => {
-          if (update.confidenceThreshold !== undefined || update.reviewBranches !== undefined) {
-            await tx.organization.update({
-              where: { id: organizationId },
-              data: { defaultConfidenceThreshold: update.confidenceThreshold, defaultReviewBranches: update.reviewBranches },
-            });
+          if (update.confidenceThreshold !== undefined) {
+            await tx.organization.update({ where: { id: organizationId }, data: { defaultConfidenceThreshold: update.confidenceThreshold } });
           }
           for (const { agent, mode } of update.agents ?? []) {
             await tx.organizationAgentDefault.upsert({

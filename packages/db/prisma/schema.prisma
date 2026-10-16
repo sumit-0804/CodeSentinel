@@ -133,8 +133,6 @@ model Organization {
   accountType                AccountType @default(organization) @map("account_type")
   displayName                String      @map("display_name")
   defaultConfidenceThreshold Decimal     @default(0.800) @map("default_confidence_threshold") @db.Decimal(4, 3)
-  /// Base-branch patterns for repositories that follow the defaults; empty means each repository's default branch.
-  defaultReviewBranches      String[]    @default([]) @map("default_review_branches")
   createdAt                  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                  DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -109,6 +109,13 @@ describe("PUT /v1/repositories/{id}/config", () => {
     expect([status, body.code]).toEqual([400, "no_agents_enabled"]);
   });
 
+  it("saves branches for a repository that keeps following the organization defaults", async () => {
+    const { status, body } = await call("PUT", CONFIG_PATH, { body: { reviewBranches: ["develop"] } });
+
+    expect(status).toBe(200);
+    expect(RepositoryConfigSchema.parse(body)).toMatchObject({ useOrgDefaults: true, reviewBranches: ["develop"], effectiveReviewBranches: ["develop"] });
+  });
+
   it("rejects an invalid branch pattern with 400 invalid_body", async () => {
     const { status, body } = await call("PUT", CONFIG_PATH, { body: { reviewBranches: ["../main"] } });
 
@@ -118,16 +125,17 @@ describe("PUT /v1/repositories/{id}/config", () => {
 
 describe("/v1/organizations/{id}/review-defaults", () => {
   it("reads and updates the defaults a following repository then uses", async () => {
-    const update = { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.7, reviewBranches: ["develop"] };
+    const update = { agents: [{ agent: "security", mode: "comment" }], confidenceThreshold: 0.7 };
 
     const { status, body, stores } = await call("PUT", DEFAULTS_PATH, { body: update });
 
     expect(status).toBe(200);
-    expect(ReviewDefaultsSchema.parse(body)).toMatchObject({ confidenceThreshold: 0.7, reviewBranches: ["develop"] });
+    expect(ReviewDefaultsSchema.parse(body)).toMatchObject({ confidenceThreshold: 0.7 });
+    expect(body).not.toHaveProperty("reviewBranches");
     expect(ReviewDefaultsSchema.parse(body).agents[0]).toEqual({ agent: "security", mode: "comment", source: "organization_default" });
     await expect(stores.repositoryConfig.getEffectiveConfig(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({
       blockingAgents: [],
-      reviewBranches: ["develop"],
+      reviewBranches: ["main"],
       confidenceThreshold: 0.7,
     });
   });
