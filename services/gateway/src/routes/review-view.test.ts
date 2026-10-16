@@ -45,6 +45,32 @@ describe("agentResults", () => {
     ]);
   });
 
+  it("counts an agent's note on a finding clubbed under another agent", () => {
+    const report = {
+      ...exampleCombinedReport,
+      agentRuns: [
+        { agent: "security" as const, status: "succeeded" as const },
+        { agent: "logic" as const, status: "succeeded" as const },
+      ],
+      findings: [
+        {
+          ...exampleCombinedReport.findings[0]!,
+          agent: "security" as const,
+          severity: "critical" as const,
+          confidence: 0.9,
+          alsoReportedBy: [{ agent: "logic" as const, ruleId: "logic/x", title: "t", description: "d", severity: "warning" as const, confidence: 0.85 }],
+        },
+      ],
+    };
+
+    expect(agentResults(record({ report })).slice(0, 4)).toEqual([
+      { agent: "security", result: "critical" },
+      { agent: "style", result: "not_run" },
+      { agent: "performance", result: "not_run" },
+      { agent: "logic", result: "warning" },
+    ]);
+  });
+
   it("marks every agent running while a review has no report yet", () => {
     const { report: _report, ...withoutReport } = record({ status: "running" });
     expect(agentResults(withoutReport).every(({ result }) => result === "running")).toBe(true);

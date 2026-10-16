@@ -18,17 +18,21 @@ const apiStatus = (status: ReviewRecord["status"]): ReviewStatus => (status === 
 const running = (status: ReviewRecord["status"]) => status === "queued" || status === "running";
 
 /**
- * Each agent's worst finding at or above the review's threshold (what was posted); `clean` when it
- * ran and found nothing there, `not_run` when it was off, skipped or gave no result.
+ * Each agent's worst finding at or above the review's threshold (what was posted), counting its notes on
+ * findings clubbed under another agent; `clean` when it ran and found nothing there, `not_run` when it
+ * was off, skipped or gave no result.
  */
 export function agentResults(record: Pick<ReviewRecord, "status" | "confidenceThreshold" | "report">): { agent: AgentKind; result: AgentResult }[] {
   const { report } = record;
+  const posted = (report?.findings ?? [])
+    .filter((finding) => finding.confidence >= record.confidenceThreshold)
+    .flatMap((finding) => [{ agent: finding.agent, severity: finding.severity }, ...(finding.alsoReportedBy ?? [])]);
   return AgentKindSchema.options.map((agent) => {
     const run = report?.agentRuns.find((r) => r.agent === agent);
     if (!run) return { agent, result: running(record.status) && !report ? "running" : "not_run" };
     if (run.status !== "succeeded") return { agent, result: "not_run" };
-    const worst = report!.findings
-      .filter((finding) => finding.agent === agent && finding.confidence >= record.confidenceThreshold)
+    const worst = posted
+      .filter((note) => note.agent === agent)
       .reduce<"critical" | "warning" | "info" | undefined>((top, f) => (!top || RANK[f.severity] > RANK[top] ? f.severity : top), undefined);
     return { agent, result: worst ?? "clean" };
   });

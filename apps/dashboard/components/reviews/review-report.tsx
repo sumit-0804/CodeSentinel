@@ -138,6 +138,16 @@ export function ReviewReport({
                             <ChevronDown className={cn("size-4 text-ink-3 transition-transform duration-150", expanded && "rotate-180")} aria-hidden="true" />
                             <span className="col-start-2 col-end-4 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px] text-ink-3">
                               <span>{agentName(finding.agent)}</span>
+                              {finding.alsoReportedBy?.length ? (
+                                <span className="inline-flex flex-wrap items-center gap-1.5">
+                                  Also flagged by
+                                  {finding.alsoReportedBy.map((note) => (
+                                    <span key={note.agent} className="rounded-full border border-cyan/30 bg-cyan/8 px-2 text-[12px] font-semibold text-ink-2">
+                                      {agentName(note.agent)}
+                                    </span>
+                                  ))}
+                                </span>
+                              ) : null}
                               <span>
                                 Line {finding.location.lineStart}
                                 {finding.location.lineEnd > finding.location.lineStart ? `–${finding.location.lineEnd}` : ""}
@@ -158,6 +168,20 @@ export function ReviewReport({
                           {expanded ? (
                             <div className={cn("grid gap-3.5 px-5 pb-5 sm:pl-[42px]", below && "opacity-55")}>
                               <p className="max-w-[70ch] whitespace-pre-line text-ink-2">{finding.description}</p>
+                              {finding.alsoReportedBy?.length ? (
+                                <div className="grid gap-2.5 rounded-xl border border-line bg-panel-2/50 p-3.5">
+                                  <p className="text-[13px] font-semibold text-ink-2">Other agents&apos; notes on the same issue</p>
+                                  {finding.alsoReportedBy.map((note) => (
+                                    <div key={note.agent} className="grid gap-1">
+                                      <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                                        <SeverityDot severity={note.severity} />
+                                        {agentName(note.agent)}: {note.title}
+                                      </span>
+                                      <p className="max-w-[70ch] whitespace-pre-line text-[13.5px] text-ink-2">{note.description}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                               <FixBlock finding={finding} />
                               <FixActions finding={finding} posted={!below} />
                             </div>
