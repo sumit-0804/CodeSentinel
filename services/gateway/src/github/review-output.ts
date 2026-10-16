@@ -38,25 +38,24 @@ export function postable(report: CombinedReport, threshold: number): Finding[] {
   return report.findings.filter((finding) => finding.confidence >= threshold);
 }
 
-/** Postable critical findings, split by whether their agent is in `block` mode. */
-function criticalFindings(report: CombinedReport, threshold: number, blockingAgents: readonly AgentKind[]) {
-  const critical = postable(report, threshold).filter((finding) => finding.severity === "critical");
-  return {
-    blocking: critical.filter((finding) => blockingAgents.includes(finding.agent)),
-    other: critical.filter((finding) => !blockingAgents.includes(finding.agent)),
-  };
+/**
+ * Postable findings that block the merge: every critical one, whichever agent found it (FR-GH-02),
+ * and the warnings of agents in `block` mode. Comment mode only keeps warnings from blocking.
+ */
+function blockingFindings(report: CombinedReport, threshold: number, blockingAgents: readonly AgentKind[]): Finding[] {
+  return postable(report, threshold).filter(
+    (finding) => finding.severity === "critical" || (finding.severity === "warning" && blockingAgents.includes(finding.agent)),
+  );
 }
 
 /**
- * FR-GH-02 with A9's agent modes: `failure` when a postable critical finding comes from a `block`
- * agent, even on a partial review; `neutral` for other critical findings or an incomplete review;
- * otherwise `success`.
+ * FR-GH-02 with A9's agent modes: `failure` when a postable finding blocks the merge (see
+ * `blockingFindings`), even on a partial review; `neutral` for an incomplete review; otherwise `success`.
  */
 export function checkRunConclusion(job: ReviewJob, threshold: number, blockingAgents: readonly AgentKind[]): CheckConclusion {
   if (!job.report || job.status === "cancelled") return "neutral";
-  const { blocking, other } = criticalFindings(job.report, threshold, blockingAgents);
-  if (blocking.length > 0) return "failure";
-  return job.status === "completed" && other.length === 0 ? "success" : "neutral";
+  if (blockingFindings(job.report, threshold, blockingAgents).length > 0) return "failure";
+  return job.status === "completed" ? "success" : "neutral";
 }
 
 /** Title, markdown summary and line annotations for the Check Run; `notes` are appended to the summary. */
@@ -79,12 +78,12 @@ export function checkRunOutput(job: ReviewJob, threshold: number, blockingAgents
     : "No issues found";
 
   const lines: string[] = [`**${title}** · review \`${report.status}\``, ""];
-  const { blocking, other } = criticalFindings(report, threshold, blockingAgents);
+  const blocking = blockingFindings(report, threshold, blockingAgents);
   if (blocking.length > 0) {
-    lines.push(`Merge blocked by ${agentNames(blocking)}: ${plural(blocking.length, "critical finding")}.`, "");
-  }
-  if (other.length > 0) {
-    lines.push(`${plural(other.length, "critical finding")} from ${agentNames(other)}, set to comment only, ${other.length === 1 ? "doesn't" : "don't"} block the merge.`, "");
+    const critical = blocking.filter((finding) => finding.severity === "critical").length;
+    const warnings = blocking.length - critical;
+    const counts = [critical ? plural(critical, "critical finding") : "", warnings ? plural(warnings, "warning") : ""].filter(Boolean).join(" and ");
+    lines.push(`Merge blocked by ${agentNames(blocking)}: ${counts}.`, "");
   }
   if (report.coverage) {
     const c = report.coverage;

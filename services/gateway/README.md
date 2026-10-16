@@ -304,12 +304,12 @@ there is never a second Check Run or review.
 
    | Conclusion | When |
    | --- | --- |
-   | `failure` | a finding at or above the threshold is `critical` and its agent is in `block` mode (even on a partial review) |
-   | `neutral` | otherwise, a `critical` finding from a `comment` agent, or the review is `partial`, `failed`, `cancelled`, or did not finish in time |
+   | `failure` | a finding at or above the threshold is `critical` (from any agent, whatever its mode), or is a `warning` from an agent in `block` mode; also on a partial review |
+   | `neutral` | otherwise, when the review is `partial`, `failed`, `cancelled`, or did not finish in time |
    | `success` | otherwise |
 
-   The summary says which agents blocked the merge (or which comment-only agents found critical
-   issues), then the counts by severity, coverage (files and changed lines), one line per agent
+   The summary says which agents blocked the merge and with how many critical findings and
+   warnings, then the counts by severity, coverage (files and changed lines), one line per agent
    (✅ findings and provider, ⚠️ no result, ⏸️ LLM analysis deferred, ➖ not configured), skipped
    files with reasons, how many findings fell below the threshold, and any posting problems.
    Every finding at or above the threshold is an annotation on its lines (`failure` / `warning` /

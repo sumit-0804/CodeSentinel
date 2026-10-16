@@ -195,7 +195,7 @@ export const GithubLinkResultSchema = z.object({
 });
 export type GithubLinkResult = z.infer<typeof GithubLinkResultSchema>;
 
-/** `off` skips the agent; `comment` posts its findings; `block` also fails the Check Run on a critical finding. */
+/** `off` skips the agent; `comment` posts its findings; `block` also fails the Check Run on its warnings. Critical findings always fail it. */
 export const AgentModeSchema = z.enum(["off", "comment", "block"]);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
 

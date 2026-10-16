@@ -1143,8 +1143,9 @@ components:
       type: string
       enum: [off, comment, block]
       description: >
-        off skips the agent; comment posts its findings; block also fails the Check Run when the
-        agent reports a critical finding above the threshold.
+        off skips the agent; comment posts its findings; block also fails the Check Run on the
+        agent's warnings. A critical finding above the threshold fails the Check Run whatever the
+        mode (FR-GH-02).
 
     AgentSetting:
       type: object

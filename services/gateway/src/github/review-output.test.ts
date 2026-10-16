@@ -58,14 +58,18 @@ describe("checkRunConclusion", () => {
     expect(checkRunConclusion(job([finding()], {}, "partial"), 0.8, BLOCK_SECURITY)).toBe("failure");
   });
 
-  it("is neutral when the critical finding's agent only comments", () => {
-    expect(checkRunConclusion(job([finding()]), 0.8, [])).toBe("neutral");
-    expect(checkRunConclusion(job([finding({ agent: "logic" })]), 0.8, BLOCK_SECURITY)).toBe("neutral");
-    expect(checkRunConclusion(job([finding({ agent: "logic" })]), 0.8, ["logic"])).toBe("failure");
+  it("fails on a critical finding from any agent, even one set to comment only", () => {
+    expect(checkRunConclusion(job([finding()]), 0.8, [])).toBe("failure");
+    expect(checkRunConclusion(job([finding({ agent: "logic" })]), 0.8, BLOCK_SECURITY)).toBe("failure");
+  });
+
+  it("blocks on warnings only from agents set to block the merge", () => {
+    expect(checkRunConclusion(job([finding({ severity: "warning" })]), 0.8, BLOCK_SECURITY)).toBe("failure");
+    expect(checkRunConclusion(job([finding({ agent: "performance", severity: "warning" })]), 0.8, BLOCK_SECURITY)).toBe("success");
   });
 
   it("is neutral for an incomplete review and success otherwise; low-confidence criticals do not fail it", () => {
-    expect(checkRunConclusion(job([finding({ severity: "warning" })], {}, "partial"), 0.8, BLOCK_SECURITY)).toBe("neutral");
+    expect(checkRunConclusion(job([finding({ agent: "logic", severity: "warning" })], {}, "partial"), 0.8, BLOCK_SECURITY)).toBe("neutral");
     expect(checkRunConclusion({ ...job([]), status: "failed", report: undefined }, 0.8, BLOCK_SECURITY)).toBe("neutral");
     expect(checkRunConclusion(job([finding({ confidence: 0.5 }), styleFix]), 0.8, BLOCK_SECURITY)).toBe("success");
   });
@@ -99,11 +103,14 @@ describe("checkRunOutput", () => {
     ]);
   });
 
-  it("says which comment-only agents found critical issues without blocking", () => {
-    const output = checkRunOutput(job([finding({ agent: "logic" }), finding({ agent: "performance" })]), 0.8, BLOCK_SECURITY);
+  it("names every agent whose critical findings, or blocking warnings, stop the merge", () => {
+    const output = checkRunOutput(
+      job([finding({ agent: "logic" }), finding({ agent: "performance" }), finding({ severity: "warning" }), finding({ agent: "logic", severity: "warning" })]),
+      0.8,
+      BLOCK_SECURITY,
+    );
 
-    expect(output.summary).toContain("2 critical findings from **Performance** and **Logic**, set to comment only, don't block the merge.");
-    expect(output.summary).not.toContain("Merge blocked");
+    expect(output.summary).toContain("Merge blocked by **Security**, **Performance** and **Logic**: 2 critical findings and 1 warning.");
   });
 
   it("explains a review with no report", () => {
