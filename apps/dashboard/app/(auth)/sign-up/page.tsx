@@ -11,7 +11,7 @@ export default function SignUpPage() {
     <>
       <AuthHeading
         title="Start reviewing"
-        lead="Five agents check every pull request. You decide which ones can block a merge."
+        lead="Five agents check every pull request. Critical findings always block the merge."
       />
       <OAuthButtons verb="Sign up" />
       <OrDivider>or with email</OrDivider>

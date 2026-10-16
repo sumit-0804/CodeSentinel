@@ -9,7 +9,7 @@ const martian = Martian_Mono({ variable: "--font-martian", subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: { default: "Code Sentinel", template: "%s · Code Sentinel" },
-  description: "Five review agents check every pull request. You decide which ones can block a merge.",
+  description: "Five review agents check every pull request. Critical findings always block the merge.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

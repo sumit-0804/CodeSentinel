@@ -79,10 +79,10 @@ export function AgentModeRows({
       </ul>
       <div className="flex flex-wrap gap-x-[22px] gap-y-1.5 border-t border-line bg-[rgb(5_6_11/0.35)] px-5 py-3.5 text-[13.5px] text-ink-2">
         <span>
-          <b className="text-ink">Comment</b> posts findings on the pull request.
+          <b className="text-ink">Comment</b> posts findings on the pull request; critical ones always block the merge.
         </span>
         <span>
-          <b className="text-ink">Block merge</b> also fails the GitHub check when it finds something critical.
+          <b className="text-ink">Block merge</b> also blocks it on warnings.
         </span>
       </div>
     </>

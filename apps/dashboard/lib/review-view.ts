@@ -22,6 +22,7 @@ export function verdictSentence(verdict: Verdict, summary: ReviewSummary): strin
     case "failed":
       return "The review couldn't finish.";
     case "blocked":
+      if (critical === 0) return "Warnings from an agent set to Block merge stop this merge.";
       return critical === 1 ? "One critical finding stops this merge." : `${critical} critical findings stop this merge.`;
     case "partial":
       return "Reviewed, but not every agent finished.";

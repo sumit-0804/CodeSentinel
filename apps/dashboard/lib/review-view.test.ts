@@ -24,6 +24,7 @@ describe("verdictOf", () => {
   it("says how many critical findings block", () => {
     expect(verdictSentence("blocked", summary(1))).toBe("One critical finding stops this merge.");
     expect(verdictSentence("blocked", summary(2))).toBe("2 critical findings stop this merge.");
+    expect(verdictSentence("blocked", summary(0))).toBe("Warnings from an agent set to Block merge stop this merge.");
   });
 });
 
