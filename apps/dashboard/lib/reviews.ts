@@ -1,9 +1,11 @@
 import "server-only";
 import { cache } from "react";
 import {
+  BranchListResponseSchema,
   PullRequestListResponseSchema,
   ReviewDetailSchema,
   ReviewListResponseSchema,
+  type BranchListResponse,
   type PullRequestListItem,
   type ReviewDetail,
   type ReviewListItem,
@@ -40,6 +42,17 @@ export const getOpenPullRequests = cache(async (repositoryId: string): Promise<O
   });
   if (!listed.ok) return { ok: false, reason: listed.reason, ...(listed.code ? { code: listed.code } : {}) };
   return { ok: true, pulls: listed.data.items };
+});
+
+/** The repository's branch names from GitHub for the branch picker; `undefined` when they couldn't be loaded. */
+export const getBranches = cache(async (repositoryId: string): Promise<BranchListResponse | undefined> => {
+  const account = await getAccount();
+  if (!account.ok || !account.current) return undefined;
+
+  const listed = await gatewayFetch(`/v1/repositories/${encodeURIComponent(repositoryId)}/branches`, BranchListResponseSchema, {
+    organizationId: account.current.organizationId,
+  });
+  return listed.ok ? listed.data : undefined;
 });
 
 export const getReview = cache(async (reviewId: string): Promise<ReviewResult> => {

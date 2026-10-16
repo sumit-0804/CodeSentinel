@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { EmptyState, PageSkeleton } from "@/components/app/page-parts";
 import { RepositorySettings, type RepositoryTab } from "@/components/config/repository-settings";
 import { getRepositoryPageData } from "@/lib/repository-config";
-import { getOpenPullRequests, getReview, getReviews } from "@/lib/reviews";
+import { getBranches, getOpenPullRequests, getReview, getReviews } from "@/lib/reviews";
 
 type Props = PageProps<"/repositories/[owner]/[name]">;
 
@@ -28,7 +28,11 @@ async function RepositoryContent({ params, searchParams }: Props) {
     return <EmptyState title="This repository isn't available">{UNAVAILABLE[data.reason]}</EmptyState>;
   }
   const initialTab: RepositoryTab = tab === "advanced" || tab === "pull-requests" ? tab : "agents";
-  const [reviews, open] = await Promise.all([getReviews(true, data.config.repositoryId), getOpenPullRequests(data.config.repositoryId)]);
+  const [reviews, open, branches] = await Promise.all([
+    getReviews(true, data.config.repositoryId),
+    getOpenPullRequests(data.config.repositoryId),
+    getBranches(data.config.repositoryId),
+  ]);
   // The newest review's confidences drive the threshold preview; without reviews it's simply left out.
   const newest = reviews.ok ? reviews.reviews.find((review) => review.status !== "queued" && review.status !== "running") : undefined;
   const last = newest ? await getReview(newest.reviewId) : undefined;
@@ -46,6 +50,7 @@ async function RepositoryContent({ params, searchParams }: Props) {
       isAdmin={data.isAdmin}
       initialTab={initialTab}
       openPullRequests={openPullRequests}
+      {...(branches ? { branches } : {})}
       {...(lastConfidences ? { lastConfidences } : {})}
     />
   );

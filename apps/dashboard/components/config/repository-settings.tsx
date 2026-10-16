@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ExternalLink, GitBranch, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { toast } from "sonner";
-import type { PullRequestListItem, RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
+import type { BranchListResponse, PullRequestListItem, RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
 import { saveRepositoryConfig } from "@/app/(app)/repositories/actions";
 import { useStepUp } from "@/components/auth/step-up";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
@@ -49,6 +49,7 @@ export function RepositorySettings({
   isAdmin,
   initialTab,
   openPullRequests,
+  branches,
   lastConfidences,
 }: {
   config: RepositoryConfig;
@@ -57,6 +58,8 @@ export function RepositorySettings({
   initialTab: RepositoryTab;
   /** The repository's open pull requests from GitHub, or why they couldn't be loaded. */
   openPullRequests: { ok: true; pulls: PullRequestListItem[] } | { ok: false; message: string };
+  /** The repository's branches from GitHub for the picker; without them a name is typed. */
+  branches?: BranchListResponse;
   /** Finding confidences of the newest finished review, for the threshold preview. */
   lastConfidences?: number[];
 }) {
@@ -243,6 +246,7 @@ export function RepositorySettings({
             <BranchPatterns
               patterns={shownBranches}
               defaultBranch={saved.defaultBranch}
+              {...(branches ? { branches } : {})}
               locked={locked}
               onChange={(patterns) => setDraft((current) => ({ ...current, reviewBranches: patterns }))}
             />
