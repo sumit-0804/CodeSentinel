@@ -118,6 +118,20 @@ describe("fragmentFindings", () => {
     ]);
   });
 
+  it("joins formatter changes up to 3 lines apart into one fix, keeping the lines between, and splits farther ones", () => {
+    const added = ["a=1", "b = 2;", "c = 3;", "d=4", "e = 5;", "f = 6;", "g = 7;", "h = 8;", "i=9"];
+    const [far] = buildFragments([file("src/n.ts", `@@ -0,0 +1,9 @@\n${added.map((line) => `+${line}`).join("\n")}`)]);
+    const formatted = added.map((line) => (line.includes(" ") ? line : `${line.replace("=", " = ")};`));
+
+    const findings = fragmentFindings(far!, { diagnostics: [], formatted: `${formatted.join("\n")}\n` });
+
+    expect(findings.map((f) => [f.title, f.location.lineStart, f.location.lineEnd])).toEqual([
+      ["2 formatting changes from prettier", 1, 4],
+      ["Formatting differs from prettier", 9, 9],
+    ]);
+    expect(findings[0]!.suggestion).toMatchObject({ originalSnippet: "a=1\nb = 2;\nc = 3;\nd=4", suggestedSnippet: "a = 1;\nb = 2;\nc = 3;\nd = 4;" });
+  });
+
   it("fixes added lines the formatter split or joined, including inserted blank lines", () => {
     const [py] = buildFragments([file("tool.py", "@@ -0,0 +1,2 @@\n+import os\n+def f( a ):  return a", "python")]);
     const [cart] = buildFragments([

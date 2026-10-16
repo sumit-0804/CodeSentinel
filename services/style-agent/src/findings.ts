@@ -6,6 +6,9 @@ import type { SandboxFileResult } from "./sandbox.js";
 
 export type StyleFinding = AnalysisResult["findings"][number];
 
+/** Formatter changes at most this many unchanged lines apart become one fix, so one click applies them all. */
+const MERGE_GAP_LINES = 3;
+
 /** Diagnostics that point at likely bugs rather than taste; everything else is `info`. */
 const WARNING_RULE = /^(?:ruff\/[FB]\d|eslint\/(?:no-dupe|no-self|no-cond-assign|no-constant|no-unsafe|use-isnan|valid-typeof))/;
 
@@ -49,11 +52,11 @@ function formatFindings(fragment: Fragment, result: SandboxFileResult): StyleFin
   const after = formatted.map((line) => (line === "" ? "" : fragment.indent + line));
   if (after.length === before.length && after.every((line, i) => line === before[i]!.text)) return [];
 
-  const finding = (start: number, end: number, original: string[], suggested: string[] | undefined): StyleFinding => ({
+  const finding = (start: number, end: number, original: string[], suggested: string[] | undefined, changes = 1): StyleFinding => ({
     ruleId: `style/${tool}`,
-    title: `Formatting differs from ${tool}`,
+    title: changes > 1 ? `${changes} formatting changes from ${tool}` : `Formatting differs from ${tool}`,
     description: suggested
-      ? `${tool} reformats these lines; the fix below is deterministic and safe to apply (FR-STY-03).`
+      ? `${tool} reformats ${changes > 1 ? `${changes} nearby places in these lines, in one fix` : "these lines"}; the fix below is deterministic and safe to apply (FR-STY-03).`
       : `${tool} would reformat this hunk, which also touches unchanged lines; run ${tool} on the file.`,
     location: { filePath: fragment.file.path, lineStart: start, lineEnd: end },
     severity: "info",
@@ -64,17 +67,20 @@ function formatFindings(fragment: Fragment, result: SandboxFileResult): StyleFin
   });
 
   // Blocks of added lines get a fix; reformatting of unchanged lines is not this PR's business.
-  const fixable: Block[] = [];
+  // Blocks a few lines apart share one fix: the lines between are identical before and after.
+  const fixable: (Block & { changes: number })[] = [];
   const touchesContext: number[] = [];
   for (const block of changedBlocks(before.map((line) => line.text), after)) {
     const lines = before.slice(block.aStart, block.aEnd);
     if (lines.every((line) => line.added)) {
       const previous = fixable.at(-1);
-      if (previous && previous.aEnd === block.aStart && previous.bEnd === block.bStart) {
+      const gap = previous ? block.aStart - previous.aEnd : -1;
+      if (previous && gap >= 0 && gap <= MERGE_GAP_LINES && block.bStart - previous.bEnd === gap) {
         previous.aEnd = block.aEnd;
         previous.bEnd = block.bEnd;
+        previous.changes++;
       } else {
-        fixable.push({ ...block });
+        fixable.push({ ...block, changes: 1 });
       }
     } else if (lines.length > 1 && lines.some((line) => line.added)) {
       // Lines were split or joined across old and new code: no safe line-level fix.
@@ -84,7 +90,7 @@ function formatFindings(fragment: Fragment, result: SandboxFileResult): StyleFin
 
   const findings = fixable.map((block) => {
     const lines = before.slice(block.aStart, block.aEnd);
-    return finding(lines[0]!.line, lines.at(-1)!.line, lines.map((line) => line.text), after.slice(block.bStart, block.bEnd));
+    return finding(lines[0]!.line, lines.at(-1)!.line, lines.map((line) => line.text), after.slice(block.bStart, block.bEnd), block.changes);
   });
   if (touchesContext.length) {
     findings.push(finding(Math.min(...touchesContext), Math.max(...touchesContext), [], undefined));

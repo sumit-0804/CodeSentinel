@@ -44,8 +44,10 @@ are safe to apply without review. Built on
      lines compared without whitespace or a trailing `;` / `,`), so a reformatted line pairs with
      its original even when the formatter also split or joined its neighbours. Each changed block
      made only of **added** lines becomes a `style/prettier` or `style/black` finding with a
-     `suggestion { kind: "deterministic" }` (FR-STY-03); adjacent blocks are merged. Unchanged
-     lines are never touched, even when the formatter would change them too.
+     `suggestion { kind: "deterministic" }` (FR-STY-03). Blocks at most 3 unchanged lines apart are
+     merged into one fix ("N formatting changes from prettier"), with the lines between copied as they
+     are, so one click applies them all. Unchanged lines are never modified, even when the formatter
+     would change them too.
    - New code that the formatter joins with unchanged code is flagged without a fix ("run the
      formatter on the file").
    - A fragment that does not parse on its own (for example a hunk that closes a brace it did not
