@@ -41,6 +41,9 @@ export class StubGitHubClient implements GitHubClient {
   /** Pull requests `getPullRequest` and `listOpenPullRequests` answer from; tests edit it. */
   readonly pullRequests: PullRequestInfo[] = [];
   pullRequestListCalls = 0;
+  /** Branch names `listBranches` answers with; tests edit it. */
+  readonly branches: string[] = [];
+  branchListCalls = 0;
   /** Repository files by path for `getFileContent` / `updateFile`; tests edit it. */
   readonly repoFiles = new Map<string, { sha: string; text: string }>();
   readonly commits: { path: string; text: string; blobSha: string; branch: string; message: string; commitSha: string }[] = [];
@@ -72,6 +75,11 @@ export class StubGitHubClient implements GitHubClient {
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .slice(0, limit),
     );
+  }
+
+  async listBranches(_ref: RepositoryRef, limit: number): Promise<string[]> {
+    this.branchListCalls++;
+    return this.branches.slice(0, limit);
   }
 
   async createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number> {

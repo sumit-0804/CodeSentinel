@@ -111,6 +111,17 @@ export class OctokitGitHubClient implements GitHubClient {
     return data.map(toPullRequestInfo);
   }
 
+  async listBranches(ref: RepositoryRef, limit: number): Promise<string[]> {
+    const names: string[] = [];
+    // `done()` stops paging once `limit` names are in, so a repository with thousands of branches stays cheap.
+    await this.forRef(ref).paginate("GET /repos/{owner}/{repo}/branches", { owner: ref.owner, repo: ref.repo, per_page: 100 }, (response, done) => {
+      names.push(...response.data.map((branch) => branch.name));
+      if (names.length >= limit) done();
+      return [];
+    });
+    return names.slice(0, limit);
+  }
+
   async createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number> {
     const { data } = await this.forRef(ref).request("POST /repos/{owner}/{repo}/check-runs", {
       owner: ref.owner,

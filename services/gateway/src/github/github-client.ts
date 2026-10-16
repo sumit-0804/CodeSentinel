@@ -93,6 +93,8 @@ export interface GitHubClient {
   getPullRequest(ref: PullRequestRef): Promise<PullRequestInfo | undefined>;
   /** Open pull requests, most recently updated first, at most `limit`. */
   listOpenPullRequests(ref: RepositoryRef, limit: number): Promise<PullRequestInfo[]>;
+  /** Branch names in GitHub's order, at most `limit`. */
+  listBranches(ref: RepositoryRef, limit: number): Promise<string[]>;
   /** Creates an `in_progress` Check Run on `headSha` and returns its id. */
   createCheckRun(ref: PullRequestRef, input: { name: string; headSha: string }): Promise<number>;
   /** Completes a Check Run; annotations beyond GitHub's 50-per-request limit are sent in batches. */

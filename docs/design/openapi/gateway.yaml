@@ -652,6 +652,38 @@ paths:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
 
+  /v1/repositories/{repositoryId}/branches:
+    parameters:
+      - $ref: '#/components/parameters/RepositoryId'
+      - $ref: '#/components/parameters/OrganizationId'
+    get:
+      tags: [Repositories]
+      operationId: listRepositoryBranches
+      summary: List a repository's branches
+      description: >
+        Branch names read from GitHub with the App's installation token, sorted A–Z, up to 300, for
+        the dashboard's branch picker. GitHub's answer is cached for 60 s per repository. Open to any
+        member; another organization's repository answers 404.
+      responses:
+        '200':
+          description: Branch names.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchListResponse'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '502':
+          description: '`github_unavailable`: GitHub did not answer.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+
   /v1/repositories/{repositoryId}/config:
     parameters:
       - $ref: '#/components/parameters/RepositoryId'
@@ -1085,6 +1117,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PullRequestListItem'
+
+    BranchListResponse:
+      type: object
+      required: [items, truncated]
+      properties:
+        items:
+          type: array
+          items:
+            type: string
+          example: [develop, main, release/1.0]
+        truncated:
+          type: boolean
+          description: True when the repository has more than 300 branches; the rest can still be typed.
 
     Installation:
       type: object

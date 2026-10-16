@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { PullRequestListResponseSchema, ReviewAcceptedSchema, ReviewJobRequestSchema } from "@code-sentinel/contracts";
+import { BranchListResponseSchema, PullRequestListResponseSchema, ReviewAcceptedSchema, ReviewJobRequestSchema } from "@code-sentinel/contracts";
 import { EXAMPLE_ORGANIZATION_ID, EXAMPLE_REPOSITORY_ID } from "@code-sentinel/contracts/examples";
 import { withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it, vi } from "vitest";
@@ -257,6 +257,38 @@ describe("GET /v1/repositories/{id}/pulls", () => {
 
     expect((await call("GET", `/v1/repositories/${randomUUID()}/pulls`)).status).toBe(404);
     const failed = await call("GET", `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/pulls`);
+    expect([failed.status, failed.body.code]).toEqual([502, "github_unavailable"]);
+  });
+});
+
+describe("GET /v1/repositories/{id}/branches", () => {
+  const branches = `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/branches`;
+
+  it("lists branch names A–Z and reuses GitHub's answer for 60 s", async () => {
+    const { call, github, advance } = await setup({ github: (g) => g.branches.push("main", "feature/b", "develop") });
+
+    const { status, body } = await call("GET", branches);
+    expect(status).toBe(200);
+    expect(BranchListResponseSchema.parse(body)).toEqual({ items: ["develop", "feature/b", "main"], truncated: false });
+    await call("GET", branches);
+    expect(github.branchListCalls).toBe(1);
+    advance(61_000);
+    await call("GET", branches);
+    expect(github.branchListCalls).toBe(2);
+  });
+
+  it("stops at 300 branches and says there were more", async () => {
+    const { call } = await setup({ github: (g) => g.branches.push(...Array.from({ length: 305 }, (_, i) => `b${String(i).padStart(3, "0")}`)) });
+
+    const listed = BranchListResponseSchema.parse((await call("GET", branches)).body);
+    expect([listed.items.length, listed.truncated]).toEqual([300, true]);
+  });
+
+  it("answers 404 for another organization's repository and 502 when GitHub fails", async () => {
+    const { call } = await setup({ github: (g) => vi.spyOn(g, "listBranches").mockRejectedValue(new Error("down")) });
+
+    expect((await call("GET", `/v1/repositories/${randomUUID()}/branches`)).status).toBe(404);
+    const failed = await call("GET", branches);
     expect([failed.status, failed.body.code]).toEqual([502, "github_unavailable"]);
   });
 });

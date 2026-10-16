@@ -39,7 +39,7 @@ export interface EffectiveRepositoryConfig {
   agentModes: Record<AgentKind, AgentMode>;
   /** Agents whose mode isn't `off`, in `AgentKindSchema` order. */
   enabledAgents: AgentKind[];
-  /** Agents in `block` mode: only their critical findings fail the Check Run. */
+  /** Agents in `block` mode: their warnings fail the Check Run too, not only critical findings. */
   blockingAgents: AgentKind[];
   /** Base-branch patterns a pull request must merge into to be reviewed; never empty. */
   reviewBranches: string[];

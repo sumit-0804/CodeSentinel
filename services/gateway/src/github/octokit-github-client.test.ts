@@ -31,6 +31,11 @@ function fakeGitHub() {
       const next = `<https://api.github.com/repos/octo/playground/pulls/7/files?per_page=100&page=2>; rel="next"`;
       return json(200, Array.from({ length: 100 }, (_, i) => file(i)), { link: next });
     }
+    if (url.pathname === "/repos/octo/playground/branches") {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const next = `<https://api.github.com/repos/octo/playground/branches?per_page=100&page=${page + 1}>; rel="next"`;
+      return json(200, Array.from({ length: 100 }, (_, i) => ({ name: `b${page}-${i}` })), { link: next });
+    }
     return json(404, { message: "Not Found" });
   });
 }
@@ -48,6 +53,16 @@ describe("OctokitGitHubClient", () => {
       { filename: "img/logo.png", status: "added" },
       { filename: "new/name.py", status: "renamed", patch: "@@ -1 +1 @@\n+y", previousFilename: "old/name.py" },
     ]);
+  });
+
+  it("stops paging branches once the limit is reached", async () => {
+    const fetchImpl = fakeGitHub();
+    const github = new OctokitGitHubClient({ appId: 12345, privateKey, fetch: fetchImpl });
+
+    const names = await github.listBranches({ installationId: 42, owner: "octo", repo: "playground" }, 150);
+
+    expect([names.length, names[0], names[149]]).toEqual([150, "b1-0", "b2-49"]);
+    expect(fetchImpl.mock.calls.filter(([input]) => String(input).includes("/branches"))).toHaveLength(2);
   });
 
   it("reuses the installation token across calls", async () => {

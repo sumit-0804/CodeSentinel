@@ -167,6 +167,13 @@ export const PullRequestListResponseSchema = z.object({
 });
 export type PullRequestListResponse = z.infer<typeof PullRequestListResponseSchema>;
 
+/** 200 body of GET /v1/repositories/{repositoryId}/branches: branch names A–Z; `truncated` when GitHub had more. */
+export const BranchListResponseSchema = z.object({
+  items: z.array(z.string()),
+  truncated: z.boolean(),
+});
+export type BranchListResponse = z.infer<typeof BranchListResponseSchema>;
+
 /** A GitHub account (personal or organization) where the App is installed, as a member sees it. */
 export const InstallationSchema = z.object({
   organizationId: z.string().uuid(),

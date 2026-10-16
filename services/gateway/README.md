@@ -215,7 +215,7 @@ as GitHub. If that write fails, it's logged and the Check Run stands.
 
 ## Open pull requests and re-running a review
 
-Both routes are scoped to the caller's organization; another organization's repository is 404
+These routes are scoped to the caller's organization; another organization's repository is 404
 `repository_not_found`.
 
 **`GET /v1/repositories/{id}/pulls`** (any member):
@@ -224,6 +224,11 @@ Both routes are scoped to the caller's organization; another organization's repo
 - Each pull request carries its newest review (`latestReview`, or `null`) and `reviewable`, whether its base branch
   is one of the [branches to review](#repository-configuration).
 - GitHub failing is 502 `github_unavailable`.
+
+**`GET /v1/repositories/{id}/branches`** (any member), for the dashboard's branch picker:
+- The repository's branch names from GitHub, A–Z, up to 300; `truncated` is true when there are more. Paging stops at
+  the limit, and the answer is cached for 60 s per repository.
+- GitHub failing is 502 `github_unavailable`; the dashboard then falls back to typing a name.
 
 **`POST /v1/reviews`** with `{ repositoryId, pullRequestNumber }` (the dashboard's "Re-run review"):
 - **Who:** any member of the organization. Any other body is 400 `invalid_body`.

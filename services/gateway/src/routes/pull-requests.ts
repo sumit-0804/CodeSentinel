@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   PullRequestReviewRequestSchema,
+  type BranchListResponse,
   type PullRequestListItem,
   type PullRequestListResponse,
   type ReviewAccepted,
@@ -24,6 +25,9 @@ import { toListItem } from "./review-view.js";
 /** Open pull requests listed per repository, and how long GitHub's answer is reused. */
 const OPEN_PULLS_LIMIT = 50;
 const PULLS_CACHE_MS = 30_000;
+/** Branches listed for the branch picker; the rest can still be typed. */
+const BRANCHES_LIMIT = 300;
+const BRANCHES_CACHE_MS = 60_000;
 /** A second re-run of the same pull request within this window is refused, so a double click runs one review. */
 const RERUN_GUARD_MS = 30_000;
 
@@ -31,7 +35,7 @@ const RepositoryIdSchema = z.string().uuid();
 
 export interface PullRequestsRouterDeps {
   stores: Pick<Stores, "repositories" | "repositoryConfig" | "reviews">;
-  github: Pick<GitHubClient, "getPullRequest" | "listOpenPullRequests" | "listPullRequestFiles" | "getFileContent">;
+  github: Pick<GitHubClient, "getPullRequest" | "listOpenPullRequests" | "listBranches" | "listPullRequestFiles" | "getFileContent">;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
@@ -56,6 +60,7 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
   const { stores, github, logger, now = () => new Date() } = deps;
   const router = Router();
   const pullsCache = new Map<string, { at: number; pulls: PullRequestInfo[] }>();
+  const branchesCache = new Map<string, { at: number; body: BranchListResponse }>();
 
   const loadRepository = async (organizationId: string, repositoryId: unknown) => {
     const id = RepositoryIdSchema.safeParse(repositoryId);
@@ -102,6 +107,26 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     });
     const body: PullRequestListResponse = { items };
     res.json(body);
+  });
+
+  router.get("/repositories/:repositoryId/branches", requireOrganization, async (req: Request<{ repositoryId: string }>, res: GatewayResponse) => {
+    const repository = await loadRepository(res.locals.principal!.organizationId!, req.params.repositoryId);
+
+    let cached = branchesCache.get(repository.repositoryId);
+    if (!cached || now().getTime() - cached.at > BRANCHES_CACHE_MS) {
+      let names: string[];
+      try {
+        // One past the limit tells whether GitHub had more.
+        names = await github.listBranches(repositoryRef(repository), BRANCHES_LIMIT + 1);
+      } catch (error) {
+        logger.warn("listing branches failed", { requestId: res.locals.requestId, repositoryId: repository.repositoryId, error });
+        throw githubUnavailable();
+      }
+      const items = names.slice(0, BRANCHES_LIMIT).sort((a, b) => a.localeCompare(b));
+      cached = { at: now().getTime(), body: { items, truncated: names.length > BRANCHES_LIMIT } };
+      branchesCache.set(repository.repositoryId, cached);
+    }
+    res.json(cached.body);
   });
 
   router.post("/reviews", requireOrganization, async (req: Request, res: GatewayResponse) => {
