@@ -67,10 +67,24 @@ export function groupByFile(findings: Finding[]): { path: string; findings: Find
   return [...groups].map(([path, items]) => ({ path, findings: items }));
 }
 
-/** Fixes "Apply all fixes" would commit: undecided, recorded, and posted (at or above the threshold). */
-export function openFixes(findings: Finding[], threshold: number): { total: number; ai: number } {
-  const open = findings.filter((f) => f.id && f.suggestion?.state === "proposed" && f.confidence >= threshold - 1e-9);
-  return { total: open.length, ai: open.filter((f) => f.suggestion?.kind === "ai_suggested").length };
+/** The gateway's order for fixes on the same lines (`FIX_PRIORITY` in `review-output.ts`). */
+const FIX_PRIORITY: Finding["agent"][] = ["security", "logic", "performance", "style", "documentation"];
+
+/**
+ * Fixes "Apply all fixes" would commit: undecided, recorded and posted (at or above the threshold), and
+ * not overlapping a higher-priority fix, which the gateway would leave out (`overlapping`).
+ */
+export function openFixes(findings: Finding[], threshold: number): { total: number; ai: number; overlapping: number } {
+  const open = findings
+    .filter((f) => f.id && f.suggestion?.state === "proposed" && f.confidence >= threshold - 1e-9)
+    .sort((a, b) => FIX_PRIORITY.indexOf(a.agent) - FIX_PRIORITY.indexOf(b.agent));
+  const chosen: Finding[] = [];
+  for (const fix of open) {
+    const { filePath, lineStart, lineEnd } = fix.location;
+    const clash = chosen.some((c) => c.location.filePath === filePath && c.location.lineStart <= lineEnd && lineStart <= c.location.lineEnd);
+    if (!clash) chosen.push(fix);
+  }
+  return { total: chosen.length, ai: chosen.filter((f) => f.suggestion?.kind === "ai_suggested").length, overlapping: open.length - chosen.length };
 }
 
 export const postedCount =(confidences: number[], threshold: number) => confidences.filter((c) => c >= threshold - 1e-9).length;

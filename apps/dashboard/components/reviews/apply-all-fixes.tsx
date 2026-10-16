@@ -14,7 +14,7 @@ import { Loader } from "@/components/ui/loader";
  * "Apply all fixes (N)": every open fix of the review, Style's exact ones and the AI ones, in one
  * commit. A dialog says how many are AI-suggested first; the gateway then asks for an authenticator code.
  */
-export function ApplyAllFixes({ reviewId, total, ai }: { reviewId: string; total: number; ai: number }) {
+export function ApplyAllFixes({ reviewId, total, ai, overlapping }: { reviewId: string; total: number; ai: number; overlapping: number }) {
   const router = useRouter();
   const withStepUp = useStepUp();
   const [open, setOpen] = useState(false);
@@ -54,6 +54,9 @@ export function ApplyAllFixes({ reviewId, total, ai }: { reviewId: string; total
               {ai > 0
                 ? `${ai} of them ${ai === 1 ? "is" : "are"} AI-suggested: read ${ai === 1 ? "it" : "them"} in the findings below before committing. `
                 : "All of them are exact formatter fixes. "}
+              {overlapping > 0
+                ? `${overlapping} other fix${overlapping === 1 ? "" : "es"} on the same lines ${overlapping === 1 ? "is" : "are"} left out; commit ${overlapping === 1 ? "it" : "them"} one by one if you prefer. `
+                : ""}
               The commit goes onto the pull request branch, and the pull request is reviewed again.
             </DialogDescription>
           </div>

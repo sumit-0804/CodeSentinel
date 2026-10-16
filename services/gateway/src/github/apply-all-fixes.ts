@@ -25,6 +25,17 @@ export type CommitAllResult =
 
 const overlaps = (a: SuggestionRecord, b: SuggestionRecord) => a.filePath === b.filePath && a.lineStart <= b.lineEnd && b.lineStart <= a.lineEnd;
 
+/** Where fixes overlap, the one higher in `FIX_PRIORITY` is kept: the fixes one commit can carry, and the rest. */
+export function pickFixes(fixes: SuggestionRecord[]): { chosen: SuggestionRecord[]; overlapping: SuggestionRecord[] } {
+  const chosen: SuggestionRecord[] = [];
+  const overlapping: SuggestionRecord[] = [];
+  for (const fix of [...fixes].sort((a, b) => FIX_PRIORITY.indexOf(a.agent) - FIX_PRIORITY.indexOf(b.agent))) {
+    if (chosen.some((other) => overlaps(other, fix))) overlapping.push(fix);
+    else chosen.push(fix);
+  }
+  return { chosen, overlapping };
+}
+
 /**
  * Commits every given fix in **one** commit onto the pull request's branch, with the same checks as one
  * fix (`commitSuggestion`): open, not a fork, still the reviewed head. Where fixes overlap, the one
@@ -44,13 +55,8 @@ export async function commitAllFixes(
     return { ok: false, code: "head_moved", message: "The pull request has newer commits than the reviewed one; re-run the review" };
   }
 
-  const ranked = [...input.fixes].sort((a, b) => FIX_PRIORITY.indexOf(a.agent) - FIX_PRIORITY.indexOf(b.agent));
-  const chosen: SuggestionRecord[] = [];
-  const skipped: SkippedFix[] = [];
-  for (const fix of ranked) {
-    if (chosen.some((other) => overlaps(other, fix))) skipped.push({ suggestion: fix, reason: "overlaps_another_fix" });
-    else chosen.push(fix);
-  }
+  const { chosen, overlapping } = pickFixes(input.fixes);
+  const skipped: SkippedFix[] = overlapping.map((suggestion) => ({ suggestion, reason: "overlaps_another_fix" }));
 
   const files: { path: string; text: string }[] = [];
   const applied: SuggestionRecord[] = [];

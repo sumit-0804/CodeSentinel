@@ -4,7 +4,7 @@ import type { Logger } from "@code-sentinel/service-kit";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
 import type { ReviewStore, SuggestionStore } from "../persistence/stores.js";
-import { findingFixKey, openFixes, suggestionFixKey } from "./apply-all-fixes.js";
+import { findingFixKey, openFixes, pickFixes, suggestionFixKey } from "./apply-all-fixes.js";
 import { matchPostedComments } from "./apply-suggestion.js";
 import { githubStatus, type CheckConclusion, type CheckRunAction, type GitHubClient, type PullRequestRef, type ReviewComment } from "./github-client.js";
 import { CHECK_NAME, checkRunConclusion, checkRunOutput, droppedComments, isTerminal, nothingToReviewOutput, postedFixes, reviewComments } from "./review-output.js";
@@ -188,7 +188,8 @@ export class ReviewPublisher {
   private async applyAllAction(job: ReviewJob, threshold: number, headSha: string, log: Logger): Promise<CheckRunAction[]> {
     if (!this.suggestions || job.status === "cancelled") return [];
     try {
-      const fixes = openFixes(job.report, threshold, headSha, await this.suggestions.forReview(job.reviewId));
+      // Counted as one commit can carry them: a fix overlapping a higher-priority one is left out.
+      const fixes = pickFixes(openFixes(job.report, threshold, headSha, await this.suggestions.forReview(job.reviewId))).chosen;
       if (fixes.length === 0) return [];
       const ai = fixes.filter((fix) => fix.kind === "ai_suggested").length;
       const description = `${fixes.length} fix${fixes.length === 1 ? "" : "es"}${ai ? ` (${ai} AI)` : ""} in one commit`;

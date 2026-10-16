@@ -75,10 +75,18 @@ describe("groupByFile / postedCount / timeAgo", () => {
     const fixed = (state: "proposed" | "accepted", kind: "deterministic" | "ai_suggested", confidence = 0.9, id: string | undefined = "f") =>
       ({ ...finding("a.py", "x"), ...(id ? { id } : {}), confidence, suggestion: { kind, state, originalSnippet: "a", suggestedSnippet: "b" } }) as Finding;
 
-    expect(openFixes([fixed("proposed", "ai_suggested"), fixed("proposed", "deterministic"), fixed("accepted", "deterministic"), fixed("proposed", "deterministic", 0.5), fixed("proposed", "deterministic", 0.9, "")], 0.8)).toEqual({
-      total: 2,
-      ai: 1,
-    });
+    const at = (f: Finding, line: number, agent: Finding["agent"]) => ({ ...f, agent, location: { filePath: "a.py", lineStart: line, lineEnd: line } });
+    const findings = [
+      at(fixed("proposed", "deterministic"), 1, "style"),
+      at(fixed("proposed", "ai_suggested"), 1, "security"),
+      at(fixed("proposed", "ai_suggested"), 5, "logic"),
+      at(fixed("accepted", "deterministic"), 7, "style"),
+      at(fixed("proposed", "deterministic", 0.5), 8, "style"),
+      at(fixed("proposed", "deterministic", 0.9, ""), 9, "style"),
+    ];
+
+    // Style's fix on line 1 overlaps Security's, which goes first, so it's left out.
+    expect(openFixes(findings, 0.8)).toEqual({ total: 2, ai: 2, overlapping: 1 });
   });
 
   it("counts findings at or above the threshold", () => {
