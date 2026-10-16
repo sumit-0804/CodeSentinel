@@ -7,7 +7,6 @@ import type { ReviewDefaults } from "@code-sentinel/contracts";
 import { saveReviewDefaults } from "@/app/(app)/repositories/actions";
 import { useStepUp } from "@/components/auth/step-up";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
-import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
 import { UnsavedBar } from "@/components/config/unsaved-bar";
 import { defaultsDraftFrom, defaultsUpdateFrom, everyAgentOff, isEmptyUpdate, type DefaultsDraft } from "@/lib/config-draft";
@@ -24,7 +23,7 @@ function Section({ title, sub, children }: { title: string; sub?: string; childr
   );
 }
 
-/** Settings → Review defaults: the organization's agent modes, threshold and branches. */
+/** Settings → Review defaults: the organization's agent modes and threshold. */
 export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: { defaults: ReviewDefaults; organizationName: string; isAdmin: boolean }) {
   const [saved, setSaved] = useState(defaults);
   const [draft, setDraft] = useState<DefaultsDraft>(() => defaultsDraftFrom(defaults));
@@ -58,7 +57,7 @@ export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-[30px] pb-24">
       <p className="text-[15px] text-ink-2">
-        New repositories in <b className="text-ink">{organizationName}</b>, and every repository set to &ldquo;Use organization defaults&rdquo;, run with these settings.
+        New repositories in <b className="text-ink">{organizationName}</b>, and every repository set to &ldquo;Use organization defaults&rdquo;, run these agents. The threshold applies wherever a repository doesn&apos;t set its own.
       </p>
       {isAdmin ? null : (
         <p className="flex items-center gap-2 rounded-xl border border-line bg-panel px-4 py-3 text-sm text-ink-2">
@@ -76,9 +75,7 @@ export function ReviewDefaultsSettings({ defaults, organizationName, isAdmin }: 
       <Section title="Confidence threshold">
         <ThresholdField value={draft.threshold} locked={!isAdmin} onChange={(value) => value !== null && setDraft((current) => ({ ...current, threshold: value }))} />
       </Section>
-      <Section title="Branches to review">
-        <BranchPatterns patterns={draft.reviewBranches} locked={!isAdmin} onChange={(patterns) => setDraft((current) => ({ ...current, reviewBranches: patterns }))} />
-      </Section>
+      <p className="text-[13.5px] text-ink-3">Branches to review are set per repository, on its Advanced tab.</p>
       {dirty && isAdmin ? (
         <UnsavedBar pending={pending} {...(problem ? { problem } : {})} onDiscard={() => setDraft(defaultsDraftFrom(saved))} onSave={save} />
       ) : null}

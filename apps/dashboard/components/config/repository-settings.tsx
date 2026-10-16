@@ -72,9 +72,8 @@ export function RepositorySettings({
 
   const update = repositoryUpdateFrom(saved, draft);
   const dirty = !isEmptyUpdate(update);
-  const locked = !isAdmin || draft.useOrgDefaults;
+  const modesLocked = !isAdmin || draft.useOrgDefaults;
   const shownModes = draft.useOrgDefaults ? modesOf(defaults.agents) : draft.modes;
-  const shownBranches = draft.useOrgDefaults ? defaults.reviewBranches : draft.reviewBranches;
   const problem = !draft.useOrgDefaults && everyAgentOff(draft.modes) ? "Keep at least one agent on, or switch reviews off instead." : undefined;
   const [owner, name] = saved.fullName.split("/");
 
@@ -191,8 +190,8 @@ export function RepositorySettings({
                 <b className="font-bold">Use organization defaults</b>
                 <p className="text-sm text-ink-2">
                   {draft.useOrgDefaults
-                    ? "This repository follows Settings → Review defaults. Turn this off to choose agents here."
-                    : "This repository uses its own choices below."}
+                    ? "This repository runs the agents set in Settings → Review defaults. Turn this off to choose agents here."
+                    : "This repository uses its own agent choices below."}
                 </p>
               </div>
               <Switch
@@ -206,7 +205,7 @@ export function RepositorySettings({
             </div>
             <AgentModeRows
               modes={shownModes}
-              locked={locked}
+              locked={modesLocked}
               onChange={(agent, mode) => setDraft((current) => ({ ...current, modes: { ...current.modes, [agent]: mode } }))}
             />
           </Section>
@@ -239,15 +238,12 @@ export function RepositorySettings({
         </Tabs.Content>
 
         <Tabs.Content value="advanced" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
-          <Section
-            title="Branches to review"
-            aside={draft.useOrgDefaults ? <span className="text-[13px] text-ink-3">From organization defaults</span> : undefined}
-          >
+          <Section title="Branches to review">
             <BranchPatterns
-              patterns={shownBranches}
+              patterns={draft.reviewBranches}
               defaultBranch={saved.defaultBranch}
               {...(branches ? { branches } : {})}
-              locked={locked}
+              locked={!isAdmin}
               onChange={(patterns) => setDraft((current) => ({ ...current, reviewBranches: patterns }))}
             />
           </Section>

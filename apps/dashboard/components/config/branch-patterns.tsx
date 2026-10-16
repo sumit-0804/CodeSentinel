@@ -19,7 +19,7 @@ function BranchPicker({
   onPick,
 }: {
   branches: BranchListResponse;
-  defaultBranch?: string;
+  defaultBranch: string;
   taken: string[];
   /** The error's id while one is shown. */
   describedBy?: string;
@@ -28,8 +28,7 @@ function BranchPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const typed = query.trim();
-  const ordered =
-    defaultBranch && branches.items.includes(defaultBranch) ? [defaultBranch, ...branches.items.filter((b) => b !== defaultBranch)] : branches.items;
+  const ordered = branches.items.includes(defaultBranch) ? [defaultBranch, ...branches.items.filter((b) => b !== defaultBranch)] : branches.items;
   const choices = ordered.filter((branch) => !taken.includes(branch));
 
   const toggle = (next: boolean) => {
@@ -102,10 +101,7 @@ function BranchPicker({
   );
 }
 
-/**
- * Base branches a pull request must merge into to be reviewed. An empty list means the default
- * branch only; `locked` shows the list without editing (following the organization defaults).
- */
+/** Base branches a pull request must merge into to be reviewed; an empty list means the default branch only. */
 export function BranchPatterns({
   patterns,
   defaultBranch,
@@ -114,8 +110,7 @@ export function BranchPatterns({
   onChange,
 }: {
   patterns: string[];
-  /** Shown when the list is empty; undefined for the organization defaults (each repository's own). */
-  defaultBranch?: string;
+  defaultBranch: string;
   /** The repository's branches to pick from; without them a name is typed. */
   branches?: BranchListResponse;
   locked: boolean;
@@ -140,7 +135,7 @@ export function BranchPatterns({
     event.preventDefault();
     if (value.trim()) add(value.trim());
   };
-  const suggestions = [defaultBranch, "release/*", "**"].filter((s): s is string => !!s && !patterns.includes(s));
+  const suggestions = [defaultBranch, "release/*", "**"].filter((s) => !patterns.includes(s));
 
   return (
     <div className="grid gap-3.5 p-5">
@@ -148,13 +143,7 @@ export function BranchPatterns({
         {patterns.length === 0 ? (
           <li className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-dashed border-line-2 px-2.5 text-[13px] text-ink-2">
             <GitBranch className="size-3.5" aria-hidden="true" />
-            {defaultBranch ? (
-              <>
-                Default branch only (<code className="font-mono text-xs">{defaultBranch}</code>)
-              </>
-            ) : (
-              "Each repository's default branch"
-            )}
+            Default branch only (<code className="font-mono text-xs">{defaultBranch}</code>)
           </li>
         ) : null}
         {patterns.map((pattern) => (
@@ -177,7 +166,7 @@ export function BranchPatterns({
       {locked ? null : (
         <>
           {branches ? (
-            <BranchPicker branches={branches} taken={patterns} onPick={add} {...(defaultBranch ? { defaultBranch } : {})} {...(error ? { describedBy: errorId } : {})} />
+            <BranchPicker branches={branches} defaultBranch={defaultBranch} taken={patterns} onPick={add} {...(error ? { describedBy: errorId } : {})} />
           ) : (
             <form onSubmit={submit} className="flex flex-wrap items-start gap-2.5">
               <label htmlFor={inputId} className="sr-only">

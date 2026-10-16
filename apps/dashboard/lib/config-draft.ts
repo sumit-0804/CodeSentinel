@@ -15,7 +15,7 @@ export type AgentModes = Record<AgentKind, AgentMode>;
 const AGENT_KINDS = AgentKindSchema.options;
 const MAX_BRANCHES = 20;
 
-/** What the repository page edits before Save. `modes` and `reviewBranches` are its own, used when it doesn't follow the defaults. */
+/** What the repository page edits before Save. `modes` apply when it doesn't follow the defaults; `reviewBranches` always do. */
 export type RepositoryDraft = {
   useOrgDefaults: boolean;
   modes: AgentModes;
@@ -24,7 +24,7 @@ export type RepositoryDraft = {
   thresholdOverride: number | null;
 };
 
-export type DefaultsDraft = { modes: AgentModes; reviewBranches: string[]; threshold: number };
+export type DefaultsDraft = { modes: AgentModes; threshold: number };
 
 export function modesOf(agents: AgentSetting[]): AgentModes {
   return Object.fromEntries(agents.map(({ agent, mode }) => [agent, mode])) as AgentModes;
@@ -41,14 +41,14 @@ export function repositoryDraftFrom(config: RepositoryConfig): RepositoryDraft {
 
 /** Leaving the defaults starts from them, so nothing changes until the user picks something else. */
 export function stopFollowingDefaults(draft: RepositoryDraft, defaults: ReviewDefaults): RepositoryDraft {
-  return { ...draft, useOrgDefaults: false, modes: modesOf(defaults.agents), reviewBranches: [...defaults.reviewBranches] };
+  return { ...draft, useOrgDefaults: false, modes: modesOf(defaults.agents) };
 }
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((item, i) => item === b[i]);
 
 /**
- * Only what changed. Leaving the defaults sends every agent's mode and the branches, because the
- * API has no rows of the repository's own to fall back to.
+ * Only what changed. Leaving the defaults sends every agent's mode, because the API has no rows of
+ * the repository's own to fall back to. Branches are the repository's own either way.
  */
 export function repositoryUpdateFrom(saved: RepositoryConfig, draft: RepositoryDraft): RepositoryConfigUpdate {
   const update: RepositoryConfigUpdate = {};
@@ -58,14 +58,14 @@ export function repositoryUpdateFrom(saved: RepositoryConfig, draft: RepositoryD
     const before = modesOf(saved.agents);
     const agents = AGENT_KINDS.filter((agent) => switched || draft.modes[agent] !== before[agent]).map((agent) => ({ agent, mode: draft.modes[agent] }));
     if (agents.length > 0) update.agents = agents;
-    if (switched || !sameList(draft.reviewBranches, saved.reviewBranches)) update.reviewBranches = draft.reviewBranches;
   }
+  if (!sameList(draft.reviewBranches, saved.reviewBranches)) update.reviewBranches = draft.reviewBranches;
   if (draft.thresholdOverride !== (saved.confidenceThresholdOverride ?? null)) update.confidenceThresholdOverride = draft.thresholdOverride;
   return update;
 }
 
 export function defaultsDraftFrom(defaults: ReviewDefaults): DefaultsDraft {
-  return { modes: modesOf(defaults.agents), reviewBranches: [...defaults.reviewBranches], threshold: defaults.confidenceThreshold };
+  return { modes: modesOf(defaults.agents), threshold: defaults.confidenceThreshold };
 }
 
 export function defaultsUpdateFrom(saved: ReviewDefaults, draft: DefaultsDraft): ReviewDefaultsUpdate {
@@ -73,7 +73,6 @@ export function defaultsUpdateFrom(saved: ReviewDefaults, draft: DefaultsDraft):
   const before = modesOf(saved.agents);
   const agents = AGENT_KINDS.filter((agent) => draft.modes[agent] !== before[agent]).map((agent) => ({ agent, mode: draft.modes[agent] }));
   if (agents.length > 0) update.agents = agents;
-  if (!sameList(draft.reviewBranches, saved.reviewBranches)) update.reviewBranches = draft.reviewBranches;
   if (draft.threshold !== saved.confidenceThreshold) update.confidenceThreshold = draft.threshold;
   return update;
 }

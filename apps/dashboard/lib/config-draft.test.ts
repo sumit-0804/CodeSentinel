@@ -36,7 +36,6 @@ const defaults: ReviewDefaults = {
   organizationId: "6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c",
   agents: PLATFORM.map((a) => ({ ...a })),
   confidenceThreshold: 0.8,
-  reviewBranches: ["main", "release/*"],
 };
 
 describe("repositoryUpdateFrom", () => {
@@ -44,14 +43,20 @@ describe("repositoryUpdateFrom", () => {
     expect(repositoryUpdateFrom(saved, repositoryDraftFrom(saved))).toEqual({});
   });
 
-  it("sends every mode and the branches when the repository stops following the defaults", () => {
+  it("sends every mode, but leaves the branches alone, when the repository stops following the defaults", () => {
     const draft = stopFollowingDefaults(repositoryDraftFrom(saved), defaults);
 
     const update = repositoryUpdateFrom(saved, draft);
 
     expect(update.useOrgDefaults).toBe(false);
     expect(update.agents).toHaveLength(5);
-    expect(update.reviewBranches).toEqual(["main", "release/*"]);
+    expect(update).not.toHaveProperty("reviewBranches");
+  });
+
+  it("sends changed branches even while following the defaults", () => {
+    const draft = { ...repositoryDraftFrom(saved), reviewBranches: ["main", "release/*"] };
+
+    expect(repositoryUpdateFrom(saved, draft)).toEqual({ reviewBranches: ["main", "release/*"] });
   });
 
   it("sends only the changed agent once the repository has its own modes", () => {
@@ -79,16 +84,14 @@ describe("repositoryUpdateFrom", () => {
 });
 
 describe("defaultsUpdateFrom", () => {
-  it("sends the changed modes, branches and threshold only", () => {
+  it("sends the changed modes and threshold only", () => {
     const draft = defaultsDraftFrom(defaults);
     expect(defaultsUpdateFrom(defaults, draft)).toEqual({});
 
     draft.modes.security = "comment";
-    draft.reviewBranches = ["main"];
     draft.threshold = 0.7;
     expect(defaultsUpdateFrom(defaults, draft)).toEqual({
       agents: [{ agent: "security", mode: "comment" }],
-      reviewBranches: ["main"],
       confidenceThreshold: 0.7,
     });
   });
