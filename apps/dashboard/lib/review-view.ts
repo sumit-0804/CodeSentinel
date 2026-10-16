@@ -31,6 +31,25 @@ export function verdictSentence(verdict: Verdict, summary: ReviewSummary): strin
   }
 }
 
+const ATTENTION: Verdict[] = ["blocked", "running", "partial", "failed"];
+const WEEK_MS = 7 * 24 * 60 * 60_000;
+
+/** The Overview's numbers and headline, from each pull request's newest review. */
+export function overviewOf(reviews: ReviewListItem[], now: Date = new Date()) {
+  const verdicts = reviews.map((review) => verdictOf(review));
+  const blocked = verdicts.filter((v) => v === "blocked").length;
+  const running = verdicts.filter((v) => v === "running").length;
+  const attention = reviews.filter((_, i) => ATTENTION.includes(verdicts[i]!));
+  const thisWeek = reviews.filter((review) => now.getTime() - new Date(review.createdAt).getTime() < WEEK_MS).length;
+
+  const pulls = (n: number) => (n === 1 ? "One pull request is" : `${n} pull requests are`);
+  let headline = "Nothing is blocked right now.";
+  if (blocked && running) headline = `${pulls(blocked)} blocked and ${running === 1 ? "one is" : `${running} are`} being reviewed right now.`;
+  else if (blocked) headline = `${pulls(blocked)} blocked.`;
+  else if (running) headline = `${pulls(running)} being reviewed right now.`;
+  return { blocked, running, thisWeek, attention, headline };
+}
+
 const LANE: Record<AgentResult, LaneState> = { critical: "c", warning: "w", info: "i", clean: "ok", not_run: "off", running: "run" };
 
 /** The five verdict lanes, in agent order; all "not run" when the API sent none. */

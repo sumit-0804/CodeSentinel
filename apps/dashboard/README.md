@@ -41,7 +41,7 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/auth/callback` | OAuth sign-in and identity linking: exchanges the PKCE code |
 | `/auth/confirm` | Email links (`token_hash` + `type`): sign-up, recovery, invite, email change. Works in any browser |
 | `/auth/error` | Names what failed and offers one next action |
-| `/overview` | First-run checklist; step 2 is done once the organization has a repository |
+| `/overview` | First-run checklist until the first review (step 2 is done once the organization has a repository); after that a headline (what's blocked or being reviewed), counts, **Needs your attention** (blocked, running, partial or failed) and the 5 most recent reviews, refreshing while one runs |
 | `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`). Each name opens its repository page |
 | `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: branches to review, picked from the repository's GitHub branches (`/v1/repositories/{id}/branches`) or typed as a pattern, and Manage on GitHub; **Pull requests**: the repository's **open** pull requests from GitHub (`/v1/repositories/{id}/pulls`), each with its newest verdict and **Review now** / **Re-run**, or "Base branch not reviewed". The threshold shows how many findings of the last review it would post, live as the slider moves |
 | `/onboarding/github/install` | Sets a random `state` cookie and sends you to install the App on GitHub |
