@@ -10,13 +10,24 @@ describe("loadOrchestratorConfig", () => {
       jobRetentionMs: 3_600_000,
       llmAgentTimeoutMs: 45_000,
       groqAccounts: { security: "default", performance: "default", logic: "default", documentation: "default" },
+      context: { maxFindings: 20, timeoutMs: 5000, minSimilarity: 0.8 },
     });
   });
 
   it("reads explicit values", () => {
-    expect(loadOrchestratorConfig({ SERVICE_TOKEN: "token", PORT: "9090", JOB_RETENTION_MS: "60000" })).toMatchObject({
+    expect(
+      loadOrchestratorConfig({
+        SERVICE_TOKEN: "token",
+        PORT: "9090",
+        JOB_RETENTION_MS: "60000",
+        CONTEXT_MAX_FINDINGS: "5",
+        CONTEXT_TIMEOUT_MS: "2000",
+        CONTEXT_MIN_SIMILARITY: "0.75",
+      }),
+    ).toMatchObject({
       port: 9090,
       jobRetentionMs: 60_000,
+      context: { maxFindings: 5, timeoutMs: 2000, minSimilarity: 0.75 },
     });
   });
 

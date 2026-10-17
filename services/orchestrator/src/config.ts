@@ -13,6 +13,8 @@ export interface OrchestratorConfig {
   databaseUrl?: string;
   /** Which Groq account (organization) each LLM agent calls with; agents on one account share its quota. */
   groqAccounts: Partial<Record<AgentKind, string>>;
+  /** Similar past issues (vector context): findings looked up per review, the time limit and the match score. */
+  context: { maxFindings: number; timeoutMs: number; minSimilarity: number };
 }
 
 /** Thrown by `loadOrchestratorConfig` with every invalid variable listed at once. */
@@ -59,6 +61,12 @@ const EnvSchema = z.object({
   GROQ_ACCOUNT_PERFORMANCE: account,
   GROQ_ACCOUNT_LOGIC: account,
   GROQ_ACCOUNT_DOCUMENTATION: account,
+  CONTEXT_MAX_FINDINGS: integer(1, 100, 20),
+  CONTEXT_TIMEOUT_MS: integer(500, 30_000, 5000),
+  CONTEXT_MIN_SIMILARITY: z.preprocess(
+    blankAsUndefined,
+    z.coerce.number({ invalid_type_error: "must be a number" }).gt(0, "must be in (0, 1]").max(1, "must be in (0, 1]").default(0.8),
+  ),
   NODE_ENV: z.string().optional(),
 }).refine((values) => values.NODE_ENV !== "production" || values.DATABASE_URL !== undefined, {
   // In memory, a restart loses every review a deployed gateway is still waiting on.
@@ -93,6 +101,11 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
       performance: values.GROQ_ACCOUNT_PERFORMANCE,
       logic: values.GROQ_ACCOUNT_LOGIC,
       documentation: values.GROQ_ACCOUNT_DOCUMENTATION,
+    },
+    context: {
+      maxFindings: values.CONTEXT_MAX_FINDINGS,
+      timeoutMs: values.CONTEXT_TIMEOUT_MS,
+      minSimilarity: values.CONTEXT_MIN_SIMILARITY,
     },
     ...(values.DATABASE_URL !== undefined ? { databaseUrl: values.DATABASE_URL } : {}),
   };

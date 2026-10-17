@@ -1,14 +1,18 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import type { ReviewJob, ReviewJobRequest } from "@code-sentinel/contracts";
 import { createPrismaClient, type PrismaClient } from "@code-sentinel/db";
-import { LlmConfigError, loadLlmLimits, type LlmLimits } from "@code-sentinel/llm";
-import { createJsonLogger, loadEnvFile } from "@code-sentinel/service-kit";
+import { GeminiEmbedder, LlmConfigError, loadLlmLimits, QuotaBudget, type LlmLimits } from "@code-sentinel/llm";
+import { createJsonLogger, loadEnvFile, type Logger } from "@code-sentinel/service-kit";
 
 import { createAgentClients, loadAgentConfig, type AgentConfig } from "./agents/agent-config.js";
 import { createApp, DEFAULT_VERSION } from "./app.js";
 import { createLlmRouting } from "./budget/llm-routing.js";
 import { loadOrchestratorConfig, OrchestratorConfigError, type OrchestratorConfig } from "./config.js";
+import { PgVectorRepository } from "./context/pgvector-repository.js";
+import { SimilarIssueLookup } from "./context/similar-issue-lookup.js";
+import { DEFAULT_CONFIDENCE_THRESHOLD } from "./graph/defaults.js";
 import { buildReviewGraph } from "./graph/review-graph.js";
 import { InMemoryJobStore, type JobStore } from "./jobs/job-store.js";
 import { PrismaJobStore } from "./jobs/prisma-job-store.js";
@@ -21,6 +25,38 @@ function packageVersion(): string {
   } catch {
     return DEFAULT_VERSION;
   }
+}
+
+/** pgvector + Gemini embeddings, on their own quota budget; undefined when embeddings aren't configured. */
+function createSimilarIssueLookup(
+  prisma: PrismaClient,
+  limits: LlmLimits,
+  config: OrchestratorConfig,
+): SimilarIssueLookup | undefined {
+  if (!limits.embedding) return undefined;
+  const embedder = new GeminiEmbedder({
+    apiKey: limits.embedding.apiKey,
+    model: limits.embedding.model,
+    budget: new QuotaBudget(limits.embedding.limits, { headroom: limits.headroom }),
+  });
+  const vectors = new PgVectorRepository(prisma, {
+    embedder,
+    embeddingModel: limits.embedding.model,
+    minSimilarity: config.context.minSimilarity,
+  });
+  return new SimilarIssueLookup(vectors, { maxFindings: config.context.maxFindings, timeoutMs: config.context.timeoutMs });
+}
+
+/** Stores the finished review's vectors once its `findings` rows exist, so later reviews can find them. */
+function indexFindings(lookup: SimilarIssueLookup, logger: Logger) {
+  return async (job: ReviewJob, request: ReviewJobRequest): Promise<void> => {
+    if (!job.report || !request.includeSimilarPastIssues) return;
+    const failed = await lookup.index(job.report.findings, {
+      organizationId: request.organizationId,
+      confidenceThreshold: job.report.confidenceThreshold ?? request.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
+    });
+    if (failed > 0) logger.warn("some findings were not indexed for similar-issue search", { reviewId: job.reviewId, failed });
+  };
 }
 
 async function main(): Promise<void> {
@@ -48,7 +84,6 @@ async function main(): Promise<void> {
   // One Gemini budget and one Groq budget per Groq account, shared by every review.
   const llmRouting = createLlmRouting(llmLimits, config.llmAgentTimeoutMs, config.groqAccounts);
   if (!llmRouting) logger.warn("no LLM provider configured; LLM agents run their rule-based checks only");
-  const { run } = buildReviewGraph({ clients, ...(llmRouting ? { llmRouting } : {}) });
 
   let prisma: PrismaClient | undefined;
   let store: JobStore;
@@ -72,7 +107,20 @@ async function main(): Promise<void> {
     store = new InMemoryJobStore({ retentionMs: config.jobRetentionMs });
   }
 
-  const controller = new ReviewJobController({ run, logger, store });
+  const similarIssueLookup = prisma ? createSimilarIssueLookup(prisma, llmLimits, config) : undefined;
+  if (!similarIssueLookup) logger.warn("vector context off: needs DATABASE_URL, GEMINI_API_KEY and GEMINI_EMBED_RPM/TPM/RPD");
+  const { run } = buildReviewGraph({
+    clients,
+    ...(llmRouting ? { llmRouting } : {}),
+    ...(similarIssueLookup ? { similarIssueLookup } : {}),
+  });
+
+  const controller = new ReviewJobController({
+    run,
+    logger,
+    store,
+    ...(similarIssueLookup ? { afterComplete: indexFindings(similarIssueLookup, logger) } : {}),
+  });
   const database = prisma;
   const app = createApp({
     serviceToken: config.serviceToken,
@@ -89,6 +137,7 @@ async function main(): Promise<void> {
       stores: prisma ? "postgres" : "memory",
       agents: Object.keys(clients),
       llmProviders: Object.keys(llmRouting?.budgets ?? {}),
+      vectorContext: similarIssueLookup !== undefined,
       nodeEnv: env.NODE_ENV,
       envFile: file,
     });

@@ -8,6 +8,7 @@ classDiagram
         +getJob(jobId) ReviewJob
         +cancelJob(jobId) ReviewJob
         -resolveIdempotency(key) ReviewJob
+        -afterComplete(ReviewJob) void
     }
 
     class ReviewGraph {
@@ -67,8 +68,21 @@ classDiagram
     }
 
     class SimilarIssueLookup {
-        +findSimilar(Finding, orgId) SimilarPastIssue[]
-        +index(Finding) void
+        +attach(Finding[], LookupScope) Finding[]
+        +index(Finding[], orgId) number
+        -candidates(Finding[], threshold) Finding[]
+    }
+
+    class VectorRepository {
+        <<interface>>
+        +querySimilar(Finding, SimilarityScope) SimilarPastIssue[]
+        +index(Finding, orgId) void
+    }
+
+    class PgVectorRepository {
+        <<persistence>>
+        -embedder : GeminiEmbedder
+        -minSimilarity : number
     }
 
     class JobStore {
@@ -87,6 +101,7 @@ classDiagram
     }
 
     JobStore <|.. PrismaJobStore
+    VectorRepository <|.. PgVectorRepository
 
     ReviewJobController --> ReviewGraph : invokes
     ReviewJobController --> JobStore : persists jobs through
@@ -100,8 +115,11 @@ classDiagram
     AggregateNode --> FindingAggregator
     AggregateNode --> SeverityRanker
     ContextNode --> SimilarIssueLookup
+    SimilarIssueLookup --> VectorRepository
+    ReviewJobController ..> SimilarIssueLookup : indexes findings after storing
 
     note for FanOutNode "Uses allSettled semantics: a rejected or<br/>timed-out agent yields status timed_out<br/>rather than failing the graph (FR-ORC-02, NFR-04)."
     note for FindingAggregator "dedupeKey = hash(filePath, lineStart, lineEnd, ruleId)<br/>collapses the same issue reported by two agents (FR-ORC-03)."
     note for PrismaJobStore "A reviews row per job; on finish one transaction writes<br/>report JSON + agent_runs, findings, suggestions,<br/>guarded by status in (queued, running).<br/>InMemoryJobStore implements JobStore without DATABASE_URL."
+    note for PgVectorRepository "pgvector in Supabase: exact cosine search over<br/>one organization's finding_embeddings, skipping the<br/>same pull request; best match per PR, score >= 0.8."
     note for ThresholdNode "Only findings at or above the repository threshold<br/>get a committable suggestion (FR-ORC-06)."

@@ -6,7 +6,7 @@ import { HttpError, noopLogger } from "@code-sentinel/service-kit";
 import { captureLogger } from "@code-sentinel/service-kit/testing";
 import type { ReviewRunOptions } from "../graph/review-graph.js";
 import { InMemoryJobStore } from "./job-store.js";
-import { ReviewJobController, type RunReview } from "./review-job-controller.js";
+import { ReviewJobController, type ReviewJobControllerDeps, type RunReview } from "./review-job-controller.js";
 
 const NOW = new Date("2026-09-27T10:00:00.000Z");
 
@@ -25,11 +25,12 @@ function deferredRun() {
   return { run, resolve: (r: CombinedReport) => resolve(r), reject: (e: unknown) => reject(e), signal: () => options?.signal };
 }
 
-function controllerWith(run: RunReview, logger = noopLogger) {
+function controllerWith(run: RunReview, logger = noopLogger, afterComplete?: ReviewJobControllerDeps["afterComplete"]) {
   let ids = 0;
   return new ReviewJobController({
     run,
     logger,
+    ...(afterComplete ? { afterComplete } : {}),
     store: new InMemoryJobStore({ retentionMs: 3_600_000, now: () => NOW }),
     now: () => NOW,
     newId: () => `00000000-0000-4000-8000-00000000000${++ids}`,
@@ -153,6 +154,38 @@ describe("ReviewJobController", () => {
 
     expect((await controller.cancelJob(job.jobId))?.status).toBe("completed");
     await expect(controller.cancelJob("unknown")).resolves.toBeUndefined();
+  });
+
+  it("runs afterComplete once the finished job is stored, and logs when it fails", async () => {
+    const { logger, lines } = captureLogger();
+    const afterComplete = vi.fn(async () => {
+      throw new Error("embedding quota is full");
+    });
+    const { run, resolve } = deferredRun();
+    const controller = controllerWith(run, logger, afterComplete);
+    const { job } = await controller.createJob(request());
+    await settle();
+
+    resolve({ ...exampleCombinedReport, status: "completed" });
+    await settle();
+    await settle();
+
+    expect(afterComplete).toHaveBeenCalledWith(expect.objectContaining({ jobId: job.jobId, status: "completed" }), request());
+    expect(lines.find((line) => line.message === "after-review step failed")?.error).toMatchObject({ message: "embedding quota is full" });
+  });
+
+  it("skips afterComplete when a cancel won", async () => {
+    const afterComplete = vi.fn(async () => undefined);
+    const { run, resolve } = deferredRun();
+    const controller = controllerWith(run, noopLogger, afterComplete);
+    const { job } = await controller.createJob(request());
+    await settle();
+
+    await controller.cancelJob(job.jobId);
+    resolve({ ...exampleCombinedReport, status: "completed" });
+    await settle();
+
+    expect(afterComplete).not.toHaveBeenCalled();
   });
 
   it("warns that callbackUrl is not supported yet", async () => {

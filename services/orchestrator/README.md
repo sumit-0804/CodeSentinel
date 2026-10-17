@@ -32,9 +32,9 @@ there.
 | Review status from runs | `aggregation/index.ts` → `deriveStatus()` | working |
 | Skipped-file merge | `aggregation/skipped-files.ts` → `mergeSkippedFiles()` | working |
 | Aggregate step | `aggregation/index.ts` → `aggregate()` | working |
-| `ContextNode` (FR-ORC-05) | `graph/context-node.ts`, `context/similar-issue-lookup.ts` | wired, thin: no-op until a `VectorRepository` is supplied |
+| `ContextNode` (FR-ORC-05) | `graph/context-node.ts`, `context/similar-issue-lookup.ts` | working: finding ids, similar past issues when vector context is on |
 | `ThresholdNode` (FR-ORC-06) | `graph/threshold-node.ts` | wired, thin: records `confidenceThreshold` on the report only |
-| Vector store (FR-VDB-01/02) | `context/vector-repository.ts` | interface + an unwired placeholder; pgvector implementation planned |
+| Vector store (FR-VDB-01/02) | `context/pgvector-repository.ts` (`VectorRepository` in `context/vector-repository.ts`) | working: pgvector in Supabase, Gemini embeddings |
 | LLM batch planning (`planLlmReview`) | `budget/plan.ts` | working |
 | Groq → Gemini quota routing (one `QuotaBudget` for Gemini, one per Groq account) | `budget/llm-routing.ts` | working |
 | Review coverage | `aggregation/coverage.ts` → `buildCoverage()` | working |
@@ -116,7 +116,7 @@ the `CombinedReport`.
 | --- | --- | --- |
 | `fanOut` | `reviewId`, `files`, `enabledAgents`, `confidenceThreshold`, `agentTimeoutMs`, `requestId` | appends `rawFindings`, `agentRuns`, `agentSkippedFiles` |
 | `aggregate` | `rawFindings`, `agentRuns`, `files`, `gatewaySkippedFiles`, `agentSkippedFiles` | `report` (deduped, clubbed across agents, ranked, status, `skippedFiles`, `coverage`) |
-| `context` | `report`, `organizationId`, `includeSimilarPastIssues` | `report.findings[].similarPastIssues` |
+| `context` | `report`, `reviewId`, `organizationId`, `confidenceThreshold`, `includeSimilarPastIssues` | `report.findings[].id`, `report.findings[].similarPastIssues` |
 | `threshold` | `report`, `confidenceThreshold` | `report.confidenceThreshold` |
 
 `fanOut` calls every enabled agent at once; a failing agent never fails the review. Each call gets
@@ -133,6 +133,24 @@ overlapping lines, with the same `issueKey` (CWE family, else CWE, else rule id;
 explanation and fix of one finding (one with a fix if any has one, else the most confident); the others are
 listed in `alsoReportedBy`, and `duplicateCount` says how many were merged. Findings without a
 shared CWE stay separate here; the gateway still posts overlapping ones as one comment.
+
+`context` gives every finding its `id`; `PrismaJobStore` writes the `findings` row with the same id.
+With **vector context** on (`DATABASE_URL`, `GEMINI_API_KEY` and `GEMINI_EMBED_RPM/TPM/RPD` set; the
+startup log says `vectorContext: true`), it then looks up similar past issues
+(`SimilarIssueLookup` → `PgVectorRepository`):
+
+- Only findings at or above the threshold, the first `CONTEXT_MAX_FINDINGS` in ranked order. Each costs
+  one Gemini embedding on its own quota budget, so a full budget skips the lookup instead of waiting.
+- The text embedded is the agent, rule, CWE, file extension, title and description, not the code.
+- The search is exact (cosine, `<=>`) over the **same organization's** `finding_embeddings` (NFR-13). It
+  skips the current pull request's own reviews, keeps the closest finding per pull request, and returns
+  up to 3 with similarity ≥ `CONTEXT_MIN_SIMILARITY`. Each has the repository, PR number, review id,
+  date and how it ended: "Fixed in abc1234", "Dismissed (false positive)" or "Open".
+- The whole lookup stops after `CONTEXT_TIMEOUT_MS`; any failure leaves the finding as it was.
+
+Once the job is stored, `ReviewJobController`'s `afterComplete` indexes the same findings in the
+background: their vectors go into `finding_embeddings` (reusing the lookup's embedding), and their
+matches into `finding_similarities`. Index failures are logged and never touch the review.
 
 `threshold` does not filter findings: `CombinedReport` has no per-finding "postable" flag, so the
 gateway applies the recorded threshold when it posts suggestions.
@@ -227,7 +245,10 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role), the same value as the gateway's. Set → `PrismaJobStore`; postgres URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |
 | `JOB_RETENTION_MS` | `3600000` | In memory only: how long a finished job stays readable, integer 60000..86400000 |
 | `LLM_AGENT_TIMEOUT_MS` | `45000` | Minimum timeout for LLM agents, integer 1000..120000 |
-| `GROQ_*`, `GEMINI_*`, `LLM_*` | see [`packages/llm`](../../packages/llm/README.md) | Provider keys and limits of **this environment's** keys, and the batch sizes |
+| `GROQ_*`, `GEMINI_*`, `LLM_*` | see [`packages/llm`](../../packages/llm/README.md) | Provider keys and limits of **this environment's** keys, and the batch sizes. `GEMINI_EMBED_RPM/TPM/RPD` with `DATABASE_URL` turn on vector context |
+| `CONTEXT_MAX_FINDINGS` | `20` | Findings looked up for similar past issues per review (one embedding each), integer 1..100 |
+| `CONTEXT_TIMEOUT_MS` | `5000` | Time limit of the whole lookup; slower findings go out without past issues, integer 500..30000 |
+| `CONTEXT_MIN_SIMILARITY` | `0.8` | Cosine similarity a past finding needs to count as "seen before", in (0, 1] |
 | `GROQ_ACCOUNT_SECURITY`, `_PERFORMANCE`, `_LOGIC`, `_DOCUMENTATION` | `default` | Which Groq account (organization) the agent's own `GROQ_API_KEY` belongs to; agents on one name share one Groq budget. Lowercase name, up to 32 characters |
 | `AGENT_SECURITY_URL` | unset | Security agent base URL |
 | `AGENT_STYLE_URL` | unset | Style agent base URL |
@@ -243,8 +264,6 @@ An unset agent URL is not an error: that agent is recorded as `skipped` when a j
 
 - `callbackUrl`: accepted but not called yet (a warning is logged); the gateway polls instead
 - `agentRuns` while a job is running: they appear only once the job finishes
-- pgvector `VectorRepository` implementation
-- Gemini embeddings into the vector store (`GeminiEmbedder` exists in `packages/llm`)
 
 ## Develop
 

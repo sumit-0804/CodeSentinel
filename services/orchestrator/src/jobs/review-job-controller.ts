@@ -15,6 +15,8 @@ export interface ReviewJobControllerDeps {
   logger: Logger;
   now?: () => Date;
   newId?: () => string;
+  /** Runs in the background once a finished job is stored (not when a cancel won); errors are logged. */
+  afterComplete?: (job: ReviewJob, request: ReviewJobRequest) => Promise<void>;
 }
 
 export interface CreateJobOptions {
@@ -40,6 +42,7 @@ export class ReviewJobController {
   private readonly logger: Logger;
   private readonly now: () => Date;
   private readonly newId: () => string;
+  private readonly afterComplete: ReviewJobControllerDeps["afterComplete"];
   private readonly inFlight = new Map<string, AbortController>();
 
   constructor(deps: ReviewJobControllerDeps) {
@@ -48,6 +51,7 @@ export class ReviewJobController {
     this.logger = deps.logger;
     this.now = deps.now ?? (() => new Date());
     this.newId = deps.newId ?? randomUUID;
+    this.afterComplete = deps.afterComplete;
   }
 
   async createJob(request: ReviewJobRequest, options: CreateJobOptions = {}): Promise<CreatedJob> {
@@ -123,7 +127,11 @@ export class ReviewJobController {
 
   /** Writes the final state; the store ignores it if the job was cancelled meanwhile. */
   private async finish(job: ReviewJob, request: ReviewJobRequest): Promise<void> {
-    await this.store.complete({ ...job, completedAt: this.timestamp() }, request);
+    const finished = { ...job, completedAt: this.timestamp() };
+    if (!(await this.store.complete(finished, request)) || !this.afterComplete) return;
+    this.afterComplete(finished, request).catch((error: unknown) => {
+      this.logger.error("after-review step failed", { jobId: job.jobId, reviewId: job.reviewId, error });
+    });
   }
 
   private timestamp(): string {
