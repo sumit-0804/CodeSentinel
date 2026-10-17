@@ -6,11 +6,12 @@ generator client {
   output              = "../src/generated/prisma"
   moduleFormat        = "esm"
   importFileExtension = "js"
-  previewFeatures     = ["partialIndexes"]
+  previewFeatures     = ["partialIndexes", "postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 // ---------------------------------------------------------------------------
@@ -439,21 +440,19 @@ model Suggestion {
 }
 
 // ---------------------------------------------------------------------------
-// Vector database bookkeeping (FR-VDB-01, FR-VDB-02). Reworked for pgvector in Phase B.
+// Vector database (FR-VDB-01, FR-VDB-02): pgvector, one 768-dimension Gemini embedding per finding.
 // ---------------------------------------------------------------------------
 
 model FindingEmbedding {
-  findingId      String   @id @map("finding_id") @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  collection     String
-  vectorId       String   @map("vector_id")
-  embeddingModel String   @map("embedding_model")
-  indexedAt      DateTime @default(now()) @map("indexed_at") @db.Timestamptz(6)
+  findingId      String                     @id @map("finding_id") @db.Uuid
+  organizationId String                     @map("organization_id") @db.Uuid
+  embedding      Unsupported("vector(768)")
+  embeddingModel String                     @map("embedding_model")
+  indexedAt      DateTime                   @default(now()) @map("indexed_at") @db.Timestamptz(6)
 
   finding      Finding      @relation(fields: [findingId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([collection, vectorId])
   @@index([organizationId], map: "idx_embeddings_org")
   @@map("finding_embeddings")
 }

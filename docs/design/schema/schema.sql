@@ -11,6 +11,9 @@
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 
+-- CreateExtension
+CREATE EXTENSION IF NOT EXISTS "vector";
+
 -- CreateEnum
 CREATE TYPE "org_role" AS ENUM ('admin', 'member');
 
@@ -269,8 +272,7 @@ CREATE TABLE "suggestions" (
 CREATE TABLE "finding_embeddings" (
     "finding_id" UUID NOT NULL,
     "organization_id" UUID NOT NULL,
-    "collection" TEXT NOT NULL,
-    "vector_id" TEXT NOT NULL,
+    "embedding" vector(768) NOT NULL,
     "embedding_model" TEXT NOT NULL,
     "indexed_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -364,9 +366,6 @@ CREATE INDEX "idx_suggestions_open" ON "suggestions"("state") WHERE (state = 'pr
 
 -- CreateIndex
 CREATE INDEX "idx_embeddings_org" ON "finding_embeddings"("organization_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "finding_embeddings_collection_vector_id_key" ON "finding_embeddings"("collection", "vector_id");
 
 -- CreateIndex
 CREATE INDEX "idx_similarities_score" ON "finding_similarities"("finding_id", "similarity_score" DESC);

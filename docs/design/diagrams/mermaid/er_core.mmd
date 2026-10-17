@@ -88,8 +88,7 @@ erDiagram
     FINDING_EMBEDDINGS {
         uuid        finding_id      PK, FK
         uuid        organization_id FK
-        text        collection      "pgvector table"
-        text        vector_id
+        vector      embedding       "768 dimensions, pgvector"
         text        embedding_model
         timestamptz indexed_at
     }
