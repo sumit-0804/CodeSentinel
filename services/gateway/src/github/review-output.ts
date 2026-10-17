@@ -201,6 +201,8 @@ function commentBody(place: Place, fix: Finding | undefined): string {
   const parts: string[] = [];
   if (notes.length > 1) parts.push(`**Flagged by ${agentList(notes.map((note) => note.agent))}**`, "");
   parts.push(...notes.flatMap((note, i) => [...(i > 0 ? [""] : []), noteHeading(note), "", note.description]));
+  const seen = seenBefore(place.findings);
+  if (seen) parts.push("", seen);
   if (fix?.suggestion) {
     const snippet = fix.suggestion.suggestedSnippet;
     // A fence longer than any backtick run inside the snippet, so the snippet cannot close it.
@@ -220,6 +222,20 @@ function commentBody(place: Place, fix: Finding | undefined): string {
     parts.push("", `_Another fix (${agentList(otherFixes.map((finding) => finding.agent))}) is on the Code Sentinel dashboard._`);
   }
   return parts.join("\n");
+}
+
+/** One line about similar past issues (vector context), naming the closest one and how it ended. */
+function seenBefore(findings: readonly Finding[]): string | undefined {
+  const byId = new Map(findings.flatMap((finding) => finding.similarPastIssues ?? []).map((issue) => [issue.findingId, issue]));
+  const issues = [...byId.values()].sort((a, b) => b.similarityScore - a.similarityScore);
+  const closest = issues[0];
+  if (!closest) return undefined;
+  const where =
+    closest.repositoryFullName && closest.pullRequestNumber !== undefined
+      ? `${closest.repositoryFullName}#${closest.pullRequestNumber}`
+      : (closest.repositoryFullName ?? `"${closest.title}"`);
+  const count = issues.length === 1 ? "a similar issue" : `${issues.length} similar issues`;
+  return `_Seen before: ${count}; closest in ${where}${closest.resolution ? ` (${closest.resolution})` : ""}._`;
 }
 
 function annotation(finding: Finding): CheckAnnotation {

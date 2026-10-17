@@ -220,6 +220,23 @@ describe("reviewComments", () => {
     const output = checkRunOutput(job([clubbed, finding({ agent: "logic", ruleId: "logic/x", cweId: undefined })]), 0.8, BLOCK_SECURITY);
     expect(output.summary).toContain("2 findings in 1 place.");
   });
+
+  it("says when an issue was seen before, naming the closest earlier pull request", () => {
+    const past = (n: number, score: number, extra = {}) => ({
+      findingId: `00000000-0000-4000-8000-00000000000${n}`,
+      similarityScore: score,
+      title: `Earlier ${n}`,
+      repositoryFullName: "acme/api",
+      pullRequestNumber: 10 + n,
+      ...extra,
+    });
+    const seen = finding({ similarPastIssues: [past(1, 0.84), past(2, 0.93, { resolution: "Fixed in abc1234" })] });
+
+    const body = reviewComments(job([seen]), 0.8)[0]!.body;
+
+    expect(body).toContain("Pass values as query parameters.\n\n_Seen before: 2 similar issues; closest in acme/api#12 (Fixed in abc1234)._");
+    expect(reviewComments(job([finding()]), 0.8)[0]!.body).not.toContain("Seen before");
+  });
 });
 
 describe("clubbed findings and merge blocking", () => {

@@ -322,6 +322,8 @@ there is never a second Check Run or review.
    - the comment starts "**Flagged by Security and Logic**" when more than one agent is there, then
      each agent's note by severity, including the agents of a finding the orchestrator clubbed
      (`alsoReportedBy`);
+   - when the orchestrator found similar past issues in the organization (vector context), one line
+     says so: "_Seen before: 2 similar issues; closest in acme/api#12 (Fixed in abc1234)._";
    - it carries **at most one fix**, picked Security > Logic > Performance > Style > Documentation, and
      spans exactly that fix's lines, so committing it replaces the right ones. Other fixes there are
      mentioned ("Another fix (Style) is on the Code Sentinel dashboard") and can be committed from
