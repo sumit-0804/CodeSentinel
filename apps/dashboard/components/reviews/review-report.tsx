@@ -48,6 +48,38 @@ function FixBlock({ finding }: { finding: Finding }) {
   );
 }
 
+/** Similar issues from earlier pull requests in the organization, closest first, each linking to its review. */
+function SeenBefore({ finding }: { finding: Finding }) {
+  const issues = finding.similarPastIssues;
+  if (!issues?.length) return null;
+  return (
+    <div className="grid gap-2 rounded-xl border border-line bg-panel-2/50 p-3.5">
+      <p className="text-[13px] font-semibold text-ink-2">Seen before in your organization</p>
+      <ul className="m-0 grid list-none gap-1.5 p-0">
+        {issues.map((issue) => {
+          const where = issue.repositoryFullName
+            ? `${issue.repositoryFullName}${issue.pullRequestNumber !== undefined ? `#${issue.pullRequestNumber}` : ""}`
+            : undefined;
+          return (
+            <li key={issue.findingId} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-[13.5px]">
+              {issue.reviewId ? (
+                <Link href={`/pull-requests/${issue.reviewId}`} className="font-semibold text-cyan hover:underline">
+                  {issue.title}
+                </Link>
+              ) : (
+                <span className="font-semibold">{issue.title}</span>
+              )}
+              {where ? <span className="font-mono text-[12.5px] text-ink-3">{where}</span> : null}
+              {issue.resolution ? <span className="text-ink-2">{issue.resolution}</span> : null}
+              <span className="text-ink-3 tabular-nums">{Math.round(issue.similarityScore * 100)}% similar</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** The PR page's findings by file with severity filters, and the agent runs beside them. */
 export function ReviewReport({
   findings,
@@ -154,6 +186,7 @@ export function ReviewReport({
                               </span>
                               <span className="tabular-nums">Confidence {finding.confidence.toFixed(2)}</span>
                               {finding.cweId ? <span>{finding.cweId}</span> : null}
+                              {finding.similarPastIssues?.length ? <span className="text-warn">Seen before</span> : null}
                               {below ? (
                                 <span>Not posted, below threshold</span>
                               ) : finding.suggestion?.state === "accepted" ? (
@@ -182,6 +215,7 @@ export function ReviewReport({
                                   ))}
                                 </div>
                               ) : null}
+                              <SeenBefore finding={finding} />
                               <FixBlock finding={finding} />
                               <FixActions finding={finding} posted={!below} />
                             </div>
