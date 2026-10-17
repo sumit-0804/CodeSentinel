@@ -225,6 +225,8 @@ export interface SessionStore {
 
 export interface UserStore {
   findById(userId: string): Promise<UserRecord | undefined>;
+  /** The user who linked this GitHub account, if anyone did. */
+  findByGithubId(githubUserId: number): Promise<UserRecord | undefined>;
   /** Inserts or refreshes the `users` row (replaces Supabase's auth trigger); memberships are untouched. */
   recordSignIn(profile: SignInProfile, now: Date): Promise<void>;
   /** Records the user's GitHub identity; throws `GithubAccountTakenError` when another user holds it. */
@@ -269,8 +271,10 @@ export interface SuggestionStore {
   findByFinding(organizationId: string, findingId: string): Promise<SuggestionRecord | undefined>;
   /** Marks the suggestions posted as inline comments, with GitHub's comment ids. */
   recordPosted(posted: { suggestionId: string; commentId: number }[]): Promise<void>;
-  /** Records a decision only while the suggestion is `proposed`; `false` when someone or something decided first. */
-  /** `userId` is absent when the fix was applied from GitHub's Check Run button, by someone with no dashboard account here. */
+  /**
+   * Records a decision only while the suggestion is `proposed`; `false` when someone or something decided first.
+   * Without a `userId` only an exact (deterministic) fix can be accepted: an AI fix needs a person (FR-GH-04).
+   */
   accept(suggestionId: string, decision: { userId?: string; commitSha?: string; at: Date }): Promise<boolean>;
   reject(suggestionId: string, decision: { userId: string; reason?: RejectionReason; comment?: string; at: Date }): Promise<boolean>;
 }

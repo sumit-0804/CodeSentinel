@@ -119,8 +119,10 @@ export async function applyAllFixes(
 ): Promise<ApplyAllOutcome> {
   const { review, repository } = input;
   if (review.prNumber === undefined) return { ok: false, code: "pull_request_closed", message: "This review has no pull request" };
-  const fixes = openFixes(review.report, review.confidenceThreshold, review.headSha, await deps.suggestions.forReview(review.reviewId));
-  if (fixes.length === 0) return { ok: false, code: "nothing_to_apply", message: "This review has no open fixes" };
+  const open = openFixes(review.report, review.confidenceThreshold, review.headSha, await deps.suggestions.forReview(review.reviewId));
+  // Without a Code Sentinel user (a GitHub collaborator with no account here) only exact fixes are applied (FR-GH-04).
+  const fixes = input.userId ? open : open.filter((fix) => fix.kind === "deterministic");
+  const heldBack = open.length - fixes.length;
 
   const [owner = "", repo = ""] = repository.fullName.split("/");
   const ref: PullRequestRef = {
@@ -129,6 +131,10 @@ export async function applyAllFixes(
     repo,
     pullNumber: review.prNumber,
   };
+  if (fixes.length === 0) {
+    if (heldBack > 0) await deps.github.commentOnPullRequest(ref, heldBackNote(heldBack));
+    return { ok: false, code: "nothing_to_apply", message: heldBack > 0 ? "Only AI fixes are open, and they need a Code Sentinel user" : "This review has no open fixes" };
+  }
   const pull = await deps.github.getPullRequest(ref);
   if (!pull) return { ok: false, code: "pull_request_closed", message: "The pull request no longer exists" };
 
@@ -140,7 +146,8 @@ export async function applyAllFixes(
     await deps.suggestions.accept(fix.suggestionId, { ...(input.userId ? { userId: input.userId } : {}), commitSha: result.commitSha, at });
   }
   const aiApplied = result.applied.filter((fix) => fix.kind === "ai_suggested").length;
-  await deps.github.commentOnPullRequest(ref, appliedComment(result, aiApplied, input.requestedBy));
+  const comment = appliedComment(result, aiApplied, input.requestedBy);
+  await deps.github.commentOnPullRequest(ref, heldBack > 0 ? `${comment}\n\n${heldBackNote(heldBack)}` : comment);
   return { ok: true, commitSha: result.commitSha, applied: result.applied.length, aiApplied, skipped: result.skipped.length };
 }
 
@@ -148,6 +155,13 @@ const SKIP_WORD: Record<SkippedFix["reason"], string> = {
   overlaps_another_fix: "overlaps a fix that was applied",
   file_changed: "its lines changed since the review",
 };
+
+function heldBackNote(count: number): string {
+  return (
+    `**${count} AI-suggested fix${count === 1 ? " was" : "es were"} not applied.** Whoever clicked has no Code Sentinel account in this ` +
+    "organization, and an AI fix needs a person who can answer for it. Sign in to Code Sentinel with GitHub, or apply them from the dashboard."
+  );
+}
 
 function appliedComment(result: Extract<CommitAllResult, { ok: true }>, aiApplied: number, requestedBy: string): string {
   const n = result.applied.length;

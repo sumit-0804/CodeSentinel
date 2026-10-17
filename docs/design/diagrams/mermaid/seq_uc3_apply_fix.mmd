@@ -45,13 +45,13 @@ sequenceDiagram
     else Apply all fixes (PR page, or the button on the Check Run)
         Dev->>UI: Apply all fixes (N), confirm (says how many are AI-suggested)
         UI->>GW: POST /v1/reviews/{id}/apply-all-fixes (TOTP step-up)
-        Note right of GW: from GitHub: check_run requested_action "apply_all" webhook, answered 202
+        Note right of GW: from GitHub: check_run requested_action "apply_all" webhook, answered 202<br/>the clicker = the linked user with that GitHub id in the organization,<br/>else only exact fixes are applied (AI fixes need a person)
         GW->>DB: the review's open fixes (proposed, posted, reviewed commit)
         GW->>GH: get the pull request, read each file at the head
         GW->>GW: keep the higher-priority fix where two overlap, apply bottom-up,<br/>skip a fix whose lines changed
         GW->>GH: one commit for every file (Git Data API: tree, commit, move branch without force)
         GH-->>GW: commit sha
-        GW->>DB: each applied fix: state = accepted, commit sha
+        GW->>DB: each applied fix: state = accepted, commit sha, the user
         GW->>GH: one PR comment: what was applied and skipped
         GW-->>UI: 200 { commitSha, applied, aiApplied, skipped }
 

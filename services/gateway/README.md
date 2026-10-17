@@ -294,11 +294,17 @@ Each decision is written only while the fix is `proposed`, so two people decidin
 - **What it includes:** Style's exact fixes **and** the AI-suggested fixes of Security, Logic, Performance and
   Documentation. This was a deliberate change on 16 Oct: AI fixes used to be one click each (FR-GH-04, NFR-07). The
   button is still a person's action and says how many AI fixes it carries; single-fix commit and dismiss are unchanged.
+- **Who:** an accepted AI fix must name the person who accepted it (`ck_ai_fix_needs_action`). From GitHub's button, the
+  gateway looks up the clicker's GitHub id among linked Code Sentinel users (`UserStore.findByGithubId`) who are
+  members of the review's organization. A collaborator with no account here gets **only the exact Style fixes**, and the
+  comment says how many AI fixes were left and why; with only AI fixes open, nothing is committed and the comment
+  explains. The dashboard always has the signed-in user. `SuggestionStore.accept` without a user only ever accepts an
+  exact fix, in both stores.
 - **Checks:** the same as one fix (open, not a fork, still the reviewed head). Where two fixes touch the same lines,
   the one higher in Security > Logic > Performance > Style > Documentation wins; a fix whose lines changed is skipped.
 - **How:** each file is edited bottom-up, then one commit through the Git Data API (tree with each file's mode kept,
   commit on the reviewed head, branch moved without force, so a push in between makes it fail as `head_moved`).
-- **After:** each applied fix is `accepted` with the commit sha (no user when it came from GitHub's button), and **one**
+- **After:** each applied fix is `accepted` with the commit sha and the user (none for an exact fix applied by an unlinked collaborator), and **one**
   comment on the pull request lists what was applied and what was skipped. The commit is a push, so the pull request
   is reviewed again.
 Another organization's finding, an unknown one, or one without a fix is 404 `finding_not_found`.

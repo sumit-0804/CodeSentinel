@@ -438,6 +438,29 @@ export function describeStoresContract(
       });
     });
 
+    it("refuses to accept an AI fix without the person who accepted it", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
+      const at = new Date("2026-10-17T10:00:00.000Z");
+
+      await expect(stores.suggestions.accept(fixture.suggestion.suggestionId, { commitSha: "c".repeat(40), at })).resolves.toBe(false);
+
+      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "proposed" });
+    });
+
+    it("accepts an exact fix without a person, as the Check Run button does", async () => {
+      let fixture!: ReturnType<typeof withSuggestion>;
+      const { stores, ids } = await build((unique) => {
+        fixture = withSuggestion(unique);
+        Object.assign(fixture.suggestion, { agent: "style", ruleId: "style/prettier", kind: "deterministic" });
+      });
+      const at = new Date("2026-10-17T10:00:00.000Z");
+
+      await expect(stores.suggestions.accept(fixture.suggestion.suggestionId, { commitSha: "c".repeat(40), at })).resolves.toBe(true);
+
+      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "accepted" });
+    });
+
     it("records a rejection with its reason", async () => {
       let fixture!: ReturnType<typeof withSuggestion>;
       const { stores, ids } = await build((unique) => (fixture = withSuggestion(unique)));
@@ -539,6 +562,8 @@ export function describeStoresContract(
       await stores.users.linkGithub(ids.userId, { githubUserId, login: "octo-linked" });
       await stores.users.linkGithub(ids.userId, { githubUserId, login: "octo-renamed" });
       await expect(stores.users.findById(ids.userId)).resolves.toMatchObject({ githubUserId, githubLogin: "octo-renamed" });
+      await expect(stores.users.findByGithubId(githubUserId)).resolves.toMatchObject({ userId: ids.userId, memberships: [{ organizationId: ids.organizationId }] });
+      await expect(stores.users.findByGithubId(githubUserId + 1)).resolves.toBeUndefined();
       await expect(stores.users.linkGithub(secondUserId, { githubUserId, login: "octo-renamed" })).rejects.toThrow(GithubAccountTakenError);
     });
 

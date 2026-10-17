@@ -18,7 +18,7 @@ import { startPullRequestReview } from "./start-review.js";
 
 export interface GithubWebhookRouterDeps {
   secret: string;
-  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations" | "reviews" | "suggestions">;
+  stores: Pick<Stores, "repositories" | "repositoryConfig" | "installations" | "reviews" | "suggestions" | "users">;
   github: GitHubClient;
   orchestrator: Pick<OrchestratorClientLike, "createReviewJob" | "cancelReviewJob">;
   logger: Logger;
@@ -108,8 +108,14 @@ export function createGithubWebhookRouter({
           return;
         }
         logFields.reviewId = review.reviewId;
+        // AI fixes need a person (FR-GH-04): the clicker counts only with a linked account in the review's organization.
+        const user = await stores.users.findByGithubId(sender.id);
+        const userId = user?.memberships.some((m) => m.organizationId === review.organizationId) ? user.userId : undefined;
         // GitHub only offers the button to people with write access, and waits ~10 s for an answer: commit in the background.
-        void applyAllFixes({ suggestions: stores.suggestions, github, now }, { review, repository, requestedBy: `@${sender.login} (Check Run)` })
+        void applyAllFixes(
+          { suggestions: stores.suggestions, github, now },
+          { review, repository, ...(userId ? { userId } : {}), requestedBy: `@${sender.login} (Check Run)` },
+        )
           .then((outcome) => logger.info("apply all fixes", { requestId: res.locals.requestId, reviewId: review.reviewId, ...outcome }))
           .catch((error: unknown) => logger.warn("apply all fixes failed", { requestId: res.locals.requestId, reviewId: review.reviewId, error }));
         accept("fixes_applying", "fixes_applying", review.reviewId);

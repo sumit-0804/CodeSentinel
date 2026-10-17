@@ -338,6 +338,8 @@ export class InMemoryStores implements Stores {
         }
       },
       accept: async (suggestionId, { userId, commitSha, at }) =>
+        // Mirrors ck_ai_fix_needs_action: an AI fix needs the person who accepted it.
+        (userId !== undefined || data.suggestions.find((s) => s.suggestionId === suggestionId)?.kind === "deterministic") &&
         decide(suggestionId, {
           state: "accepted",
           ...(userId ? { resolvedByUserId: userId } : {}),
@@ -360,6 +362,7 @@ export class InMemoryStores implements Stores {
 
     this.users = {
       findById: async (userId) => copy(data.users.find((u) => u.userId === userId)),
+      findByGithubId: async (githubUserId) => copy(data.users.find((u) => u.githubUserId === githubUserId)),
       recordSignIn: async ({ userId, email, name, avatarUrl }) => {
         // Mirrors the unique `users.email`: an address another row holds is skipped, not an error.
         const emailFree = email !== undefined && !data.users.some((u) => u.email === email && u.userId !== userId);

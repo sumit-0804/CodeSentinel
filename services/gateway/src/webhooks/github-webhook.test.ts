@@ -39,7 +39,7 @@ async function webhookApp({ edit, files = devSeed().pullRequestFiles, createRevi
   };
   const publisher = { follow: vi.fn(async () => {}), nothingToReview: vi.fn(async () => {}) };
   const app = createApp(testAppDeps({ logger, stores, github, orchestrator, publisher }));
-  return { app, lines, github, orchestrator, findByGithubRepoId, publisher };
+  return { app, lines, stores, github, orchestrator, findByGithubRepoId, publisher };
 }
 
 type WebhookApp = Awaited<ReturnType<typeof webhookApp>>;
@@ -204,69 +204,93 @@ describe("POST /webhooks/github: review flow", () => {
     await expectIgnored(target, await deliver(target, { zen: "Keep it logically awesome.", hook_id: 1 }, { event: "ping" }), "event_ignored");
   });
 
-  it("commits every open fix in the background when Apply all fixes is clicked on the Check Run", async () => {
+  describe("Apply all fixes on the Check Run", () => {
     const head = "a".repeat(40);
     const reviewId = "7a1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a99";
+    const MEMBER_GITHUB_ID = 583231;
     const fix = { kind: "ai_suggested" as const, originalSnippet: "x = 1", suggestedSnippet: "x = 2" };
-    const target = await webhookApp({
-      edit: (seed) => {
-        const repositoryId = seed.repositories[0]!.repositoryId;
-        seed.reviews.push({
+
+    /** A finished review of PR 42 with Check Run 901 and one open AI fix; the seed user is linked to GitHub. */
+    function seedReview(seed: StoreSeed) {
+      seed.users[0]!.githubUserId = MEMBER_GITHUB_ID;
+      seed.reviews.push({
+        reviewId,
+        organizationId: seed.repositories[0]!.organizationId,
+        repositoryId: seed.repositories[0]!.repositoryId,
+        trigger: "github_pull_request",
+        prNumber: 42,
+        headSha: head,
+        status: "completed",
+        confidenceThreshold: 0.8,
+        createdAt: new Date(),
+        githubCheckRunId: 901,
+        report: {
           reviewId,
-          organizationId: seed.repositories[0]!.organizationId,
-          repositoryId,
-          trigger: "github_pull_request",
-          prNumber: 42,
-          headSha: head,
           status: "completed",
-          confidenceThreshold: 0.8,
-          createdAt: new Date(),
-          githubCheckRunId: 901,
-          report: {
-            reviewId,
-            status: "completed",
-            summary: { criticalCount: 0, warningCount: 1, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 1 },
-            agentRuns: [],
-            findings: [{ agent: "logic", ruleId: "logic/x", title: "Wrong value", description: "d", location: { filePath: "a.py", lineStart: 1, lineEnd: 1 }, severity: "warning", confidence: 0.9, suggestion: fix }],
-          },
-        });
-        seed.suggestions.push({
-          suggestionId: "8b1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a98",
-          findingId: "9c1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a97",
-          reviewId,
-          agent: "logic",
-          ruleId: "logic/x",
-          title: "Wrong value",
-          filePath: "a.py",
-          lineStart: 1,
-          lineEnd: 1,
-          kind: "ai_suggested",
-          state: "proposed",
-          ...fix,
-        });
-      },
-    });
-    target.github.pullRequests.push({ number: 42, title: "PR", state: "open", draft: false, headSha: head, headRef: "feature/x", baseSha: "b".repeat(40), baseRef: "main", updatedAt: "2026-10-16T10:00:00Z", htmlUrl: "https://github.com/x/y/pull/42" });
-    target.github.repoFiles.set("a.py", { sha: "blob", text: "x = 1\n" });
-    const repositoryId = (pullRequestEventPayload().repository as { id: number }).id;
-    const click = (identifier: string, checkRunId = 901) => ({
+          summary: { criticalCount: 0, warningCount: 1, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 1 },
+          agentRuns: [],
+          findings: [{ agent: "logic", ruleId: "logic/x", title: "Wrong value", description: "d", location: { filePath: "a.py", lineStart: 1, lineEnd: 1 }, severity: "warning", confidence: 0.9, suggestion: fix }],
+        },
+      });
+      seed.suggestions.push({
+        suggestionId: "8b1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a98",
+        findingId: "9c1c3a92-4c1e-4c22-9a0e-6f2f4b9d0a97",
+        reviewId,
+        agent: "logic",
+        ruleId: "logic/x",
+        title: "Wrong value",
+        filePath: "a.py",
+        lineStart: 1,
+        lineEnd: 1,
+        state: "proposed",
+        ...fix,
+      });
+    }
+
+    async function appWithOpenPull() {
+      const target = await webhookApp({ edit: seedReview });
+      target.github.pullRequests.push({ number: 42, title: "PR", state: "open", draft: false, headSha: head, headRef: "feature/x", baseSha: "b".repeat(40), baseRef: "main", updatedAt: "2026-10-16T10:00:00Z", htmlUrl: "https://github.com/x/y/pull/42" });
+      target.github.repoFiles.set("a.py", { sha: "blob", text: "x = 1\n" });
+      return target;
+    }
+
+    const click = (identifier: string, { checkRunId = 901, senderId = MEMBER_GITHUB_ID } = {}) => ({
       action: "requested_action",
       check_run: { id: checkRunId },
       requested_action: { identifier },
-      repository: { id: repositoryId },
-      sender: { login: "octocat" },
+      repository: { id: (pullRequestEventPayload().repository as { id: number }).id },
+      sender: { id: senderId, login: "octocat" },
     });
 
-    const response = await deliver(target, click("apply_all"), { event: "check_run" });
+    it("commits every open fix in the background when a member clicks it, recorded as theirs", async () => {
+      const target = await appWithOpenPull();
 
-    expect(response.status).toBe(202);
-    expect(WebhookAcceptedSchema.parse(response.body)).toEqual({ accepted: true, action: "fixes_applying", reviewId });
-    await vi.waitFor(() => expect(target.github.pullRequestComments).toHaveLength(1));
-    expect(target.github.multiCommits[0]).toMatchObject({ branch: "feature/x", parentSha: head, files: [{ path: "a.py", text: "x = 2\n" }] });
-    expect(target.github.pullRequestComments[0]!.body).toContain("as @octocat (Check Run) asked");
+      const response = await deliver(target, click("apply_all"), { event: "check_run" });
 
-    await expectIgnored(target, await deliver(target, click("something_else"), { event: "check_run" }), "event_ignored");
-    await expectIgnored(target, await deliver(target, click("apply_all", 999), { event: "check_run" }), "event_ignored");
+      expect(response.status).toBe(202);
+      expect(WebhookAcceptedSchema.parse(response.body)).toEqual({ accepted: true, action: "fixes_applying", reviewId });
+      await vi.waitFor(() => expect(target.github.pullRequestComments).toHaveLength(1));
+      expect(target.github.multiCommits[0]).toMatchObject({ branch: "feature/x", parentSha: head, files: [{ path: "a.py", text: "x = 2\n" }] });
+      expect(target.github.pullRequestComments[0]!.body).toContain("as @octocat (Check Run) asked");
+      await expect(target.stores.suggestions.forReview(reviewId)).resolves.toMatchObject([
+        { state: "accepted", resolutionCommitSha: target.github.multiCommits[0]!.commitSha },
+      ]);
+
+      await expectIgnored(target, await deliver(target, click("something_else"), { event: "check_run" }), "event_ignored");
+      await expectIgnored(target, await deliver(target, click("apply_all", { checkRunId: 999 }), { event: "check_run" }), "event_ignored");
+    });
+
+    it("leaves AI fixes alone when the clicker has no Code Sentinel account, and says so", async () => {
+      const target = await appWithOpenPull();
+
+      const response = await deliver(target, click("apply_all", { senderId: 999_999 }), { event: "check_run" });
+
+      expect(response.status).toBe(202);
+      await vi.waitFor(() => expect(target.github.pullRequestComments).toHaveLength(1));
+      expect(target.github.multiCommits).toHaveLength(0);
+      expect(target.github.pullRequestComments[0]!.body).toContain("**1 AI-suggested fix was not applied.**");
+      await expect(target.stores.suggestions.forReview(reviewId)).resolves.toMatchObject([{ state: "proposed" }]);
+    });
   });
 
   it("acknowledges an installation event", async () => {

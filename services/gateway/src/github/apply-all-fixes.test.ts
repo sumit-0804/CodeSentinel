@@ -146,6 +146,7 @@ describe("openFixes", () => {
 });
 
 describe("applyAllFixes", () => {
+  const USER_ID = "77777777-7777-4777-8777-777777777777";
   const repository: RepositoryRecord = {
     repositoryId: "55555555-5555-4555-8555-555555555555",
     organizationId: "44444444-4444-4444-8444-444444444444",
@@ -156,37 +157,70 @@ describe("applyAllFixes", () => {
     reviewEnabled: true,
   };
 
-  it("commits, records each fix as accepted, and comments once with what was applied", async () => {
+  const reviewOf = (fixes: SuggestionRecord[]): ReviewRecord => ({
+    reviewId: "33333333-3333-4333-8333-333333333333",
+    organizationId: repository.organizationId,
+    repositoryId: repository.repositoryId,
+    repositoryFullName: repository.fullName,
+    trigger: "github_pull_request",
+    prNumber: 4,
+    headSha: HEAD,
+    status: "completed",
+    confidenceThreshold: 0.8,
+    createdAt: new Date(),
+    report: report(fixes.map((s) => finding(s))),
+  });
+
+  it("commits, records each fix as accepted by the user, and comments once with what was applied", async () => {
     const g = github();
     const fixes = [security(), styleTax()];
-    const review: ReviewRecord = {
-      reviewId: "33333333-3333-4333-8333-333333333333",
-      organizationId: repository.organizationId,
-      repositoryId: repository.repositoryId,
-      repositoryFullName: repository.fullName,
-      trigger: "github_pull_request",
-      prNumber: 4,
-      headSha: HEAD,
-      status: "completed",
-      confidenceThreshold: 0.8,
-      createdAt: new Date(),
-      report: report(fixes.map((s) => finding(s))),
-    };
+    const review = reviewOf(fixes);
     const accept = vi.fn(async () => true);
 
     const outcome = await applyAllFixes(
       { suggestions: { forReview: async () => fixes, accept }, github: g, now: () => new Date("2026-10-16T12:00:00Z") },
-      { review, repository, requestedBy: "@octocat (Check Run)" },
+      { review, repository, userId: USER_ID, requestedBy: "@octocat (Check Run)" },
     );
 
     expect(outcome).toMatchObject({ ok: true, applied: 2, aiApplied: 1, skipped: 0 });
     expect(accept).toHaveBeenCalledTimes(2);
-    expect(accept).toHaveBeenCalledWith(fixes[0]!.suggestionId, { commitSha: g.multiCommits[0]!.commitSha, at: new Date("2026-10-16T12:00:00Z") });
+    expect(accept).toHaveBeenCalledWith(fixes[0]!.suggestionId, { userId: USER_ID, commitSha: g.multiCommits[0]!.commitSha, at: new Date("2026-10-16T12:00:00Z") });
     expect(g.pullRequestComments).toHaveLength(1);
     expect(g.pullRequestComments[0]!.body).toContain("**Code Sentinel applied 2 fixes (1 AI-suggested)");
     expect(g.pullRequestComments[0]!.body).toContain("as @octocat (Check Run) asked");
 
-    const again = await applyAllFixes({ suggestions: { forReview: async () => [], accept }, github: g, now: () => new Date() }, { review, repository, requestedBy: "x" });
+    const again = await applyAllFixes({ suggestions: { forReview: async () => [], accept }, github: g, now: () => new Date() }, { review, repository, userId: USER_ID, requestedBy: "x" });
     expect(again).toMatchObject({ ok: false, code: "nothing_to_apply" });
+  });
+
+  it("applies only exact fixes for someone with no Code Sentinel account, and says why the AI fixes were left", async () => {
+    const g = github();
+    const fixes = [security(), styleTax()];
+    const accept = vi.fn(async () => true);
+
+    const outcome = await applyAllFixes(
+      { suggestions: { forReview: async () => fixes, accept }, github: g, now: () => new Date("2026-10-17T12:00:00Z") },
+      { review: reviewOf(fixes), repository, requestedBy: "@stranger (Check Run)" },
+    );
+
+    expect(outcome).toMatchObject({ ok: true, applied: 1, aiApplied: 0 });
+    expect(accept).toHaveBeenCalledTimes(1);
+    expect(accept).toHaveBeenCalledWith(fixes[1]!.suggestionId, expect.not.objectContaining({ userId: expect.anything() }));
+    expect(g.multiCommits[0]!.files.map((f) => f.path)).toEqual([fixes[1]!.filePath]);
+    expect(g.pullRequestComments[0]!.body).toContain("**1 AI-suggested fix was not applied.** Whoever clicked has no Code Sentinel account");
+  });
+
+  it("commits nothing but explains when only AI fixes are open and nobody here asked", async () => {
+    const g = github();
+    const fixes = [security()];
+
+    const outcome = await applyAllFixes(
+      { suggestions: { forReview: async () => fixes, accept: vi.fn(async () => true) }, github: g, now: () => new Date() },
+      { review: reviewOf(fixes), repository, requestedBy: "@stranger (Check Run)" },
+    );
+
+    expect(outcome).toMatchObject({ ok: false, code: "nothing_to_apply" });
+    expect(g.multiCommits).toHaveLength(0);
+    expect(g.pullRequestComments[0]!.body).toContain("**1 AI-suggested fix was not applied.**");
   });
 });

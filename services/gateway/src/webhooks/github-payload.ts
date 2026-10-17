@@ -51,7 +51,7 @@ export const CheckRunActionEventSchema = z.object({
   check_run: z.object({ id: z.number().int() }),
   requested_action: z.object({ identifier: z.string() }),
   repository: z.object({ id: z.number().int() }),
-  sender: z.object({ login: z.string() }),
+  sender: z.object({ id: z.number().int(), login: z.string() }),
 });
 export type CheckRunActionEvent = z.infer<typeof CheckRunActionEventSchema>;
 

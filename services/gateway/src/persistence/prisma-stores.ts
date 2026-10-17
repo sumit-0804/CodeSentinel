@@ -17,12 +17,33 @@ import {
   type SuggestionStore,
   type Stores,
   type SyncedRepository,
+  type UserRecord,
   type UserStore,
 } from "./stores.js";
 
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
 
 const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
+
+const USER_INCLUDE = {
+  memberships: { orderBy: { addedAt: "asc" }, include: { organization: { select: { displayName: true } } } },
+} as const;
+
+function toUserRecord(row: Prisma.UserGetPayload<{ include: typeof USER_INCLUDE }>): UserRecord {
+  return {
+    userId: row.id,
+    ...(row.githubUserId !== null ? { githubUserId: Number(row.githubUserId) } : {}),
+    ...(row.githubLogin !== null ? { githubLogin: row.githubLogin } : {}),
+    ...(row.email !== null ? { email: row.email } : {}),
+    ...(row.name !== null ? { name: row.name } : {}),
+    ...(row.avatarUrl !== null ? { avatarUrl: row.avatarUrl } : {}),
+    memberships: row.memberships.map((m) => ({
+      organizationId: m.organizationId,
+      displayName: m.organization.displayName,
+      role: m.role,
+    })),
+  };
+}
 
 const SUGGESTION_INCLUDE = {
   finding: { include: { review: { select: { organizationId: true, repositoryId: true, prNumber: true, headSha: true } } } },
@@ -317,7 +338,8 @@ export class PrismaStores implements Stores {
       },
       accept: async (suggestionId, { userId, commitSha, at }) => {
         const { count } = await prisma.suggestion.updateMany({
-          where: { id: suggestionId, state: "proposed" },
+          // An AI fix needs the person who accepted it (ck_ai_fix_needs_action); without one only exact fixes match.
+          where: { id: suggestionId, state: "proposed", ...(userId ? {} : { kind: "deterministic" as const }) },
           data: { state: "accepted", resolvedByUserId: userId ?? null, resolvedAt: at, resolutionCommitSha: commitSha ?? null },
         });
         return count === 1;
@@ -341,26 +363,12 @@ export class PrismaStores implements Stores {
 
     this.users = {
       findById: async (userId) => {
-        const row = await prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            memberships: { orderBy: { addedAt: "asc" }, include: { organization: { select: { displayName: true } } } },
-          },
-        });
-        if (!row) return undefined;
-        return {
-          userId: row.id,
-          ...(row.githubUserId !== null ? { githubUserId: Number(row.githubUserId) } : {}),
-          ...(row.githubLogin !== null ? { githubLogin: row.githubLogin } : {}),
-          ...(row.email !== null ? { email: row.email } : {}),
-          ...(row.name !== null ? { name: row.name } : {}),
-          ...(row.avatarUrl !== null ? { avatarUrl: row.avatarUrl } : {}),
-          memberships: row.memberships.map((m) => ({
-            organizationId: m.organizationId,
-            displayName: m.organization.displayName,
-            role: m.role,
-          })),
-        };
+        const row = await prisma.user.findUnique({ where: { id: userId }, include: USER_INCLUDE });
+        return row ? toUserRecord(row) : undefined;
+      },
+      findByGithubId: async (githubUserId) => {
+        const row = await prisma.user.findUnique({ where: { githubUserId: BigInt(githubUserId) }, include: USER_INCLUDE });
+        return row ? toUserRecord(row) : undefined;
       },
       recordSignIn: async ({ userId, email, name, avatarUrl }, now) => {
         const write = (withEmail: boolean) => {
