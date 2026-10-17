@@ -42,6 +42,10 @@ end of the first migration:
   `authenticated` roles behind its Data API) can read nothing. Only the dedicated `prisma` role
   (`BYPASSRLS`), used by the gateway and orchestrator, reaches the tables.
 
+The `vector` extension is installed in `public` on purpose: it is on the `prisma` role's search path,
+and the CI image has no `extensions` schema. Supabase's Security Advisor flags it ("Extension in
+Public"); its functions only do vector maths, and with RLS above they reach no data.
+
 Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `where:` (the
 `partialIndexes` preview feature). `idx_reviews_status` is written the way Postgres stores it
 (`= ANY (ARRAY[...])`), otherwise `migrate diff` reports drift on every run.
