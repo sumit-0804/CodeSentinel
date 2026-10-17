@@ -166,7 +166,8 @@ export class PrismaJobStore implements JobStore {
     const findings = report.findings.map((finding) => {
       const agentRunId = runIds.get(finding.agent);
       if (!agentRunId) throw new Error(`Finding from ${finding.agent} has no agent run in review ${reviewId}`);
-      return { id: randomUUID(), agentRunId, finding };
+      // The graph's `context` node set the id; similar-issue lookups refer to it.
+      return { id: finding.id ?? randomUUID(), agentRunId, finding };
     });
     await tx.finding.createMany({
       data: findings.map(({ id, agentRunId, finding }) => ({

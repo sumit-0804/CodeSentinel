@@ -1,38 +1,24 @@
 import type { Finding, SimilarPastIssue } from "@code-sentinel/contracts";
 
-/**
- * Storage-facing side of context-aware review (FR-VDB-01/02).
- *
- * Vectors live in pgvector in the same Supabase database, next to `finding_embeddings` /
- * `finding_similarities`, so a finding can be traced both ways (see `docs/design/schema/schema.sql`).
- * Retrieval is always scoped to one organization — no cross-tenant sharing (NFR-13).
- */
-export interface VectorRepository {
-  /** Embed a finding and upsert it into the org's collection. */
-  index(finding: Finding, organizationId: string): Promise<void>;
-
-  /** Nearest previously-flagged issues for this finding, above the similarity threshold. */
-  querySimilar(
-    finding: Finding,
-    organizationId: string,
-    limit?: number,
-  ): Promise<SimilarPastIssue[]>;
+/** Where a lookup may search: one organization (NFR-13), never the current review's own pull request. */
+export interface SimilarityScope {
+  organizationId: string;
+  reviewId: string;
+  limit: number;
+  signal?: AbortSignal;
 }
 
-/**
- * Placeholder from before the move to pgvector (10-Oct); not wired. The vector-context work
- * replaces it with a pgvector implementation.
- */
-export class ChromaVectorRepository implements VectorRepository {
-  async index(_finding: Finding, _organizationId: string): Promise<void> {
-    throw new Error("ChromaVectorRepository.index is not implemented yet");
-  }
+/** A finding the orchestrator has given an id; `findings` rows use the same id. */
+export type StoredFinding = Finding & { id: string };
 
-  async querySimilar(
-    _finding: Finding,
-    _organizationId: string,
-    _limit = 5,
-  ): Promise<SimilarPastIssue[]> {
-    throw new Error("ChromaVectorRepository.querySimilar is not implemented yet");
-  }
+/**
+ * Storage-facing side of context-aware review (FR-VDB-01/02). Vectors live in pgvector
+ * (`finding_embeddings`) in the same database as the findings (see `docs/design/schema/schema.sql`).
+ */
+export interface VectorRepository {
+  /** Nearest previously flagged issues for this finding, above the similarity threshold. */
+  querySimilar(finding: StoredFinding, scope: SimilarityScope): Promise<SimilarPastIssue[]>;
+
+  /** Stores the finding's vector, and its `similarPastIssues` as `finding_similarities`, once its row exists. */
+  index(finding: StoredFinding, organizationId: string): Promise<void>;
 }

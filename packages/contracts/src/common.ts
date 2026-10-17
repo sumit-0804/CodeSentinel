@@ -110,6 +110,9 @@ export const SimilarPastIssueSchema = z.object({
   similarityScore: z.number().min(0).max(1),
   title: z.string(),
   repositoryFullName: z.string().optional(),
+  /** The past finding's review and pull request, so a client can link to it. */
+  reviewId: z.string().uuid().optional(),
+  pullRequestNumber: z.number().int().positive().optional(),
   resolution: z.string().optional(),
   occurredAt: z.string().datetime().optional(),
 });

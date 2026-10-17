@@ -53,11 +53,13 @@ export type {
   AgentConfig,
   FetchLike,
 } from "./agents/index.js";
-export { SimilarIssueLookup } from "./context/similar-issue-lookup.js";
 export {
-  ChromaVectorRepository,
-  type VectorRepository,
-} from "./context/vector-repository.js";
+  SimilarIssueLookup,
+  type LookupScope,
+  type SimilarIssueLookupOptions,
+} from "./context/similar-issue-lookup.js";
+export { PgVectorRepository, type Embedder, type PgVectorRepositoryOptions } from "./context/pgvector-repository.js";
+export type { SimilarityScope, StoredFinding, VectorRepository } from "./context/vector-repository.js";
 export {
   ALL_AGENTS,
   buildReviewGraph,

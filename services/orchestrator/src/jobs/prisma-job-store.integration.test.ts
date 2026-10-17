@@ -127,6 +127,26 @@ describe.skipIf(!url)("PrismaJobStore (integration)", () => {
     expect(review.report).toEqual(report);
   });
 
+  it("keeps the finding ids the graph gave the report", async () => {
+    const store = new PrismaJobStore(prisma);
+    const job = queuedJob();
+    const req = request();
+    await store.insert(job, req);
+    const id = randomUUID();
+    const report: CombinedReport = {
+      reviewId: job.reviewId,
+      status: "completed",
+      summary: { criticalCount: 1, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 0 },
+      findings: [finding({ id })],
+      agentRuns: [{ agent: "security", status: "succeeded", findingsCount: 1 }],
+    };
+
+    await store.complete({ ...job, status: "completed", completedAt: "2026-10-17T10:00:00.000Z", report }, req);
+
+    const rows = await prisma.finding.findMany({ where: { reviewId: job.reviewId } });
+    expect(rows.map((row) => row.id)).toEqual([id]);
+  });
+
   it("marks older reviews' undecided fixes of the same pull request superseded when a newer review completes", async () => {
     const store = new PrismaJobStore(prisma);
     const withFix = (reviewId: string): CombinedReport => ({

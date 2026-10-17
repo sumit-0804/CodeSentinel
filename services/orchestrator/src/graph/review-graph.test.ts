@@ -126,8 +126,23 @@ describe("buildReviewGraph", () => {
     expect(without.findings[0]).not.toHaveProperty("similarPastIssues");
 
     const withLookup = await run(clients, request({ enabledAgents: ["security"], includeSimilarPastIssues: true }), lookup);
-    expect(vectors.querySimilar).toHaveBeenCalledWith(expect.objectContaining({ ruleId: exampleFinding.ruleId }), EXAMPLE_ORGANIZATION_ID, 3);
+    expect(vectors.querySimilar).toHaveBeenCalledWith(
+      expect.objectContaining({ ruleId: exampleFinding.ruleId, id: withLookup.findings[0]?.id }),
+      expect.objectContaining({ organizationId: EXAMPLE_ORGANIZATION_ID, reviewId: EXAMPLE_REVIEW_ID, limit: 3 }),
+    );
     expect(withLookup.findings[0]?.similarPastIssues).toEqual(similar);
+  });
+
+  it("gives every finding an id, with or without a lookup", async () => {
+    const report = await run(
+      { security: responding("security"), logic: responding("logic", { findings: [{ ...exampleFinding, agent: "logic", cweId: "CWE-193" }] }) },
+      request({ enabledAgents: ["security", "logic"] }),
+    );
+
+    const ids = report.findings.map((f) => f.id);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("merges gateway and agent skips into the report", async () => {

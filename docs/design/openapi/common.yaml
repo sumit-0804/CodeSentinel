@@ -172,9 +172,16 @@ components:
           type: string
         repositoryFullName:
           type: string
+        reviewId:
+          type: string
+          format: uuid
+          description: The review the earlier finding belongs to.
+        pullRequestNumber:
+          type: integer
+          minimum: 1
         resolution:
           type: string
-          description: How the earlier occurrence was resolved, when it was.
+          description: How the earlier occurrence was resolved, when it was ("Fixed in abc1234", "Dismissed (false positive)", "Open").
         occurredAt:
           type: string
           format: date-time
