@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authErrorMessage } from "@/lib/auth-errors";
 import { requireUser } from "@/lib/auth";
+import { gatewayFetch } from "@/lib/gateway";
 import { hasFreshStepUp, listAuthenticators } from "@/lib/mfa";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -94,6 +95,25 @@ export async function removeAuthenticator(factorId: string): Promise<MfaResult> 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.mfa.unenroll({ factorId });
   if (error) return error.code === "insufficient_aal" ? STEP_UP : { ok: false, message: authErrorMessage(error) };
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+const SESSION_MESSAGES: Record<string, string> = {
+  mfa_required: "Enter a code from your authenticator app to sign that device out.",
+  current_session: "That's this device. Use Sign out instead.",
+  session_not_found: "That device is already signed out.",
+};
+
+/** Signs one of the user's other devices out at once, after a fresh code (the gateway checks it). */
+export async function revokeSession(sessionId: string): Promise<MfaResult> {
+  await requireUser();
+  if (!z.string().uuid().safeParse(sessionId).success) return { ok: false, message: SESSION_MESSAGES.session_not_found! };
+  const result = await gatewayFetch(`/v1/me/sessions/${sessionId}`, z.unknown(), { method: "DELETE" });
+  if (!result.ok) {
+    const message = result.code ? SESSION_MESSAGES[result.code] : undefined;
+    return { ok: false, message: message ?? "Couldn't sign that device out. Try again in a moment.", ...(result.code ? { code: result.code } : {}) };
+  }
   revalidatePath("/settings");
   return { ok: true };
 }

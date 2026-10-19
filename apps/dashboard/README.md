@@ -41,9 +41,9 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/auth/callback` | OAuth sign-in and identity linking: exchanges the PKCE code |
 | `/auth/confirm` | Email links (`token_hash` + `type`): sign-up, recovery, invite, email change. Works in any browser |
 | `/auth/error` | Names what failed and offers one next action |
-| `/overview` | First-run checklist until the first review (step 2 is done once the organization has a repository); after that a headline (what's blocked or being reviewed), counts, **Needs your attention** (blocked, running, partial or failed) and the 5 most recent reviews, refreshing while one runs |
+| `/overview` | First-run checklist until the first review (step 2 is done once the organization has a repository); after that a headline (what's blocked or being reviewed), a notice when an agent isn't answering or runs without its AI checks (`/v1/agents/health`), counts, **Needs your attention** (blocked, running, partial or failed) and the 5 most recent reviews, refreshing while one runs |
 | `/repositories` | The organization's repositories with a search; the checklist while there are none. Shows what happened on the way back from GitHub (`?github=…`). Each name opens its repository page |
-| `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: the repository's own branches to review (its default branch until any are added; "Use organization defaults" doesn't cover them), picked from the repository's GitHub branches (`/v1/repositories/{id}/branches`) or typed as a pattern, and Manage on GitHub; **Pull requests**: the repository's **open** pull requests from GitHub (`/v1/repositories/{id}/pulls`), each with its newest verdict and **Review now** / **Re-run**, or "Base branch not reviewed". The threshold shows how many findings of the last review it would post, live as the slider moves |
+| `/repositories/[owner]/[name]` | One repository (`?tab=agents\|advanced`): reviews on/off with Undo; **Agents**: a notice when an agent the repository runs isn't healthy, each agent's health by its name, follow the organization defaults, or each agent Off / Comment / Block merge, and the confidence threshold (inherit or override); **Advanced**: the repository's own branches to review (its default branch until any are added; "Use organization defaults" doesn't cover them), picked from the repository's GitHub branches (`/v1/repositories/{id}/branches`) or typed as a pattern, and Manage on GitHub; **Pull requests**: the repository's **open** pull requests from GitHub (`/v1/repositories/{id}/pulls`), each with its newest verdict and **Review now** / **Re-run**, or "Base branch not reviewed". The threshold shows how many findings of the last review it would post, live as the slider moves |
 | `/onboarding/github/install` | Sets a random `state` cookie and sends you to install the App on GitHub |
 | `/onboarding/github/connect` | Same, through GitHub's authorize page: links GitHub and joins organizations the App is already on |
 | `/onboarding/github/callback` | GitHub's Callback and Setup URL. A `code` with a matching `state` is sent to `POST /v1/github/link`; without our `state` the code is never used and you confirm instead; an installation updated on GitHub (no code) triggers a sync |
@@ -51,7 +51,8 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/pull-requests/[reviewId]` | One review: verdict and why, commit, threshold, View on GitHub, the gauge, **Apply all fixes (N)** when the review has open fixes (one commit for Style and AI fixes, after a dialog that says how many are AI-suggested, then the TOTP step-up), and **Re-run review**; findings by file with severity filters, each with "Also flagged by" chips when other agents reported the same issue, expanding to its description, the other agents' notes and the fix (before/after) with **Commit fix** / **Dismiss**, or what was decided; findings below the threshold dimmed as not posted; agent runs. While the review runs, the page refreshes every 3 s |
 | `/settings` | Profile, sign-in methods (link / unlink GitHub and Google), sign out here or everywhere |
 | `/settings?section=defaults` | **Review defaults**: the organization's agent modes, used by repositories that follow them, and its confidence threshold. Branches are set per repository |
-| `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code |
+| `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code; **Signed-in devices** (`/v1/me/sessions`): browser and system read from the user agent, IP, last active, "This device", and **Sign out** for any other one after a code |
+| `/settings?section=audit` | **Audit log** for organization admins (`/v1/organizations/{id}/audit-events`): when, who, what (in words, from the action and its details) and from where, newest first, with **Older events** |
 | `/step-up` | Asks for an authenticator code, then continues to `?next=` (a safe same-origin path). Install and Connect send you here when your code is too old |
 
 `/` redirects to `/overview`.
@@ -115,7 +116,9 @@ The secret key is never put in a file or deployed.
   and checks the JSON against a schema from `@code-sentinel/contracts`. The browser never talks to the
   gateway (backend-for-frontend), so there is no CORS and no token in client code. It returns
   `{ ok: true, data }` or `{ ok: false, reason }` (`unconfigured`, `unreachable`, `unauthorized`,
-  `error`), so a page names what failed, plus the gateway's error `code` when it sent one.
+  `error`), so a page names what failed, plus the gateway's error `code` when it sent one. It also
+  forwards the browser's IP (`X-Forwarded-For`, from the incoming request) and `User-Agent`, so the
+  gateway's rate limits and audit log see the person, not this server.
 - **Organization in use:** the sidebar switcher lists the memberships from `/v1/me`. Choosing one sets
   the httpOnly `cs_org` cookie through a Server Action that first checks the membership. Pages read it
   with `getAccount()` (`lib/organization.ts`, once per request), fall back to the first membership if it
