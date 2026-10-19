@@ -6,6 +6,7 @@ import {
 import { badGateway, badRequest, HttpError, type Logger } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
+import type { AuditLog } from "../audit/audit-log.js";
 import { assertStepUp, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubUserClient, GitHubUserTokens } from "../github/github-user-client.js";
@@ -19,6 +20,7 @@ export interface GithubRouterDeps {
   link?: { githubUsers: GitHubUserClient; sync: InstallationSync };
   logger: Pick<Logger, "warn">;
   stepUp: StepUpPolicy;
+  audit: Pick<AuditLog, "request">;
 }
 
 const unconfigured = () =>
@@ -32,8 +34,15 @@ const summary = (items: SyncedInstallation[]) =>
  * GitHub onboarding (A6): link the signed-in user's GitHub account from the App's callback `code`, sync
  * the installations they reach, and list them. `link` and `sync` change what Code Sentinel can access, so they need a TOTP step-up (A7).
  */
-export function createGithubRouter({ users, installations, link, logger, stepUp }: GithubRouterDeps): Router {
+export function createGithubRouter({ users, installations, link, logger, stepUp, audit }: GithubRouterDeps): Router {
   const router = Router();
+
+  // A new user may belong to no organization yet, so the entry goes to every organization the sync reached.
+  const auditEach = async (req: Request, res: GatewayResponse, action: "github_linked" | "installations_synced", synced: SyncedInstallation[], githubLogin: string) => {
+    for (const organizationId of new Set(synced.map((item) => item.organizationId))) {
+      await audit.request(req, res, { action, organizationId, targetType: "user", targetId: res.locals.principal!.userId, metadata: { githubLogin, installations: synced.length } });
+    }
+  };
 
   router.post("/github/link", async (req: Request, res: GatewayResponse) => {
     assertStepUp(res.locals.principal!, stepUp);
@@ -69,11 +78,12 @@ export function createGithubRouter({ users, installations, link, logger, stepUp 
     await link.sync.storeTokens(userId, tokens);
 
     const synced = await syncOrFail(link.sync, userId);
+    await auditEach(req, res, "github_linked", synced, githubUser.login);
     const body: GithubLinkResult = { githubLogin: githubUser.login, installations: summary(synced) };
     res.json(body);
   });
 
-  router.post("/installations/sync", async (_req: Request, res: GatewayResponse) => {
+  router.post("/installations/sync", async (req: Request, res: GatewayResponse) => {
     assertStepUp(res.locals.principal!, stepUp);
     if (!link) throw unconfigured();
     const userId = res.locals.principal!.userId;
@@ -81,6 +91,7 @@ export function createGithubRouter({ users, installations, link, logger, stepUp 
     if (!githubLogin) throw notLinked();
 
     const synced = await syncOrFail(link.sync, userId);
+    await auditEach(req, res, "installations_synced", synced, githubLogin);
     const body: GithubLinkResult = { githubLogin, installations: summary(synced) };
     res.json(body);
   });

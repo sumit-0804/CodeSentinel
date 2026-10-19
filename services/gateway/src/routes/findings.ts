@@ -3,6 +3,7 @@ import { badGateway, badRequest, HttpError, notFound, type Logger } from "@code-
 import { Router, type Request } from "express";
 import { z } from "zod";
 
+import type { AuditLog } from "../audit/audit-log.js";
 import { assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyAllFixes } from "../github/apply-all-fixes.js";
@@ -17,6 +18,7 @@ export interface FindingsRouterDeps {
   stepUp: StepUpPolicy;
   /** Linked from the Apply all fixes comment on GitHub. */
   dashboardUrl?: string;
+  audit: Pick<AuditLog, "request">;
 }
 
 const FindingIdSchema = z.string().uuid();
@@ -30,7 +32,7 @@ const githubUnavailable = () => badGateway("github_unavailable", "GitHub did not
  * open fix of a review in one commit. Any member of the organization may decide; committing writes
  * code, so it also needs a TOTP step-up.
  */
-export function createFindingsRouter({ stores, github, logger, stepUp, dashboardUrl }: FindingsRouterDeps): Router {
+export function createFindingsRouter({ stores, github, logger, stepUp, dashboardUrl, audit }: FindingsRouterDeps): Router {
   const router = Router();
 
   // Another organization's finding answers 404, like an unknown one.
@@ -76,6 +78,12 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
         logger.warn("fix committed after another decision", { requestId: res.locals.requestId, suggestionId: suggestion.suggestionId });
         throw decided();
       }
+      await audit.request(req, res, {
+        action: "fix_accepted",
+        targetType: "suggestion",
+        targetId: suggestion.suggestionId,
+        metadata: { kind: suggestion.kind, repository: repository.fullName, pullRequestNumber: suggestion.prNumber, commitSha: result.commitSha },
+      });
       if (suggestion.githubCommentId !== undefined) {
         try {
           await github.replyToReviewComment(pullRef, suggestion.githubCommentId, `Applied in ${result.commitSha} from the Code Sentinel dashboard.`);
@@ -115,6 +123,12 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
       throw githubUnavailable();
     }
     if (!outcome.ok) throw conflict(outcome.code, outcome.message);
+    await audit.request(req, res, {
+      action: "fixes_applied",
+      targetType: "review",
+      targetId: review.reviewId,
+      metadata: { repository: repository.fullName, pullRequestNumber: review.prNumber, commitSha: outcome.commitSha, applied: outcome.applied, aiApplied: outcome.aiApplied },
+    });
     const body: ApplyAllFixesResult = {
       reviewId: review.reviewId,
       commitSha: outcome.commitSha,
@@ -142,6 +156,12 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
         at,
       });
       if (!recorded) throw decided();
+      await audit.request(req, res, {
+        action: "fix_rejected",
+        targetType: "suggestion",
+        targetId: suggestion.suggestionId,
+        metadata: { kind: suggestion.kind, ...(parsed.data.reason ? { reason: parsed.data.reason } : {}) },
+      });
       const body: SuggestionDecision = {
         findingId: suggestion.findingId,
         suggestionId: suggestion.suggestionId,

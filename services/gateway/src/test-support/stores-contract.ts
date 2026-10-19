@@ -478,6 +478,27 @@ export function describeStoresContract(
     });
   });
 
+  describe("audit", () => {
+    it("lists an organization's events newest first, pages with before, and names who acted", async () => {
+      const { stores, ids, seed } = await build();
+      const at = (minute: number) => new Date(Date.UTC(2026, 9, 19, 10, minute));
+
+      await stores.audit.record({ action: "repository_config_updated", organizationId: ids.organizationId, userId: ids.userId, targetType: "repository", targetId: ids.repositoryId, ip: "203.0.113.7", userAgent: "Firefox", metadata: { changed: ["confidenceThreshold"] }, at: at(1) });
+      await stores.audit.record({ action: "fixes_applied", organizationId: ids.organizationId, metadata: { githubLogin: "stranger" }, at: at(2) });
+      await stores.audit.record({ action: "github_linked", organizationId: randomUUID(), userId: ids.userId, at: at(3) }).catch(() => undefined);
+
+      const page = await stores.audit.listForOrganization(ids.organizationId, { limit: 10 });
+      expect(page.map((e) => [e.action, e.actor])).toEqual([
+        ["fixes_applied", "stranger"],
+        ["repository_config_updated", seed.users[0]!.name ?? seed.users[0]!.githubLogin],
+      ]);
+      expect(page[1]).toMatchObject({ userId: ids.userId, targetType: "repository", targetId: ids.repositoryId, ip: "203.0.113.7", userAgent: "Firefox", metadata: { changed: ["confidenceThreshold"] }, createdAt: at(1).toISOString() });
+
+      await expect(stores.audit.listForOrganization(ids.organizationId, { before: at(2), limit: 10 })).resolves.toMatchObject([{ action: "repository_config_updated" }]);
+      await expect(stores.audit.listForOrganization(ids.organizationId, { limit: 1 })).resolves.toHaveLength(1);
+    });
+  });
+
   describe("users", () => {
     it("returns a user with their memberships and misses an unknown id", async () => {
       const { stores, ids, seed } = await build();

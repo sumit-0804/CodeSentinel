@@ -2,6 +2,7 @@ import { RepositoryConfigUpdateSchema, type RepositoryConfig, type RepositoryLis
 import { badRequest, notFound } from "@code-sentinel/service-kit";
 import { Router, type Request } from "express";
 
+import type { AuditLog } from "../audit/audit-log.js";
 import { assertOrgAdmin, assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyRepositoryConfigUpdate, resolveEffectiveConfig, toRepositoryConfig } from "../persistence/effective-config.js";
@@ -12,10 +13,11 @@ export interface RepositoriesRouterDeps {
   repositoryConfig: RepositoryConfigStore;
   users: Pick<UserStore, "findById">;
   stepUp: StepUpPolicy;
+  audit: Pick<AuditLog, "request">;
 }
 
 /** `GET /v1/repositories` and each repository's configuration (UC-4, A9), scoped to the caller's organization (NFR-13). */
-export function createRepositoriesRouter({ repositories, repositoryConfig, users, stepUp }: RepositoriesRouterDeps): Router {
+export function createRepositoriesRouter({ repositories, repositoryConfig, users, stepUp, audit }: RepositoriesRouterDeps): Router {
   const router = Router();
 
   router.get("/repositories", requireOrganization, async (req: Request, res: GatewayResponse) => {
@@ -55,6 +57,13 @@ export function createRepositoriesRouter({ repositories, repositoryConfig, users
         throw badRequest("no_agents_enabled", "At least one agent must stay on; switch reviews off instead");
       }
       await repositoryConfig.updateConfig(inputs.repositoryId, parsed.data, userId);
+      const changed = Object.keys(parsed.data);
+      await audit.request(req, res, {
+        action: changed.length === 1 && changed[0] === "reviewEnabled" ? "repository_reviews_toggled" : "repository_config_updated",
+        targetType: "repository",
+        targetId: inputs.repositoryId,
+        metadata: { changed, ...(parsed.data.reviewEnabled !== undefined ? { reviewEnabled: parsed.data.reviewEnabled } : {}) },
+      });
       const body: RepositoryConfig = toRepositoryConfig((await repositoryConfig.getConfigInputs(inputs.repositoryId))!);
       res.json(body);
     },

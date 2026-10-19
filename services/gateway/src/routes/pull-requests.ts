@@ -11,6 +11,7 @@ import { badGateway, badRequest, HttpError, notFound, unprocessable, type Logger
 import { Router, type Request } from "express";
 import { z } from "zod";
 
+import type { AuditLog } from "../audit/audit-log.js";
 import { requireOrganization } from "../auth/guards.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import type { GitHubClient, PullRequestInfo, RepositoryRef } from "../github/github-client.js";
@@ -41,6 +42,7 @@ export interface PullRequestsRouterDeps {
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
   now?: () => Date;
   fileContentMaxBytes?: number;
+  audit: Pick<AuditLog, "request">;
 }
 
 const conflict = (code: string, message: string) => new HttpError(409, code, message);
@@ -137,7 +139,7 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     const { userId, organizationId } = res.locals.principal!;
     const requestId = res.locals.requestId;
     const repository = await loadRepository(organizationId!, parsed.data.repositoryId);
-    const logFields: Record<string, unknown> = { repository: repository.fullName, pullRequestNumber: parsed.data.pullRequestNumber };
+    const logFields: Record<string, unknown> = { ...res.locals.logFields, repository: repository.fullName, pullRequestNumber: parsed.data.pullRequestNumber };
     res.locals.logFields = logFields;
 
     const config = await stores.repositoryConfig.getEffectiveConfig(repository.repositoryId);
@@ -201,6 +203,14 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     }
     logFields.outcome = result.outcome;
     logFields.reviewId = result.job.reviewId;
+    if (result.outcome === "review_started") {
+      await deps.audit.request(req, res, {
+        action: "review_rerun",
+        targetType: "review",
+        targetId: result.job.reviewId,
+        metadata: { repository: repository.fullName, pullRequestNumber: parsed.data.pullRequestNumber },
+      });
+    }
     const body: ReviewAccepted = { reviewId: result.job.reviewId, status: result.job.status === "running" ? "running" : "queued" };
     res.status(202).json(body);
   });

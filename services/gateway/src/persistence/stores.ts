@@ -1,6 +1,9 @@
 import type {
   AgentKind,
   AgentMode,
+  AuditAction,
+  AuditEvent,
+  AuditTargetType,
   CheckConclusion,
   CombinedReport,
   OrganizationMembership,
@@ -279,7 +282,29 @@ export interface SuggestionStore {
   reject(suggestionId: string, decision: { userId: string; reason?: RejectionReason; comment?: string; at: Date }): Promise<boolean>;
 }
 
+/** One sensitive action for the admins' audit log (`audit_events`). */
+export interface AuditEventInput {
+  action: AuditAction;
+  organizationId?: string;
+  /** Absent for an action from GitHub by someone with no account here; put their login in `metadata`. */
+  userId?: string;
+  targetType?: AuditTargetType;
+  targetId?: string;
+  ip?: string;
+  userAgent?: string;
+  requestId?: string;
+  metadata?: Record<string, unknown>;
+  at: Date;
+}
+
+export interface AuditStore {
+  record(event: AuditEventInput): Promise<void>;
+  /** Newest first, strictly before `before` when given; `actor` is the user's name, GitHub login or email. */
+  listForOrganization(organizationId: string, page: { before?: Date; limit: number }): Promise<AuditEvent[]>;
+}
+
 export interface Stores {
+  audit: AuditStore;
   repositories: RepositoryStore;
   repositoryConfig: RepositoryConfigStore;
   reviews: ReviewStore;

@@ -2,6 +2,7 @@ import type { WebhookAccepted, WebhookAction } from "@code-sentinel/contracts";
 import { badGateway, badRequest, type Logger } from "@code-sentinel/service-kit";
 import express, { Router, type Request, type RequestHandler } from "express";
 
+import type { AuditLog } from "../audit/audit-log.js";
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyAllFixes } from "../github/apply-all-fixes.js";
 import type { GitHubClient } from "../github/github-client.js";
@@ -30,6 +31,8 @@ export interface GithubWebhookRouterDeps {
   dashboardUrl?: string;
   /** Per-installation limit (FR-GW-05), run after the signature check. */
   rateLimit?: RequestHandler;
+  /** Records Apply all fixes clicked on the Check Run; omitted in tests that don't check it. */
+  audit?: Pick<AuditLog, "event">;
 }
 
 /**
@@ -46,6 +49,7 @@ export function createGithubWebhookRouter({
   fileContentMaxBytes,
   dashboardUrl,
   rateLimit,
+  audit,
   now = () => new Date(),
 }: GithubWebhookRouterDeps): Router {
   const router = Router();
@@ -123,7 +127,19 @@ export function createGithubWebhookRouter({
           { suggestions: stores.suggestions, github, now, ...(dashboardUrl ? { dashboardUrl } : {}) },
           { review, repository, ...(userId ? { userId } : {}), requestedBy: `@${sender.login} (Check Run)` },
         )
-          .then((outcome) => logger.info("apply all fixes", { requestId: res.locals.requestId, reviewId: review.reviewId, ...outcome }))
+          .then(async (outcome) => {
+            logger.info("apply all fixes", { requestId: res.locals.requestId, reviewId: review.reviewId, ...outcome });
+            if (!outcome.ok || !audit) return;
+            await audit.event({
+              action: "fixes_applied",
+              organizationId: review.organizationId,
+              ...(userId ? { userId } : {}),
+              requestId: res.locals.requestId,
+              targetType: "review",
+              targetId: review.reviewId,
+              metadata: { via: "check_run", githubLogin: sender.login, commitSha: outcome.commitSha, applied: outcome.applied, aiApplied: outcome.aiApplied },
+            });
+          })
           .catch((error: unknown) => logger.warn("apply all fixes failed", { requestId: res.locals.requestId, reviewId: review.reviewId, error }));
         accept("fixes_applying", "fixes_applying", review.reviewId);
         return;

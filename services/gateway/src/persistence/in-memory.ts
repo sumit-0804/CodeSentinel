@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentKind, AgentMode } from "@code-sentinel/contracts";
 
+import { toAuditEvent } from "./audit-event.js";
+
 import {
   modesOf,
   resolveEffectiveConfig,
@@ -11,6 +13,8 @@ import {
 } from "./effective-config.js";
 import {
   GithubAccountTakenError,
+  type AuditEventInput,
+  type AuditStore,
   storedStatuses,
   type GithubTokenStore,
   type InstallationStore,
@@ -104,6 +108,7 @@ export const emptySeed = (): StoreSeed => ({
  * way in and out, so callers cannot mutate the stored rows.
  */
 export class InMemoryStores implements Stores {
+  readonly audit: AuditStore;
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
@@ -478,6 +483,19 @@ export class InMemoryStores implements Stores {
         data.githubTokens = data.githubTokens.filter((t) => t.userId !== userId);
         data.githubTokens.push({ userId, ...structuredClone(tokens) });
       },
+    };
+
+    const auditEvents: (AuditEventInput & { eventId: string })[] = [];
+    this.audit = {
+      record: async (event) => {
+        auditEvents.push({ eventId: randomUUID(), ...structuredClone(event) });
+      },
+      listForOrganization: async (organizationId, { before, limit }) =>
+        auditEvents
+          .filter((e) => e.organizationId === organizationId && (!before || e.at < before))
+          .sort((a, b) => b.at.getTime() - a.at.getTime())
+          .slice(0, limit)
+          .map((e) => toAuditEvent(e, data.users.find((u) => u.userId === e.userId))),
     };
   }
 }

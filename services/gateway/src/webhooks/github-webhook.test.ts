@@ -275,6 +275,12 @@ describe("POST /webhooks/github: review flow", () => {
       await expect(target.stores.suggestions.forReview(reviewId)).resolves.toMatchObject([
         { state: "accepted", resolutionCommitSha: target.github.multiCommits[0]!.commitSha },
       ]);
+      const organizationId = (await target.stores.reviews.findByCheckRun(901))!.organizationId;
+      await vi.waitFor(async () =>
+        expect(await target.stores.audit.listForOrganization(organizationId, { limit: 5 })).toMatchObject([
+          { action: "fixes_applied", targetId: reviewId, metadata: { via: "check_run", githubLogin: "octocat", applied: 1 } },
+        ]),
+      );
 
       await expectIgnored(target, await deliver(target, click("something_else"), { event: "check_run" }), "event_ignored");
       await expectIgnored(target, await deliver(target, click("apply_all", { checkRunId: 999 }), { event: "check_run" }), "event_ignored");

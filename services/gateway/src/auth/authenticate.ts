@@ -77,7 +77,9 @@ export function createAuthMiddleware({ sessions, users, supabase, logger, now = 
     const token = /^Bearer\s+(\S+)$/i.exec(authorization.trim())?.[1];
     if (!token) throw invalidCredentials();
 
-    res.locals.principal = await supabasePrincipal(token, req);
+    const principal = await supabasePrincipal(token, req);
+    res.locals.principal = principal;
+    res.locals.logFields = { ...res.locals.logFields, userId: principal.userId, sessionId: principal.sessionId };
     next();
   };
 }

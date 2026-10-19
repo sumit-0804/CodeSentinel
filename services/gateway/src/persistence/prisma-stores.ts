@@ -1,9 +1,11 @@
-import { CombinedReportSchema } from "@code-sentinel/contracts";
+import { CombinedReportSchema, type AuditTargetType } from "@code-sentinel/contracts";
 import type { Prisma, PrismaClient } from "@code-sentinel/db";
 
 import { modesOf, resolveEffectiveConfig, type RepositoryConfigInputs } from "./effective-config.js";
+import { toAuditEvent } from "./audit-event.js";
 import {
   GithubAccountTakenError,
+  type AuditStore,
   storedStatuses,
   type GithubTokenStore,
   type InstallationStore,
@@ -143,6 +145,7 @@ async function upsertRepository(
  * 2^53, so they are safe as numbers.
  */
 export class PrismaStores implements Stores {
+  readonly audit: AuditStore;
   readonly repositories: RepositoryStore;
   readonly repositoryConfig: RepositoryConfigStore;
   readonly reviews: ReviewStore;
@@ -504,6 +507,45 @@ export class PrismaStores implements Stores {
           refreshExpiresAt: tokens.refreshExpiresAt ?? null,
         };
         await prisma.githubUserToken.upsert({ where: { userId }, create: { userId, ...fields }, update: fields });
+      },
+    };
+
+    this.audit = {
+      record: async ({ at, metadata, ...event }) => {
+        await prisma.auditEvent.create({
+          data: { ...event, createdAt: at, ...(metadata ? { metadata: metadata as Prisma.InputJsonValue } : {}) },
+        });
+      },
+      listForOrganization: async (organizationId, { before, limit }) => {
+        const rows = await prisma.auditEvent.findMany({
+          where: { organizationId, ...(before ? { createdAt: { lt: before } } : {}) },
+          include: { user: { select: { name: true, githubLogin: true, email: true } } },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+        });
+        return rows.map((row) =>
+          toAuditEvent(
+            {
+              eventId: row.id,
+              action: row.action,
+              ...(row.organizationId ? { organizationId: row.organizationId } : {}),
+              ...(row.userId ? { userId: row.userId } : {}),
+              ...(row.targetType ? { targetType: row.targetType as AuditTargetType } : {}),
+              ...(row.targetId ? { targetId: row.targetId } : {}),
+              ...(row.ip ? { ip: row.ip } : {}),
+              ...(row.userAgent ? { userAgent: row.userAgent } : {}),
+              ...(row.metadata && typeof row.metadata === "object" ? { metadata: row.metadata as Record<string, unknown> } : {}),
+              at: row.createdAt,
+            },
+            row.user
+              ? {
+                  ...(row.user.name ? { name: row.user.name } : {}),
+                  ...(row.user.githubLogin ? { githubLogin: row.user.githubLogin } : {}),
+                  ...(row.user.email ? { email: row.user.email } : {}),
+                }
+              : undefined,
+          ),
+        );
       },
     };
   }

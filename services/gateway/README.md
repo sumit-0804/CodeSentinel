@@ -416,6 +416,30 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
+## Audit log
+
+`audit/audit-log.ts` writes `audit_events` (`AuditStore`) for every sensitive action, with the user,
+the client IP (`req.ip`, so `TRUST_PROXY` matters), the browser's user agent and the request id. An
+entry never fails or delays the action: a failed write is logged as "audit event not recorded".
+
+| Action | Written by |
+| --- | --- |
+| `repository_config_updated`, `repository_reviews_toggled` | `PUT /v1/repositories/{id}/config` (`toggled` when only `reviewEnabled` changed); `metadata.changed` lists the fields |
+| `review_defaults_updated` | `PUT /v1/organizations/{id}/review-defaults` |
+| `fix_accepted`, `fix_rejected` | the suggestion accept and reject routes |
+| `fixes_applied` | Apply all fixes, from the dashboard or the Check Run button (`metadata.via: "check_run"` and the clicker's `githubLogin`; no `userId` when they have no account here) |
+| `review_rerun` | `POST /v1/reviews` when a review starts |
+| `github_linked`, `installations_synced` | GitHub link and sync, once per organization the sync reached |
+| `step_up_refused` | any `/v1` write answered 403 `mfa_required` (method and path in `metadata`) |
+| `session_revoked` | signing out another device (Wave 2) |
+
+`GET /v1/organizations/{id}/audit-events?before=&limit=` returns them newest first for the
+organization's **admins** (403 `admin_required` for members, 404 for another organization), with
+`actor` (name, GitHub login or email) and `nextBefore` for the next page.
+
+Every `/v1` request log line also carries `ip`, `userAgent` and, once authenticated, `userId` and
+`sessionId`.
+
 ## Metrics
 
 `GET /metrics` serves Prometheus text behind `Authorization: Bearer <METRICS_TOKEN>` (401 without it; not
