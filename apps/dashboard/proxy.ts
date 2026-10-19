@@ -10,7 +10,10 @@ export async function proxy(request: NextRequest) {
   let cacheHeaders: Record<string, string> = {};
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = env();
 
+  const userAgent = request.headers.get("user-agent");
   const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
+    // Token refreshes happen here; Supabase records the session's browser from this header.
+    ...(userAgent ? { global: { headers: { "User-Agent": userAgent } } } : {}),
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet, headers) {
