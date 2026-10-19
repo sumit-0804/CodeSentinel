@@ -224,6 +224,19 @@ describe("applyAllFixes", () => {
     expect(g.pullRequestComments[0]!.body).toContain("**1 AI-suggested fix was not applied.**");
   });
 
+  it("counts only the AI fixes one commit could carry, not one overlapped by a higher-priority fix", async () => {
+    const g = github();
+    const fixes = [security(), fix({ agent: "logic", ruleId: "logic/x", title: "Unchecked input" }), fix({ agent: "documentation", ruleId: "doc/x", lineStart: 9, lineEnd: 9 })];
+
+    await applyAllFixes(
+      { suggestions: { forReview: async () => fixes, accept: vi.fn(async () => true) }, github: g, now: () => new Date() },
+      { review: reviewOf(fixes), repository, requestedBy: "@stranger (Check Run)" },
+    );
+
+    expect(g.pullRequestComments[0]!.body).toContain("**2 AI-suggested fixes were not applied.**");
+    expect(g.pullRequestComments[0]!.body).toContain("or apply them from the dashboard.");
+  });
+
   it("links the comment to the review on the dashboard when its URL is configured", async () => {
     const fixes = [security(), styleTax()];
     const deps = (g: StubGitHubClient) => ({
@@ -241,7 +254,7 @@ describe("applyAllFixes", () => {
     const stranger = github();
     await applyAllFixes(deps(stranger), { review: reviewOf([security()]), repository, requestedBy: "@stranger (Check Run)" });
     expect(stranger.pullRequestComments[0]!.body).toContain(
-      `[Sign in to Code Sentinel](https://codesentinel.example/sign-in) with GitHub, or apply them from [this review on the dashboard](${reviewUrl}).`,
+      `[Sign in to Code Sentinel](https://codesentinel.example/sign-in) with GitHub, or apply it from [this review on the dashboard](${reviewUrl}).`,
     );
   });
 });

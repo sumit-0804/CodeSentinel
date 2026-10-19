@@ -124,7 +124,8 @@ export async function applyAllFixes(
   const open = openFixes(review.report, review.confidenceThreshold, review.headSha, await deps.suggestions.forReview(review.reviewId));
   // Without a Code Sentinel user (a GitHub collaborator with no account here) only exact fixes are applied (FR-GH-04).
   const fixes = input.userId ? open : open.filter((fix) => fix.kind === "deterministic");
-  const heldBack = open.length - fixes.length;
+  // Only the AI fixes one commit could have carried; one overlapped by a higher-priority fix wouldn't apply anyway.
+  const heldBack = input.userId ? 0 : pickFixes(open).chosen.filter((fix) => fix.kind === "ai_suggested").length;
 
   const [owner = "", repo = ""] = repository.fullName.split("/");
   const ref: PullRequestRef = {
@@ -168,7 +169,7 @@ function heldBackNote(count: number, links: DashboardLinks | undefined): string 
   const dashboard = links ? `[this review on the dashboard](${links.review})` : "the dashboard";
   return (
     `**${count} AI-suggested fix${count === 1 ? " was" : "es were"} not applied.** Whoever clicked has no Code Sentinel account in this ` +
-    `organization, and an AI fix needs a person who can answer for it. ${signIn} with GitHub, or apply them from ${dashboard}.`
+    `organization, and an AI fix needs a person who can answer for it. ${signIn} with GitHub, or apply ${count === 1 ? "it" : "them"} from ${dashboard}.`
   );
 }
 
