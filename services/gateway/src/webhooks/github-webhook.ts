@@ -1,6 +1,6 @@
 import type { WebhookAccepted, WebhookAction } from "@code-sentinel/contracts";
 import { badGateway, badRequest, type Logger } from "@code-sentinel/service-kit";
-import express, { Router, type Request } from "express";
+import express, { Router, type Request, type RequestHandler } from "express";
 
 import type { GatewayResponse } from "../auth/principal.js";
 import { applyAllFixes } from "../github/apply-all-fixes.js";
@@ -28,6 +28,8 @@ export interface GithubWebhookRouterDeps {
   fileContentMaxBytes?: number;
   /** Linked from the Apply all fixes comment. */
   dashboardUrl?: string;
+  /** Per-installation limit (FR-GW-05), run after the signature check. */
+  rateLimit?: RequestHandler;
 }
 
 /**
@@ -43,6 +45,7 @@ export function createGithubWebhookRouter({
   publisher,
   fileContentMaxBytes,
   dashboardUrl,
+  rateLimit,
   now = () => new Date(),
 }: GithubWebhookRouterDeps): Router {
   const router = Router();
@@ -51,6 +54,7 @@ export function createGithubWebhookRouter({
     "/webhooks/github",
     express.raw({ type: "*/*", limit: "1mb" }),
     createSignatureMiddleware(secret),
+    ...(rateLimit ? [rateLimit] : []),
     async (req: Request, res: GatewayResponse) => {
       const event = req.get("x-github-event");
       const deliveryId = req.get("x-github-delivery");

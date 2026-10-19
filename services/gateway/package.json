@@ -27,6 +27,7 @@
     "@octokit/plugin-paginate-rest": "^15.0.0",
     "@octokit/request": "^10.0.16",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
     "jose": "^6.2.12",
     "picomatch": "^4.0.7",

@@ -9,6 +9,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { createAuthMiddleware } from "./auth/authenticate.js";
+import { createRateLimits, DEFAULT_RATE_LIMITS } from "./http/rate-limits.js";
 import { createSupabaseTokenVerifier, type SupabaseTokenVerifier } from "./auth/supabase-token.js";
 import type { GatewayConfig } from "./config.js";
 import type { GitHubClient } from "./github/github-client.js";
@@ -57,8 +58,10 @@ export interface AppDeps {
 export function createApp(deps: AppDeps): Express {
   const { config, logger, orchestrator, github, stores, database, version = DEFAULT_VERSION, now, publisher, supabaseVerifier, githubLink } = deps;
   const app = express();
+  const limits = createRateLimits(config.rateLimits ?? DEFAULT_RATE_LIMITS);
 
   app.disable("x-powered-by");
+  app.set("trust proxy", config.trustProxy ?? 0);
   app.use(requestIdMiddleware());
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
@@ -72,6 +75,7 @@ export function createApp(deps: AppDeps): Express {
       orchestrator,
       logger,
       fileContentMaxBytes: config.fileContentMaxBytes,
+      rateLimit: limits.webhook,
       ...(config.dashboardUrl ? { dashboardUrl: config.dashboardUrl } : {}),
       ...(publisher ? { publisher } : {}),
       ...(now ? { now } : {}),
@@ -80,6 +84,8 @@ export function createApp(deps: AppDeps): Express {
 
   const v1 = express.Router();
   v1.use(express.json({ limit: "1mb" }));
+  // Before authentication, so an IP guessing tokens is stopped without verifying each one.
+  v1.use(limits.failedAuth);
   const supabase = supabaseVerifier ?? (config.supabaseUrl ? createSupabaseTokenVerifier({ supabaseUrl: config.supabaseUrl }) : undefined);
   v1.use(
     createAuthMiddleware({
@@ -90,7 +96,8 @@ export function createApp(deps: AppDeps): Express {
       ...(now ? { now } : {}),
     }),
   );
-  const stepUp = { minutes: config.mfaStepUpMinutes, now: now ?? (() => new Date()) };
+  v1.use(limits.user, limits.write);
+  const stepUp ={ minutes: config.mfaStepUpMinutes, now: now ?? (() => new Date()) };
   v1.use(createMeRouter({ users: stores.users }));
   v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, stepUp, ...(githubLink ? { link: githubLink } : {}) }));
   v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));

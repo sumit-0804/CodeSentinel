@@ -1,6 +1,7 @@
 import { DEFAULT_MFA_STEP_UP_MINUTES } from "@code-sentinel/contracts";
 import { z } from "zod";
 
+import { DEFAULT_RATE_LIMITS, type RateLimitSettings } from "./http/rate-limits.js";
 import { DEFAULT_FILE_CONTENT_MAX_BYTES } from "./webhooks/file-contents.js";
 
 export type GatewaySeed = "none" | "dev";
@@ -34,6 +35,10 @@ export interface GatewayConfig {
   mfaStepUpMinutes: number;
   /** Changed files up to this size go to the agents whole; larger ones as diffs only. 0 sends diffs only. */
   fileContentMaxBytes: number;
+  /** FR-GW-05; the defaults when absent (tests). */
+  rateLimits?: RateLimitSettings;
+  /** Proxy hops in front of the gateway (1 on Render), so `req.ip` is the caller's address. 0 trusts none. */
+  trustProxy?: number;
 }
 
 /** Thrown by `loadGatewayConfig` with every invalid variable listed at once. */
@@ -81,6 +86,11 @@ const EnvSchema = z.object({
   REVIEW_POLL_TIMEOUT_MS: integer(10_000, 1_800_000, 300_000),
   MFA_STEP_UP_MINUTES: integer(1, 60, DEFAULT_MFA_STEP_UP_MINUTES),
   FILE_CONTENT_MAX_BYTES: integer(0, 1_000_000, DEFAULT_FILE_CONTENT_MAX_BYTES),
+  RATE_LIMIT_WEBHOOK_PER_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.webhookPerMinute),
+  RATE_LIMIT_USER_PER_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.userPerMinute),
+  RATE_LIMIT_WRITE_PER_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.writePerMinute),
+  RATE_LIMIT_FAILED_AUTH_PER_15_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.failedAuthPer15Minutes),
+  TRUST_PROXY: integer(0, 10, 0),
   SERVICE_TOKEN: secret(1),
   SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   DASHBOARD_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
@@ -175,6 +185,13 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
     reviewPollTimeoutMs: values.REVIEW_POLL_TIMEOUT_MS,
     mfaStepUpMinutes: values.MFA_STEP_UP_MINUTES,
     fileContentMaxBytes: values.FILE_CONTENT_MAX_BYTES,
+    rateLimits: {
+      webhookPerMinute: values.RATE_LIMIT_WEBHOOK_PER_MIN,
+      userPerMinute: values.RATE_LIMIT_USER_PER_MIN,
+      writePerMinute: values.RATE_LIMIT_WRITE_PER_MIN,
+      failedAuthPer15Minutes: values.RATE_LIMIT_FAILED_AUTH_PER_15_MIN,
+    },
+    trustProxy: values.TRUST_PROXY,
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");

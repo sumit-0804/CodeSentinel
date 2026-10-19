@@ -40,7 +40,17 @@ describe("loadGatewayConfig", () => {
       reviewPollTimeoutMs: 300_000,
       mfaStepUpMinutes: 10,
       fileContentMaxBytes: 36_000,
+      rateLimits: { webhookPerMinute: 300, userPerMinute: 120, writePerMinute: 20, failedAuthPer15Minutes: 20 },
+      trustProxy: 0,
     });
+  });
+
+  it("reads the rate limits and TRUST_PROXY", () => {
+    const config = loadGatewayConfig({ ...FULL_ENV, RATE_LIMIT_USER_PER_MIN: "60", RATE_LIMIT_WRITE_PER_MIN: "5", TRUST_PROXY: "1" });
+
+    expect(config.rateLimits).toMatchObject({ userPerMinute: 60, writePerMinute: 5, webhookPerMinute: 300 });
+    expect(config.trustProxy).toBe(1);
+    expect(configError({ ...FULL_ENV, TRUST_PROXY: "11" }).problems).toEqual(["TRUST_PROXY must be between 0 and 10"]);
   });
 
   it("reads FILE_CONTENT_MAX_BYTES, where 0 sends diffs only", () => {

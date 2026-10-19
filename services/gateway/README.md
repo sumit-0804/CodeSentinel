@@ -416,6 +416,24 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
+## Rate limits (FR-GW-05)
+
+`http/rate-limits.ts`, on `express-rate-limit`. Every limit answers **429 `rate_limited`** with
+`Retry-After` (seconds) and the draft-7 `RateLimit` headers.
+
+| Limiter | Key | Default | Where |
+| --- | --- | --- | --- |
+| Webhooks | the payload's installation id | 300 / min | after the signature check, so a forged delivery never counts |
+| Failed sign-ins | client IP | 20 / 15 min, only requests answered 401 | before authentication on `/v1`, so a token-guessing IP stops costing JWKS checks |
+| Signed-in users | user id | 120 / min | every `/v1` request after authentication |
+| Writes | user id | 20 / min | `POST`, `PUT`, `PATCH`, `DELETE` on `/v1`: configuration, fix commits, re-runs, syncs |
+
+- Counters live in the gateway's memory, which fits one instance; more instances need a shared store.
+- `TRUST_PROXY` must equal the proxy hops in front of the gateway (1 on Render), or every caller
+  shares the proxy's IP.
+- Sign-in, password reset and TOTP verification happen in Supabase Auth, called by the dashboard,
+  and are limited by Supabase's own Auth rate limits (project settings → Rate Limits).
+
 ## Configuration
 
 Read by `loadGatewayConfig()` at startup; every invalid variable is reported in one error, then the
@@ -441,6 +459,9 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `SERVICE_TOKEN` | required | Sent to the orchestrator as a bearer token | non-empty |
 | `MFA_STEP_UP_MINUTES` | `10` | How long an authenticator code counts for on step-up routes | integer 1..60 |
 | `FILE_CONTENT_MAX_BYTES` | `36000` | Changed files up to this size go to the agents whole; larger ones as diffs only. `0` sends diffs only | integer 0..1000000 |
+| `RATE_LIMIT_WEBHOOK_PER_MIN`, `RATE_LIMIT_USER_PER_MIN`, `RATE_LIMIT_WRITE_PER_MIN` | `300`, `120`, `20` | Webhook deliveries per installation, `/v1` requests and `/v1` writes per user, per minute | integer 1..100000 |
+| `RATE_LIMIT_FAILED_AUTH_PER_15_MIN` | `20` | Requests answered 401 per IP address per 15 minutes | integer 1..100000 |
+| `TRUST_PROXY` | `0` | Proxy hops in front of the gateway (1 on Render), so `req.ip` is the caller's | integer 0..10 |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `DASHBOARD_URL` | unset | The dashboard's base URL. Set → the Apply all fixes comment links to the review's page (`/pull-requests/{reviewId}`) and to sign-in | http or https URL; a trailing slash is ignored |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
@@ -498,8 +519,6 @@ Differences to know:
 ## Not started yet
 
 - `/v1/reviews`: SSE events; the list's `minSeverity`, `trigger`, `from` and `to` filters and the detail's `agent` filter
-- Rate limiting (FR-GW-05)
-- "Apply all Style fixes" in one commit
 
 ## Develop
 
