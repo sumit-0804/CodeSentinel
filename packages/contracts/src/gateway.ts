@@ -356,6 +356,75 @@ export const CurrentUserSchema = z.object({
 });
 export type CurrentUser = z.infer<typeof CurrentUserSchema>;
 
+/** One of the caller's signed-in devices (a Supabase session). */
+export const SessionSchema = z.object({
+  sessionId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  lastActiveAt: z.string().datetime().optional(),
+  userAgent: z.string().optional(),
+  ip: z.string().optional(),
+  /** The session making this request. */
+  current: z.boolean(),
+});
+export type Session = z.infer<typeof SessionSchema>;
+
+export const SessionListSchema = z.object({ items: z.array(SessionSchema) });
+export type SessionList = z.infer<typeof SessionListSchema>;
+
+/** `unknown` when the orchestrator did not answer; `unavailable` also covers an agent with no URL. */
+export const AgentsHealthSchema = z.object({
+  checkedAt: z.string().datetime().optional(),
+  agents: z.array(
+    z.object({
+      agent: AgentKindSchema,
+      status: z.enum(["ok", "degraded", "unavailable", "unknown"]),
+      latencyMs: z.number().int().min(0).optional(),
+    }),
+  ),
+});
+export type AgentsHealth = z.infer<typeof AgentsHealthSchema>;
+
+export const AuditActionSchema = z.enum([
+  "repository_config_updated",
+  "review_defaults_updated",
+  "repository_reviews_toggled",
+  "fix_accepted",
+  "fix_rejected",
+  "fixes_applied",
+  "review_rerun",
+  "github_linked",
+  "installations_synced",
+  "session_revoked",
+  "step_up_refused",
+]);
+export type AuditAction = z.infer<typeof AuditActionSchema>;
+
+export const AuditTargetTypeSchema = z.enum(["repository", "organization", "suggestion", "review", "session", "installation", "user"]);
+export type AuditTargetType = z.infer<typeof AuditTargetTypeSchema>;
+
+export const AuditEventSchema = z.object({
+  eventId: z.string().uuid(),
+  action: AuditActionSchema,
+  /** Absent for an action from GitHub by someone with no account here; their login is in `metadata`. */
+  userId: z.string().uuid().optional(),
+  /** The user's name, email or GitHub login, for display. */
+  actor: z.string().optional(),
+  targetType: AuditTargetTypeSchema.optional(),
+  targetId: z.string().optional(),
+  ip: z.string().optional(),
+  userAgent: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string().datetime(),
+});
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
+export const AuditEventListSchema = z.object({
+  items: z.array(AuditEventSchema),
+  /** Pass as `before` for the next page; absent on the last page. */
+  nextBefore: z.string().datetime().optional(),
+});
+export type AuditEventList = z.infer<typeof AuditEventListSchema>;
+
 export const GatewayHealthSchema = z.object({
   status: z.enum(["ok", "degraded", "unavailable"]).optional(),
   version: z.string().optional(),

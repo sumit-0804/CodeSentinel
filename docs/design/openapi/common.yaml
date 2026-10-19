@@ -401,7 +401,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     TooManyRequests:
-      description: Per-installation rate limit exceeded (FR-GW-05).
+      description: >
+        A rate limit was exceeded (FR-GW-05); `code` is `rate_limited`. Webhooks are limited per
+        installation, `/v1` per user (writes more tightly), and failed sign-ins per IP address.
+        `Retry-After` says how many seconds to wait.
       headers:
         Retry-After:
           schema:

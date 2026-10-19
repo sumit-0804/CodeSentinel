@@ -123,6 +123,22 @@ enum SuggestionState {
   @@map("suggestion_state")
 }
 
+enum AuditAction {
+  repository_config_updated
+  review_defaults_updated
+  repository_reviews_toggled
+  fix_accepted
+  fix_rejected
+  fixes_applied
+  review_rerun
+  github_linked
+  installations_synced
+  session_revoked
+  step_up_refused
+
+  @@map("audit_action")
+}
+
 // ---------------------------------------------------------------------------
 // Tenancy and identity (FR-GW-02, FR-WEB-01, NFR-13)
 // ---------------------------------------------------------------------------
@@ -143,6 +159,7 @@ model Organization {
   repositories      Repository[]
   reviews           Review[]
   findingEmbeddings FindingEmbedding[]
+  auditEvents       AuditEvent[]
 
   @@map("organizations")
 }
@@ -165,6 +182,7 @@ model User {
   agentDefaultsUpdated OrganizationAgentDefault[]
   reviewsTriggered     Review[]
   suggestionsResolved  Suggestion[]
+  auditEvents          AuditEvent[]
 
   @@map("users")
 }
@@ -212,6 +230,28 @@ model GithubUserToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("github_user_tokens")
+}
+
+/// Sensitive actions for the admins' audit log (WP6). Written by the gateway; a failed write never fails the action.
+model AuditEvent {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String?     @map("organization_id") @db.Uuid
+  /// Absent for an action from GitHub by someone with no account here; their login is in `metadata`.
+  userId         String?     @map("user_id") @db.Uuid
+  action         AuditAction
+  targetType     String?     @map("target_type")
+  targetId       String?     @map("target_id")
+  ip             String?
+  userAgent      String?     @map("user_agent")
+  requestId      String?     @map("request_id")
+  metadata       Json?
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt(sort: Desc)], map: "idx_audit_org_created")
+  @@map("audit_events")
 }
 
 // ---------------------------------------------------------------------------

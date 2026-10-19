@@ -196,14 +196,14 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
-        '429':
-          $ref: './common.yaml#/components/responses/TooManyRequests'
         '502':
           description: '`github_unavailable` or `orchestrator_unavailable`.'
           content:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
     get:
       tags: [Reviews]
@@ -290,6 +290,8 @@ paths:
                     $ref: './common.yaml#/components/schemas/PageInfo'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/reviews/{reviewId}:
     parameters:
@@ -333,6 +335,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/reviews/{reviewId}/events:
     parameters:
@@ -358,6 +362,8 @@ paths:
           $ref: './common.yaml#/components/responses/Unauthorized'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   # -------------------------------------------------------------------------
   # UC-3 — Apply or reject an AI-suggested fix
@@ -412,6 +418,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/reviews/{reviewId}/apply-all-fixes:
     parameters:
@@ -459,6 +467,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/findings/{findingId}/suggestion/reject:
     parameters:
@@ -506,6 +516,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   # -------------------------------------------------------------------------
   # UC-4 — Configure repository and agent settings
@@ -544,6 +556,8 @@ paths:
         Active repositories of the caller's organization (`X-Organization-Id`, or the signed-in
         user's only membership). Repositories removed from the installation are left out.
         403 `organization_required` when a user in several organizations sends no header.
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/github/link:
     post:
@@ -602,6 +616,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/installations:
     get:
@@ -628,6 +644,8 @@ paths:
           $ref: './common.yaml#/components/responses/Unauthorized'
         '403':
           $ref: './common.yaml#/components/responses/Forbidden'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/installations/sync:
     post:
@@ -669,6 +687,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/repositories/{repositoryId}/pulls:
     parameters:
@@ -702,6 +722,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/repositories/{repositoryId}/branches:
     parameters:
@@ -734,6 +756,8 @@ paths:
             application/json:
               schema:
                 $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/repositories/{repositoryId}/config:
     parameters:
@@ -761,6 +785,8 @@ paths:
                 $ref: '#/components/schemas/RepositoryConfig'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
     put:
       tags: [Repositories]
@@ -805,6 +831,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /v1/organizations/{organizationId}/review-defaults:
     parameters:
@@ -831,6 +859,8 @@ paths:
                 $ref: '#/components/schemas/ReviewDefaults'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
     put:
       tags: [Repositories]
       operationId: updateReviewDefaults
@@ -863,6 +893,8 @@ paths:
           $ref: './common.yaml#/components/responses/Forbidden'
         '404':
           $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   # -------------------------------------------------------------------------
   # Account
@@ -883,6 +915,128 @@ paths:
                 $ref: '#/components/schemas/CurrentUser'
         '401':
           $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/me/sessions:
+    get:
+      tags: [Account]
+      operationId: listMySessions
+      summary: List the caller's signed-in devices
+      description: >
+        Every live Supabase session of the caller, newest activity first, with the browser and IP
+        address it was last used from. The session making this request is marked `current`.
+      responses:
+        '200':
+          description: The caller's sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/me/sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Account]
+      operationId: revokeMySession
+      summary: Sign out one of the caller's other devices
+      description: >
+        Ends that session at once; its next request answers 401 session_revoked. Needs a TOTP
+        step-up (403 mfa_required). Only the caller's own sessions; another user's answers 404, and
+        the current session answers 409 current_session (sign out instead). Recorded in the audit log.
+      responses:
+        '204':
+          description: Signed out.
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          description: '`current_session`: this is the session making the request.'
+          content:
+            application/json:
+              schema:
+                $ref: './common.yaml#/components/schemas/Error'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/agents/health:
+    get:
+      tags: [Service]
+      operationId: getAgentsHealth
+      summary: Health of each review agent
+      description: >
+        The orchestrator's last check of every agent, cached for 15 seconds. When the orchestrator
+        itself can't be reached, every agent is `unknown`. Open to any signed-in user.
+      responses:
+        '200':
+          description: One entry per agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentsHealth'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
+
+  /v1/organizations/{organizationId}/audit-events:
+    parameters:
+      - name: organizationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Account]
+      operationId: listAuditEvents
+      summary: Read the organization's audit log
+      description: >
+        Sensitive actions in the organization, newest first: configuration changes, fix decisions,
+        re-runs, GitHub links and syncs, signed-out devices and refused step-ups. Admins only
+        (403 admin_required); another organization answers 404. Page with `before`, the
+        `nextBefore` of the previous page.
+      parameters:
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: A page of audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '429':
+          $ref: './common.yaml#/components/responses/TooManyRequests'
 
   /healthz:
     get:
@@ -1457,4 +1611,119 @@ components:
               role:
                 type: string
                 enum: [admin, member]
+
+    Session:
+      type: object
+      required: [sessionId, createdAt, current]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        lastActiveAt:
+          type: string
+          format: date-time
+        userAgent:
+          type: string
+          description: The browser it was last refreshed from, as Supabase recorded it.
+        ip:
+          type: string
+        current:
+          type: boolean
+          description: The session making this request.
+
+    SessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+
+    AgentsHealth:
+      type: object
+      required: [agents]
+      properties:
+        checkedAt:
+          type: string
+          format: date-time
+          description: When the orchestrator last checked; absent when it couldn't be reached.
+        agents:
+          type: array
+          items:
+            type: object
+            required: [agent, status]
+            properties:
+              agent:
+                $ref: './common.yaml#/components/schemas/AgentKind'
+              status:
+                type: string
+                enum: [ok, degraded, unavailable, unknown]
+                description: '`unavailable` also covers an agent with no URL configured; `unknown` means the orchestrator did not answer.'
+              latencyMs:
+                type: integer
+                minimum: 0
+
+    AuditAction:
+      type: string
+      enum:
+        - repository_config_updated
+        - review_defaults_updated
+        - repository_reviews_toggled
+        - fix_accepted
+        - fix_rejected
+        - fixes_applied
+        - review_rerun
+        - github_linked
+        - installations_synced
+        - session_revoked
+        - step_up_refused
+
+    AuditEvent:
+      type: object
+      required: [eventId, action, createdAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        userId:
+          type: string
+          format: uuid
+          description: Absent for an action from GitHub by someone with no account here (its login is in metadata).
+        actor:
+          type: string
+          description: The user's name, email or GitHub login, for display.
+        targetType:
+          type: string
+          enum: [repository, organization, suggestion, review, session, installation, user]
+        targetId:
+          type: string
+        ip:
+          type: string
+        userAgent:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    AuditEventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        nextBefore:
+          type: string
+          format: date-time
+          description: Pass as `before` for the next page; absent on the last page.
 

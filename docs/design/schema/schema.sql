@@ -50,6 +50,9 @@ CREATE TYPE "rejection_reason" AS ENUM ('false_positive', 'not_applicable', 'wil
 -- CreateEnum
 CREATE TYPE "suggestion_state" AS ENUM ('proposed', 'accepted', 'rejected', 'superseded');
 
+-- CreateEnum
+CREATE TYPE "audit_action" AS ENUM ('repository_config_updated', 'review_defaults_updated', 'repository_reviews_toggled', 'fix_accepted', 'fix_rejected', 'fixes_applied', 'review_rerun', 'github_linked', 'installations_synced', 'session_revoked', 'step_up_refused');
+
 -- CreateTable
 CREATE TABLE "organizations" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -112,6 +115,23 @@ CREATE TABLE "github_user_tokens" (
     "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "github_user_tokens_pkey" PRIMARY KEY ("user_id")
+);
+
+-- CreateTable
+CREATE TABLE "audit_events" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "organization_id" UUID,
+    "user_id" UUID,
+    "action" "audit_action" NOT NULL,
+    "target_type" TEXT,
+    "target_id" TEXT,
+    "ip" TEXT,
+    "user_agent" TEXT,
+    "request_id" TEXT,
+    "metadata" JSONB,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "audit_events_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -308,6 +328,9 @@ CREATE INDEX "idx_org_members_user" ON "organization_members"("user_id");
 CREATE UNIQUE INDEX "github_installations_github_installation_id_key" ON "github_installations"("github_installation_id");
 
 -- CreateIndex
+CREATE INDEX "idx_audit_org_created" ON "audit_events"("organization_id", "created_at" DESC);
+
+-- CreateIndex
 CREATE UNIQUE INDEX "repositories_github_repo_id_key" ON "repositories"("github_repo_id");
 
 -- CreateIndex
@@ -381,6 +404,12 @@ ALTER TABLE "github_installations" ADD CONSTRAINT "github_installations_organiza
 
 -- AddForeignKey
 ALTER TABLE "github_user_tokens" ADD CONSTRAINT "github_user_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "audit_events" ADD CONSTRAINT "audit_events_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "audit_events" ADD CONSTRAINT "audit_events_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "repositories" ADD CONSTRAINT "repositories_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -479,6 +508,7 @@ ALTER TABLE "findings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "suggestions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "finding_embeddings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "finding_similarities" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "audit_events" ENABLE ROW LEVEL SECURITY;
 
 -- Prisma's bookkeeping table sits in `public` too; hide it from Supabase's publishable key like every other table.
 ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;

@@ -31,6 +31,7 @@ changes for Supabase Auth and job persistence:
 | `reviews.job_id`, `idempotency_key`, `report` (JSONB), `error` (JSONB); status `cancelled` | The orchestrator's job store lives in `reviews`, and the API answers from one row |
 | `api_keys` and the editor review trigger removed; `review_trigger` is `github_pull_request` or `dashboard_manual` (migration `20261014120000`) | There is no editor client; every caller is the GitHub App or a signed-in dashboard user |
 | `finding_embeddings`: `collection` / `vector_id` (Chroma) replaced by `embedding vector(768)`, the `vector` extension enabled (migration `20261017100000`) | pgvector in the same database replaces ChromaDB. Search is exact over one organization's rows (`idx_embeddings_org`): an HNSW index filters after the nearest-neighbour step and can miss matches, and Prisma can't declare one |
+| `audit_events` and the `audit_action` enum (migration `20261019100000`); RLS on | The admins' audit log (WP6): who changed configuration, decided fixes, re-ran reviews, linked GitHub or signed out a device, from which IP and browser |
 | `organizations.default_review_branches` removed; repositories that followed a non-empty list and had none of their own get it copied into `repository_settings.review_branches` (migration `20261016100000`) | Branches to review are set per repository only; an organization default made the list hard to find and edit |
 
 Prisma can't express the CHECK constraints or row-level security, so they are hand-written at the

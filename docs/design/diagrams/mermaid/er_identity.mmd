@@ -10,6 +10,8 @@ erDiagram
     REPOSITORIES  ||--|| REPOSITORY_SETTINGS    : "configured by"
     REPOSITORIES  ||--o{ REPOSITORY_AGENT_CONFIG : "sets agent modes in"
     ORGANIZATIONS ||--o{ ORGANIZATION_AGENT_DEFAULTS : "sets default modes in"
+    ORGANIZATIONS |o--o{ AUDIT_EVENTS            : "logs actions in"
+    USERS         |o--o{ AUDIT_EVENTS            : "performs"
 
     ORGANIZATIONS {
         uuid        id                           PK
@@ -98,4 +100,18 @@ erDiagram
         enum        mode          "off, comment or block"
         uuid        updated_by    FK
         timestamptz updated_at
+    }
+
+    AUDIT_EVENTS {
+        uuid        id              PK
+        uuid        organization_id FK
+        uuid        user_id         FK "absent for a GitHub user with no account here"
+        enum        action          "config, fixes, re-run, GitHub, sessions, step-up"
+        text        target_type
+        text        target_id
+        text        ip
+        text        user_agent
+        text        request_id
+        jsonb       metadata
+        timestamptz created_at      "indexed with organization_id, newest first"
     }

@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import { CombinedReportSchema } from "./common.js";
 import { exampleCombinedReport } from "./examples.js";
 import {
+  AgentsHealthSchema,
+  AuditEventListSchema,
   CurrentUserSchema,
   RejectSuggestionRequestSchema,
   RepositoryConfigSchema,
   RepositoryConfigUpdateSchema,
   RepositorySchema,
   ReviewAcceptedSchema,
+  SessionListSchema,
   ReviewDetailSchema,
   ReviewListQuerySchema,
   ReviewListResponseSchema,
@@ -215,5 +218,27 @@ describe("CurrentUserSchema", () => {
       organizations: [{ organizationId: REPOSITORY_ID, displayName: "x", role: "owner" }],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("SessionListSchema", () => {
+  it("accepts a session with only what Supabase always records", () => {
+    const parsed = SessionListSchema.parse({ items: [{ sessionId: KEY_ID, createdAt: "2026-10-19T10:00:00.000Z", current: true }] });
+    expect(parsed.items[0]?.current).toBe(true);
+  });
+});
+
+describe("AgentsHealthSchema", () => {
+  it("accepts unknown when the orchestrator did not answer, and rejects other statuses", () => {
+    expect(AgentsHealthSchema.safeParse({ agents: [{ agent: "logic", status: "unknown" }] }).success).toBe(true);
+    expect(AgentsHealthSchema.safeParse({ agents: [{ agent: "logic", status: "down" }] }).success).toBe(false);
+  });
+});
+
+describe("AuditEventListSchema", () => {
+  it("accepts an event from GitHub with no user, and rejects an unknown action", () => {
+    const event = { eventId: KEY_ID, action: "fixes_applied", targetType: "review", targetId: REVIEW_ID, metadata: { githubLogin: "octocat" }, createdAt: "2026-10-19T10:00:00.000Z" };
+    expect(AuditEventListSchema.safeParse({ items: [event], nextBefore: "2026-10-19T09:00:00.000Z" }).success).toBe(true);
+    expect(AuditEventListSchema.safeParse({ items: [{ ...event, action: "deleted_everything" }] }).success).toBe(false);
   });
 });
