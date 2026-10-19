@@ -5,9 +5,11 @@ import Link from "next/link";
 import { ExternalLink, GitBranch, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { toast } from "sonner";
-import type { BranchListResponse, PullRequestListItem, RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
+import type { AgentKind, AgentsHealth, BranchListResponse, PullRequestListItem, RepositoryConfig, ReviewDefaults } from "@code-sentinel/contracts";
 import { saveRepositoryConfig } from "@/app/(app)/repositories/actions";
+import { AgentHealthNotice } from "@/components/app/agent-health-notice";
 import { useStepUp } from "@/components/auth/step-up";
+import { AGENTS } from "@/components/brand/agents";
 import { AgentModeRows } from "@/components/config/agent-mode-rows";
 import { BranchPatterns } from "@/components/config/branch-patterns";
 import { ThresholdField } from "@/components/config/threshold-field";
@@ -24,6 +26,9 @@ import {
   stopFollowingDefaults,
   type RepositoryDraft,
 } from "@/lib/config-draft";
+import { healthByAgent } from "@/lib/agent-health-view";
+
+const AGENT_KINDS: AgentKind[] = AGENTS.map(({ agent }) => agent);
 
 export type RepositoryTab = "agents" | "pull-requests" | "advanced";
 
@@ -51,6 +56,7 @@ export function RepositorySettings({
   openPullRequests,
   branches,
   lastConfidences,
+  health,
 }: {
   config: RepositoryConfig;
   defaults: ReviewDefaults;
@@ -62,6 +68,8 @@ export function RepositorySettings({
   branches?: BranchListResponse;
   /** Finding confidences of the newest finished review, for the threshold preview. */
   lastConfidences?: number[];
+  /** Each agent's health from the gateway, for the Agents tab's notice; absent when it couldn't be read. */
+  health?: AgentsHealth;
 }) {
   const [saved, setSaved] = useState(config);
   const [draft, setDraft] = useState<RepositoryDraft>(() => repositoryDraftFrom(config));
@@ -184,6 +192,7 @@ export function RepositorySettings({
         </Tabs.List>
 
         <Tabs.Content value="agents" className="grid grid-cols-[minmax(0,1fr)] gap-[30px] outline-none">
+          <AgentHealthNotice health={health} onlyAgents={AGENT_KINDS.filter((agent) => shownModes[agent] !== "off")} />
           <Section title="Which agents run on pull requests">
             <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line px-5 py-4">
               <div>
@@ -206,6 +215,7 @@ export function RepositorySettings({
             <AgentModeRows
               modes={shownModes}
               locked={modesLocked}
+              {...(health ? { health: healthByAgent(health) } : {})}
               onChange={(agent, mode) => setDraft((current) => ({ ...current, modes: { ...current.modes, [agent]: mode } }))}
             />
           </Section>

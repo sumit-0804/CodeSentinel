@@ -4,6 +4,7 @@ import type { AgentKind, AgentMode } from "@code-sentinel/contracts";
 import { RadioGroup } from "radix-ui";
 import { cn } from "cn";
 import { AGENTS, AgentGlyph } from "@/components/brand/agents";
+import { HEALTH_WORD, type HealthByAgent } from "@/lib/agent-health-view";
 import type { AgentModes } from "@/lib/config-draft";
 
 const MODE_WORD: Record<AgentMode, string> = { off: "Off", comment: "Comment", block: "Block merge" };
@@ -25,10 +26,13 @@ export function AgentModeRows({
   modes,
   locked,
   onChange,
+  health,
 }: {
   modes: AgentModes;
   locked: boolean;
   onChange: (agent: AgentKind, mode: AgentMode) => void;
+  /** Each agent's last health check; an unhealthy agent gets a note by its name. */
+  health?: HealthByAgent;
 }) {
   return (
     <>
@@ -49,6 +53,16 @@ export function AgentModeRows({
                   {live ? null : (
                     <span className="rounded-full border border-warn/35 px-2 text-[11.5px] font-semibold text-warn">Not deployed yet</span>
                   )}
+                  {health?.[agent] && health[agent] !== "ok" ? (
+                    <span
+                      className={cn(
+                        "rounded-full border px-2 text-[11.5px] font-semibold",
+                        health[agent] === "unavailable" ? "border-crit/40 text-crit" : "border-warn/35 text-warn",
+                      )}
+                    >
+                      {HEALTH_WORD[health[agent]]}
+                    </span>
+                  ) : null}
                 </b>
                 <p className="text-sm text-ink-2">{what}</p>
               </div>

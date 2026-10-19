@@ -1,11 +1,13 @@
 import { Suspense, type ReactNode } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AgentHealthNotice } from "@/components/app/agent-health-notice";
 import { Onboarding } from "@/components/app/onboarding";
 import { EmptyState, PageHead, PageSkeleton } from "@/components/app/page-parts";
 import { RefreshWhileRunning } from "@/components/reviews/refresh-while-running";
 import { ReviewTable } from "@/components/reviews/review-table";
 import { Button } from "@/components/ui/button";
+import { getAgentHealth } from "@/lib/agent-health";
 import { requireUser } from "@/lib/auth";
 import { getRepositories } from "@/lib/repositories";
 import { overviewOf } from "@/lib/review-view";
@@ -54,7 +56,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 }
 
 async function OverviewContent() {
-  const [claims, repos, reviews] = await Promise.all([requireUser(), getRepositories(), getReviews(true)]);
+  const [claims, repos, reviews, health] = await Promise.all([requireUser(), getRepositories(), getReviews(true), getAgentHealth()]);
   const user = toShellUser(claims);
   const firstName = user.displayName.includes("@") ? null : user.displayName.split(" ")[0];
   const connected = repos.ok && repos.repositories.length > 0;
@@ -84,6 +86,7 @@ async function OverviewContent() {
           </Button>
         }
       />
+      <AgentHealthNotice health={health} />
       <div className="panel grid grid-cols-1 divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <Fact value={overview.blocked} label="Blocked" tone="crit" />
         <Fact value={overview.running} label="Being reviewed" tone="cyan" />
