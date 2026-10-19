@@ -34,6 +34,7 @@ startAgentService(agent, { defaultPort: 8081, serviceDir: fileURLToPath(new URL(
 | `POST /v1/review` | Bearer `SERVICE_TOKEN` required (401). Body over `maxDiffBytes` → 413 `payload_too_large`; invalid body → 400 `invalid_body`. `options.llmProvider` set but that provider has no key here → 503 `llm_unavailable`. Otherwise 200 with an `AgentReviewResponse` |
 | `GET /v1/capabilities` | `agent`, `version`, `languages`, `usesLlm`, `producesDeterministicFixes`, `maxDiffBytes`, `maxFileTokens`, `rules`; no token needed |
 | `GET /healthz` | `ok`, `degraded` (an LLM agent without a key) or `unavailable` (a check from `agent.health()` failed, answered with 503) |
+| `GET /metrics` | Prometheus text: `http_request_duration_seconds{service="<agent>-agent",method,route,status}` and process metrics. Bearer `METRICS_TOKEN`; not mounted without one |
 
 `runReview()` is the pipeline behind `POST /v1/review`:
 
@@ -64,7 +65,7 @@ Helpers:
 - `mergeRuleAndLlmFindings(rules, llm, key)`: drops an LLM finding within 3 lines of a rule finding
   with the same `key`, moving its fix onto the rule finding.
 - `@code-sentinel/agent-kit/testing`: `fakeLlm(answer)`, `llmFinding()` and `wholeFile()` for agent tests.
-- `loadAgentEnv(env, { defaultPort, usesLlm })`: `PORT`, `SERVICE_TOKEN` (required), and for LLM
+- `loadAgentEnv(env, { defaultPort, usesLlm })`: `PORT`, `SERVICE_TOKEN` (required), `METRICS_TOKEN` (optional, 16+ characters), and for LLM
   agents an `LlmClient` from the `GROQ_*` / `GEMINI_*` variables
   ([`packages/llm`](../llm/README.md)). Every bad variable is reported at once.
 - `startAgentService(agent, { defaultPort, serviceDir })`: the whole `server.ts` of an agent —

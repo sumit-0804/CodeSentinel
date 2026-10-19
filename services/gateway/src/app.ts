@@ -9,6 +9,7 @@ import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { createAuthMiddleware } from "./auth/authenticate.js";
+import { createGatewayMetrics } from "./http/metrics.js";
 import { createRateLimits, DEFAULT_RATE_LIMITS } from "./http/rate-limits.js";
 import { createSupabaseTokenVerifier, type SupabaseTokenVerifier } from "./auth/supabase-token.js";
 import type { GatewayConfig } from "./config.js";
@@ -58,13 +59,17 @@ export interface AppDeps {
 export function createApp(deps: AppDeps): Express {
   const { config, logger, orchestrator, github, stores, database, version = DEFAULT_VERSION, now, publisher, supabaseVerifier, githubLink } = deps;
   const app = express();
-  const limits = createRateLimits(config.rateLimits ?? DEFAULT_RATE_LIMITS);
+  const metrics = createGatewayMetrics();
+  const limits = createRateLimits(config.rateLimits ?? DEFAULT_RATE_LIMITS, (limiter) => metrics.rateLimited.inc({ limiter }));
 
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy ?? 0);
+  app.use(metrics.httpMiddleware);
   app.use(requestIdMiddleware());
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
+  app.use(metrics.router(config.metricsToken));
+  app.use("/webhooks/github", metrics.webhookOutcomes);
 
   app.use(createHealthzRouter({ orchestrator, version, ...(database ? { database } : {}) }));
   app.use(

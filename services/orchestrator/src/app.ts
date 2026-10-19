@@ -5,6 +5,7 @@ import {
   requestLoggerMiddleware,
   serviceAuthMiddleware,
   type Logger,
+  type Metrics,
 } from "@code-sentinel/service-kit";
 import express, { type Express } from "express";
 import helmet from "helmet";
@@ -25,17 +26,22 @@ export interface AppDeps {
   database?: DatabaseHealth;
   /** Reported by `/healthz`. */
   version?: string;
+  /** Request timing and `GET /metrics` (behind `metricsToken`); omitted in tests that don't check them. */
+  metrics?: Pick<Metrics, "httpMiddleware" | "router">;
+  metricsToken?: string;
 }
 
 /** The orchestrator's HTTP layer (`orchestrator.yaml`). Only the gateway calls `/internal/*`. */
 export function createApp(deps: AppDeps): Express {
-  const { serviceToken, logger, controller, agentsHealth, database, version = DEFAULT_VERSION } = deps;
+  const { serviceToken, logger, controller, agentsHealth, database, version = DEFAULT_VERSION, metrics, metricsToken } = deps;
   const app = express();
 
   app.disable("x-powered-by");
+  if (metrics) app.use(metrics.httpMiddleware);
   app.use(requestIdMiddleware());
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
+  if (metrics) app.use(metrics.router(metricsToken));
 
   app.use(createHealthzRouter({ version, ...(database ? { database } : {}) }));
 

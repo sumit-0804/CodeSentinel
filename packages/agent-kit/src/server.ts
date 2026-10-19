@@ -27,7 +27,13 @@ export function startAgentService(agent: ReviewAgent, options: StartOptions): vo
   }
   if (agent.usesLlm && !config.llm) logger.warn("no LLM provider configured; running rule-based checks only");
 
-  const app = createAgentService({ agent, serviceToken: config.serviceToken, logger, ...(config.llm ? { llm: config.llm } : {}) });
+  const app = createAgentService({
+    agent,
+    serviceToken: config.serviceToken,
+    logger,
+    ...(config.llm ? { llm: config.llm } : {}),
+    ...(config.metricsToken ? { metricsToken: config.metricsToken } : {}),
+  });
   const server = app.listen(config.port, () => {
     logger.info("agent listening", {
       port: config.port,

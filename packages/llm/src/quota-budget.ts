@@ -107,6 +107,18 @@ export class QuotaBudget {
     this.entries = this.entries.filter((entry) => entry.id !== reservation.id);
   }
 
+  /** The smallest share left in any window, 0..1, for monitoring (an alert fires when it runs low). */
+  remainingShare(): number {
+    const now = this.now().getTime();
+    this.prune(now);
+    return Math.min(
+      ...this.windows.map((window) => {
+        const used = sum(this.entries.filter((entry) => entry.at > now - window.spanMs), window.field);
+        return Math.max(0, 1 - used / window.limit);
+      }),
+    );
+  }
+
   private prune(now: number): void {
     this.entries = this.entries.filter((entry) => entry.at > now - DAY_MS);
   }

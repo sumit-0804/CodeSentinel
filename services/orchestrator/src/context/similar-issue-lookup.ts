@@ -8,6 +8,8 @@ export interface SimilarIssueLookupOptions {
   maxFindings?: number;
   /** The whole lookup's time limit; findings not done by then go out without past issues. */
   timeoutMs?: number;
+  /** Told how each finding's lookup ended, for metrics. */
+  onLookup?: (outcome: "found" | "none" | "failed") => void;
 }
 
 export interface LookupScope {
@@ -32,6 +34,7 @@ export class SimilarIssueLookup {
   private readonly limit: number;
   private readonly maxFindings: number;
   private readonly timeoutMs: number;
+  private readonly onLookup: (outcome: "found" | "none" | "failed") => void;
 
   constructor(
     private readonly vectors: VectorRepository,
@@ -40,6 +43,7 @@ export class SimilarIssueLookup {
     this.limit = options.limit ?? 3;
     this.maxFindings = options.maxFindings ?? DEFAULT_CONTEXT_MAX_FINDINGS;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_CONTEXT_TIMEOUT_MS;
+    this.onLookup = options.onLookup ?? (() => {});
   }
 
   /** The findings worth a lookup: above the threshold, in report order (already ranked), capped. */
@@ -63,8 +67,10 @@ export class SimilarIssueLookup {
             }),
             signal,
           );
+          this.onLookup(similarPastIssues.length > 0 ? "found" : "none");
           return similarPastIssues.length > 0 ? { ...finding, similarPastIssues } : finding;
         } catch {
+          this.onLookup("failed");
           return finding;
         }
       }),

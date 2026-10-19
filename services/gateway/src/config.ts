@@ -37,6 +37,8 @@ export interface GatewayConfig {
   fileContentMaxBytes: number;
   /** FR-GW-05; the defaults when absent (tests). */
   rateLimits?: RateLimitSettings;
+  /** Bearer token for `GET /metrics` (Prometheus / Grafana); unset → no /metrics route. */
+  metricsToken?: string;
   /** Proxy hops in front of the gateway (1 on Render), so `req.ip` is the caller's address. 0 trusts none. */
   trustProxy?: number;
 }
@@ -91,6 +93,7 @@ const EnvSchema = z.object({
   RATE_LIMIT_WRITE_PER_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.writePerMinute),
   RATE_LIMIT_FAILED_AUTH_PER_15_MIN: integer(1, 100_000, DEFAULT_RATE_LIMITS.failedAuthPer15Minutes),
   TRUST_PROXY: integer(0, 10, 0),
+  METRICS_TOKEN: z.preprocess(blankAsUndefined, z.string().min(16, "must be at least 16 characters").optional()),
   SERVICE_TOKEN: secret(1),
   SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   DASHBOARD_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
@@ -195,6 +198,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");
+  if (values.METRICS_TOKEN !== undefined) config.metricsToken = values.METRICS_TOKEN;
   if (values.DASHBOARD_URL !== undefined) config.dashboardUrl = values.DASHBOARD_URL.replace(/\/+$/, "");
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };

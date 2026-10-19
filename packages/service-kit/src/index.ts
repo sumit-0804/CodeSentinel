@@ -1,6 +1,6 @@
 /**
  * @code-sentinel/service-kit: the HTTP plumbing every Code-Sentinel service shares — structured
- * logging, request ids, the request log, `ApiError` responses and env-file loading.
+ * logging, request ids, the request log, `ApiError` responses, Prometheus metrics and env-file loading.
  */
 
 export { loadEnvFile, envFileName, type Env } from "./env-file.js";
@@ -10,6 +10,7 @@ export { badGateway, badRequest, forbidden, HttpError, notFound, unauthorized, u
 export { REQUEST_ID_HEADER, requestIdMiddleware } from "./http/request-id.js";
 export { requestLoggerMiddleware } from "./http/request-logger.js";
 export { serviceAuthMiddleware } from "./http/service-auth.js";
+export { Counter, createMetrics, Gauge, Histogram, type Metrics, type Registry } from "./metrics.js";
 export type { ServiceHandler, ServiceLocals, ServiceResponse } from "./locals.js";
 export {
   createJsonLogger,

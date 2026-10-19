@@ -416,6 +416,18 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
+## Metrics
+
+`GET /metrics` serves Prometheus text behind `Authorization: Bearer <METRICS_TOKEN>` (401 without it; not
+mounted when the variable is unset), for Grafana Cloud. Every series carries `service="gateway"`:
+
+- `http_request_duration_seconds{method,route,status}`, by route pattern (`/v1/reviews/:reviewId`), from
+  `@code-sentinel/service-kit`
+- `webhook_deliveries_total{event,outcome}`: the outcome the request log records (`review_started`,
+  `event_ignored`, `repository_disabled`, ..., or `rate_limited`)
+- `rate_limited_total{limiter}`: `webhook`, `failed_auth`, `user` or `write`
+- process metrics (CPU, memory, event loop lag)
+
 ## Rate limits (FR-GW-05)
 
 `http/rate-limits.ts`, on `express-rate-limit`. Every limit answers **429 `rate_limited`** with
@@ -462,6 +474,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `RATE_LIMIT_WEBHOOK_PER_MIN`, `RATE_LIMIT_USER_PER_MIN`, `RATE_LIMIT_WRITE_PER_MIN` | `300`, `120`, `20` | Webhook deliveries per installation, `/v1` requests and `/v1` writes per user, per minute | integer 1..100000 |
 | `RATE_LIMIT_FAILED_AUTH_PER_15_MIN` | `20` | Requests answered 401 per IP address per 15 minutes | integer 1..100000 |
 | `TRUST_PROXY` | `0` | Proxy hops in front of the gateway (1 on Render), so `req.ip` is the caller's | integer 0..10 |
+| `METRICS_TOKEN` | unset | Bearer token for `GET /metrics`; unset → no such route | at least 16 characters |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `DASHBOARD_URL` | unset | The dashboard's base URL. Set → the Apply all fixes comment links to the review's page (`/pull-requests/{reviewId}`) and to sign-in | http or https URL; a trailing slash is ignored |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |

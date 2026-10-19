@@ -21,6 +21,18 @@ describe("QuotaBudget", () => {
     expect(next).toEqual({ ok: false, retryAt: new Date(T0 + 60_001) });
   });
 
+  it("reports the smallest share left across its windows", () => {
+    const { now, advance } = clock();
+    const budget = new QuotaBudget(GROQ, { headroom: 0.8, now });
+    expect(budget.remainingShare()).toBe(1);
+
+    budget.tryReserve({ requests: 1, tokens: 3200 });
+    expect(budget.remainingShare()).toBeCloseTo(0.5);
+
+    advance(60_001);
+    expect(budget.remainingShare()).toBeCloseTo(1 - 3200 / 160_000);
+  });
+
   it("refuses a cost that can never fit with retryAt null", () => {
     const budget = new QuotaBudget(GROQ, { headroom: 0.8, now: clock().now });
 

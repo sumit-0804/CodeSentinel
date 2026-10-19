@@ -7,6 +7,8 @@ export interface AgentEnv {
   serviceToken: string;
   /** Built from `GROQ_*` / `GEMINI_*`; absent when neither key is set. */
   llm?: LlmClient;
+  /** Bearer token for `GET /metrics`; unset → no /metrics route. */
+  metricsToken?: string;
 }
 
 /** Thrown by `loadAgentEnv` with every invalid variable listed at once. */
@@ -23,7 +25,7 @@ export class AgentConfigError extends Error {
 const blankAsUndefined = (value: unknown) =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
 
-/** Reads `PORT`, `SERVICE_TOKEN` and, for LLM agents, the keys and limits from `@code-sentinel/llm`. */
+/** Reads `PORT`, `SERVICE_TOKEN`, `METRICS_TOKEN` and, for LLM agents, the keys and limits from `@code-sentinel/llm`. */
 export function loadAgentEnv(env: Record<string, string | undefined>, options: { defaultPort: number; usesLlm: boolean }): AgentEnv {
   const schema = z.object({
     PORT: z.preprocess(
@@ -36,6 +38,7 @@ export function loadAgentEnv(env: Record<string, string | undefined>, options: {
         .default(options.defaultPort),
     ),
     SERVICE_TOKEN: z.preprocess(blankAsUndefined, z.string().min(1, "must not be empty")),
+    METRICS_TOKEN: z.preprocess(blankAsUndefined, z.string().min(16, "must be at least 16 characters").optional()),
   });
 
   const problems: string[] = [];
@@ -58,5 +61,10 @@ export function loadAgentEnv(env: Record<string, string | undefined>, options: {
   }
 
   if (!parsed.success || problems.length) throw new AgentConfigError(problems);
-  return { port: parsed.data.PORT, serviceToken: parsed.data.SERVICE_TOKEN, ...(llm ? { llm } : {}) };
+  return {
+    port: parsed.data.PORT,
+    serviceToken: parsed.data.SERVICE_TOKEN,
+    ...(llm ? { llm } : {}),
+    ...(parsed.data.METRICS_TOKEN ? { metricsToken: parsed.data.METRICS_TOKEN } : {}),
+  };
 }

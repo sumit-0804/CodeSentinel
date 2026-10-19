@@ -13,6 +13,7 @@ services log, trace and fail the same way. Moved out of the gateway unchanged.
 | `checkDependency` | `health.ts` | For `/healthz`: `"ok"` when a probe (e.g. a database `SELECT 1`) resolves within the timeout (2 s by default), otherwise `"unavailable"` |
 | `loadEnvFile`, `envFileName` | `env-file.ts` | Merges `.env` (or `.env.production` when `NODE_ENV=production`) under the process environment; real variables win |
 | `serviceAuthMiddleware` | `http/service-auth.ts` | Requires `Authorization: Bearer <SERVICE_TOKEN>` on internal routes; compares SHA-256 digests in constant time. 401 `unauthenticated` without a bearer token, `invalid_credentials` for a wrong one |
+| `createMetrics(service)`, `Counter`, `Gauge`, `Histogram` | `metrics.ts` | Prometheus (prom-client): a registry labelled `service`, process defaults, `httpMiddleware` timing every request as `http_request_duration_seconds{method,route,status}` (the route pattern, never the raw path), and `router(token)` serving `GET /metrics` behind `Authorization: Bearer <METRICS_TOKEN>`; without a token the route isn't mounted. A service registers its own series on `registry` |
 | `ServiceLocals`, `ServiceResponse`, `ServiceHandler` | `locals.ts` | Types for `res.locals`; a service extends `ServiceLocals` with its own fields |
 
 Test helpers live under a separate entry point so they never load in production code:
@@ -29,9 +30,11 @@ import { captureLogger, withServer } from "@code-sentinel/service-kit/testing";
 Mount order in a service's `createApp`:
 
 ```ts
+app.use(metrics.httpMiddleware);         // const metrics = createMetrics("gateway")
 app.use(requestIdMiddleware());
 app.use(requestLoggerMiddleware(logger));
 app.use(helmet());
+app.use(metrics.router(config.metricsToken));
 // ...routes...
 app.use(notFoundHandler());
 app.use(errorHandler(logger));

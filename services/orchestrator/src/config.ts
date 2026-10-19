@@ -13,6 +13,8 @@ export interface OrchestratorConfig {
   databaseUrl?: string;
   /** Which Groq account (organization) each LLM agent calls with; agents on one account share its quota. */
   groqAccounts: Partial<Record<AgentKind, string>>;
+  /** Bearer token for `GET /metrics`; unset → no /metrics route. */
+  metricsToken?: string;
   /** Similar past issues (vector context): findings looked up per review, the time limit and the match score. */
   context: { maxFindings: number; timeoutMs: number; minSimilarity: number };
 }
@@ -61,6 +63,7 @@ const EnvSchema = z.object({
   GROQ_ACCOUNT_PERFORMANCE: account,
   GROQ_ACCOUNT_LOGIC: account,
   GROQ_ACCOUNT_DOCUMENTATION: account,
+  METRICS_TOKEN: z.preprocess(blankAsUndefined, z.string().min(16, "must be at least 16 characters").optional()),
   CONTEXT_MAX_FINDINGS: integer(1, 100, 20),
   CONTEXT_TIMEOUT_MS: integer(500, 30_000, 5000),
   CONTEXT_MIN_SIMILARITY: z.preprocess(
@@ -108,5 +111,6 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
       minSimilarity: values.CONTEXT_MIN_SIMILARITY,
     },
     ...(values.DATABASE_URL !== undefined ? { databaseUrl: values.DATABASE_URL } : {}),
+    ...(values.METRICS_TOKEN !== undefined ? { metricsToken: values.METRICS_TOKEN } : {}),
   };
 }

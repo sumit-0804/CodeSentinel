@@ -52,6 +52,7 @@ Only the gateway calls the orchestrator. Every `/internal/v1` route needs
 | `POST /internal/v1/review-jobs/{jobId}/cancel` | 200 + `cancelled` job; aborts every agent call in flight. A finished job is returned unchanged. 404 `not_found` |
 | `GET /internal/v1/agents/health` | Each agent's `/healthz`, polled on demand (2 s per agent) and cached 30 s. An agent with no URL or no answer is `unavailable` |
 | `GET /healthz` | `{ status: "ok", version }`, no token needed. With `DATABASE_URL` it adds `checks.database` (`ok` / `unavailable`, `SELECT 1` within 2 s) and is `degraded` when the database is not `ok` |
+| `GET /metrics` | Prometheus text behind `Authorization: Bearer <METRICS_TOKEN>` (not mounted without one), every series labelled `service="orchestrator"`: `http_request_duration_seconds`, `agent_runs_total{agent,status}`, `agent_latency_seconds{agent}`, `vector_lookups_total{outcome}` (`found` / `none` / `failed`), `llm_quota_remaining_ratio{provider,account}` (the smallest share left in any window of each Groq account, Gemini and the embedding key, read at scrape time), plus process metrics |
 | missing or wrong token | 401 `unauthenticated` / `invalid_credentials` |
 
 A job's status follows the report's (see the status rules below). A run that throws is `failed` with
@@ -256,6 +257,7 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | `AGENT_LOGIC_URL` | unset | Logic agent base URL |
 | `AGENT_DOCUMENTATION_URL` | unset | Documentation agent base URL |
 | `SERVICE_TOKEN` | required | Expected from the gateway on `/internal/*` and sent to every agent as `Authorization: Bearer <token>`. Same value as the gateway's |
+| `METRICS_TOKEN` | unset | Bearer token for `GET /metrics`; unset → the route isn't mounted | at least 16 characters |
 | `AGENT_TIMEOUT_MS` | `20000` | Client default timeout, integer in 1000..120000; anything else throws at startup. A job's `agentTimeoutMs` overrides it per review |
 
 An unset agent URL is not an error: that agent is recorded as `skipped` when a job enables it.

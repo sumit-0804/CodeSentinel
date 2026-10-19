@@ -1,6 +1,7 @@
 import { AgentReviewRequestSchema, type Capabilities, type Health, type HealthStatus } from "@code-sentinel/contracts";
 import { LlmUnavailableError, type LlmClient } from "@code-sentinel/llm";
 import {
+  createMetrics,
   errorHandler,
   HttpError,
   notFoundHandler,
@@ -23,15 +24,20 @@ export interface AgentServiceDeps {
   logger: Logger;
   /** Absent when no LLM key is set; LLM agents then run their rule-based checks only. */
   llm?: LlmClient;
+  /** Unset → no `GET /metrics` route; request timing is still collected. */
+  metricsToken?: string;
 }
 
 /** One agent service speaking `docs/design/openapi/agent.yaml` (FR-SEC-04, NFR-10). */
-export function createAgentService({ agent, serviceToken, logger, llm }: AgentServiceDeps): Express {
+export function createAgentService({ agent, serviceToken, logger, llm, metricsToken }: AgentServiceDeps): Express {
   const app = express();
+  const metrics = createMetrics(`${agent.kind}-agent`);
   app.disable("x-powered-by");
+  app.use(metrics.httpMiddleware);
   app.use(requestIdMiddleware());
   app.use(requestLoggerMiddleware(logger));
   app.use(helmet());
+  app.use(metrics.router(metricsToken));
 
   app.get("/healthz", async (_req, res) => {
     const health = await checkHealth(agent, llm);

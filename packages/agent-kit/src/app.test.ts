@@ -24,6 +24,19 @@ const service = (agent = fakeAgent()) => createAgentService({ agent, serviceToke
 const review = (body: unknown, headers: Record<string, string> = AUTH) => ({ method: "POST", headers, body: JSON.stringify(body) });
 
 describe("agent service", () => {
+  it("times reviews and serves them on /metrics behind METRICS_TOKEN", async () => {
+    const app = createAgentService({ agent: fakeAgent(), serviceToken: TOKEN, logger: noopLogger, metricsToken: "agent-metrics-token" });
+
+    await withServer(app, async (baseUrl) => {
+      await fetch(`${baseUrl}/v1/review`, review({ reviewId: EXAMPLE_REVIEW_ID, files: [file("a.py")] }));
+      expect((await fetch(`${baseUrl}/metrics`, { headers: AUTH })).status).toBe(401);
+
+      const text = await (await fetch(`${baseUrl}/metrics`, { headers: { Authorization: "Bearer agent-metrics-token" } })).text();
+      expect(text).toMatch(/http_request_duration_seconds_count\{service="\w+-agent",method="POST",route="\/v1\/review",status="200"\} 1/);
+    });
+    expect((await call(service(), "/metrics")).status).toBe(404);
+  });
+
   it("answers POST /v1/review with a contract-valid response", async () => {
     const { status, body } = await call(service(), "/v1/review", review({ reviewId: EXAMPLE_REVIEW_ID, files: [file("a.py")] }));
 
