@@ -4,7 +4,7 @@ import { captureLogger, withServer } from "@code-sentinel/service-kit/testing";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../app.js";
-import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
+import { seededStores, testAppDeps, testConfig, TEST_USER_ID } from "../test-support/fixtures.js";
 import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
 const CONFIG_PATH = `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/config`;
@@ -51,6 +51,22 @@ describe("audit log (WP6)", () => {
       ]);
     });
     expect(lines.find((line) => line.path === CONFIG_PATH)).toMatchObject({ userId: TEST_USER_ID, userAgent: BROWSER, sessionId: expect.any(String) });
+  });
+
+  it("records the browser's IP the dashboard forwards, when TRUST_PROXY counts the dashboard", async () => {
+    const seeded = await seededStores();
+    const supabase = await testSupabase();
+    const app = createApp(testAppDeps({ config: testConfig({ trustProxy: 1 }), stores: seeded.stores, supabaseVerifier: supabase.verifier }));
+
+    await withServer(app, async (baseUrl) => {
+      const put = await fetch(`${baseUrl}${CONFIG_PATH}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${await supabase.sign(TEST_USER_ID, stepUpClaims())}`, "Content-Type": "application/json", "X-Forwarded-For": "203.0.113.9" },
+        body: JSON.stringify({ autoFixStyle: true }),
+      });
+      expect(put.status).toBe(200);
+    });
+    await expect(seeded.stores.audit.listForOrganization(EXAMPLE_ORGANIZATION_ID, { limit: 1 })).resolves.toMatchObject([{ ip: "203.0.113.9" }]);
   });
 
   it("records a write refused for want of a fresh authenticator code, and still answers 403", async () => {

@@ -1,4 +1,5 @@
 import "server-only";
+import { headers as requestHeaders } from "next/headers";
 import type { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { gatewayUrl } from "@/lib/env";
@@ -33,6 +34,12 @@ export async function gatewayFetch<T>(
   headers.set("Authorization", `Bearer ${token}`);
   headers.set("Accept", "application/json");
   if (organizationId) headers.set("X-Organization-Id", organizationId);
+  // The gateway sees this server, not the browser: pass on who is really asking, for its rate limits and audit log.
+  const incoming = await requestHeaders();
+  const clientIp = incoming.get("x-forwarded-for")?.split(",")[0]?.trim() || incoming.get("x-real-ip");
+  if (clientIp) headers.set("X-Forwarded-For", clientIp);
+  const userAgent = incoming.get("user-agent");
+  if (userAgent) headers.set("User-Agent", userAgent);
 
   let response: Response;
   try {

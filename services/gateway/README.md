@@ -473,8 +473,11 @@ mounted when the variable is unset), for Grafana Cloud. Every series carries `se
 | Writes | user id | 20 / min | `POST`, `PUT`, `PATCH`, `DELETE` on `/v1`: configuration, fix commits, re-runs, syncs |
 
 - Counters live in the gateway's memory, which fits one instance; more instances need a shared store.
-- `TRUST_PROXY` must equal the proxy hops in front of the gateway (1 on Render), or every caller
-  shares the proxy's IP.
+- The dashboard calls the gateway from its server and forwards the browser's IP (`X-Forwarded-For`) and
+  user agent. `TRUST_PROXY` must count every hop in front of the gateway, the dashboard included: 1
+  locally, 2 on Render (Render's proxy + the dashboard). Too low and every user shares the dashboard's IP;
+  too high and a direct caller can pick its own IP. The per-user limits are keyed by user id, so a
+  forged `X-Forwarded-For` only affects the failed sign-in limit.
 - Sign-in, password reset and TOTP verification happen in Supabase Auth, called by the dashboard,
   and are limited by Supabase's own Auth rate limits (project settings → Rate Limits).
 
@@ -505,7 +508,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `FILE_CONTENT_MAX_BYTES` | `36000` | Changed files up to this size go to the agents whole; larger ones as diffs only. `0` sends diffs only | integer 0..1000000 |
 | `RATE_LIMIT_WEBHOOK_PER_MIN`, `RATE_LIMIT_USER_PER_MIN`, `RATE_LIMIT_WRITE_PER_MIN` | `300`, `120`, `20` | Webhook deliveries per installation, `/v1` requests and `/v1` writes per user, per minute | integer 1..100000 |
 | `RATE_LIMIT_FAILED_AUTH_PER_15_MIN` | `20` | Requests answered 401 per IP address per 15 minutes | integer 1..100000 |
-| `TRUST_PROXY` | `0` | Proxy hops in front of the gateway (1 on Render), so `req.ip` is the caller's | integer 0..10 |
+| `TRUST_PROXY` | `0` | Proxy hops in front of the gateway, counting the dashboard (1 locally, 2 on Render), so `req.ip` is the browser's | integer 0..10 |
 | `METRICS_TOKEN` | unset | Bearer token for `GET /metrics`; unset → no such route | at least 16 characters |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
 | `DASHBOARD_URL` | unset | The dashboard's base URL. Set → the Apply all fixes comment links to the review's page (`/pull-requests/{reviewId}`) and to sign-in | http or https URL; a trailing slash is ignored |
