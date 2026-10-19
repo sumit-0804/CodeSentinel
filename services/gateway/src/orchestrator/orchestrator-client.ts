@@ -1,5 +1,7 @@
 import {
+  AgentHealthSnapshotSchema,
   HealthSchema,
+  type AgentHealthSnapshot,
   ReviewJobSchema,
   type Health,
   type ReviewJob,
@@ -109,6 +111,12 @@ export class OrchestratorClient {
     }
   }
 
+  /** `GET /internal/v1/agents/health`: the orchestrator's cached check of every agent. */
+  async agentsHealth(): Promise<AgentHealthSnapshot> {
+    const { data } = await this.send({ method: "GET", path: "/internal/v1/agents/health", schema: AgentHealthSnapshotSchema, successStatuses: [200] });
+    return data;
+  }
+
   /** `GET /healthz`. */
   async health(): Promise<Health> {
     const { data } = await this.send({ method: "GET", path: "/healthz", schema: HealthSchema, successStatuses: [200] });
@@ -175,4 +183,4 @@ export class OrchestratorClient {
 }
 
 /** The slice of the client the app uses, so tests can pass plain objects. */
-export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "getReviewJob" | "cancelReviewJob" | "health">;
+export type OrchestratorClientLike = Pick<OrchestratorClient, "createReviewJob" | "getReviewJob" | "cancelReviewJob" | "health" | "agentsHealth">;

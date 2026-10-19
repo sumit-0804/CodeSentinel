@@ -67,6 +67,7 @@ export function reviewJobResponse(status: 200 | 202): ReviewJob {
 export function fakeOrchestrator(overrides: Partial<OrchestratorClientLike> = {}): OrchestratorClientLike {
   return {
     health: async () => ({ status: "ok", version: "test" }),
+    agentsHealth: async () => ({ checkedAt: "2026-10-19T10:00:00.000Z", agents: [{ agent: "security", status: "ok", latencyMs: 4 }] }),
     createReviewJob: async () => ({ job: reviewJobResponse(202), created: true }),
     getReviewJob: async () => ({ ...reviewJobResponse(202), status: "completed" }),
     cancelReviewJob: async () => ({ ...reviewJobResponse(202), status: "cancelled" }),

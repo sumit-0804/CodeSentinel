@@ -125,6 +125,17 @@ describe("OrchestratorClient.createReviewJob", () => {
   });
 });
 
+describe("OrchestratorClient.agentsHealth", () => {
+  it("gets the agents' health with the service token and validates it", async () => {
+    const snapshot = { checkedAt: "2026-10-19T10:00:00.000Z", agents: [{ agent: "style", status: "ok", latencyMs: 3 }] };
+    const fetchImpl = vi.fn<FetchLike>(async () => jsonResponse(snapshot));
+
+    await expect(client(fetchImpl).agentsHealth()).resolves.toEqual(snapshot);
+    expect(fetchImpl.mock.calls[0]![0]).toBe("http://orchestrator.internal:8080/internal/v1/agents/health");
+    expect((fetchImpl.mock.calls[0]![1]?.headers as Record<string, string>).Authorization).toBe("Bearer service-token");
+  });
+});
+
 describe("OrchestratorClient.health", () => {
   it("gets /healthz and validates it", async () => {
     const fetchImpl = vi.fn<FetchLike>(async () => jsonResponse({ status: "ok", version: "0.1.0" }));

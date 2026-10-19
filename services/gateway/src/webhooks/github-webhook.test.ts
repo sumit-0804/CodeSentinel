@@ -32,6 +32,7 @@ async function webhookApp({ edit, files = devSeed().pullRequestFiles, createRevi
   const github = new StubGitHubClient(files);
   const orchestrator = {
     health: async () => ({ status: "ok" as const }),
+    agentsHealth: async () => ({ checkedAt: "2026-10-19T10:00:00.000Z", agents: [] }),
     createReviewJob: vi.fn<OrchestratorClientLike["createReviewJob"]>(
       createReviewJob ?? (async () => ({ job: reviewJobResponse(202), created: true })),
     ),

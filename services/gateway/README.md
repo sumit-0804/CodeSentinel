@@ -416,6 +416,14 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
+## Agent health
+
+`GET /v1/agents/health` (any signed-in user) relays the orchestrator's
+`/internal/v1/agents/health`: per agent `ok`, `degraded` or `unavailable` (also an agent with no URL),
+with `latencyMs` and `checkedAt`. One answer is reused for 15 seconds, so a burst of dashboard pages
+makes one call. When the orchestrator doesn't answer, every agent is `unknown` and the reason is
+logged. The dashboard uses it for the agent notices (`routes/agents-health.ts`).
+
 ## Audit log
 
 `audit/audit-log.ts` writes `audit_events` (`AuditStore`) for every sensitive action, with the user,
