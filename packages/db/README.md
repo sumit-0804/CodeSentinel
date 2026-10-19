@@ -87,10 +87,10 @@ Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `wh
    create schema if not exists private;
 
    -- Is this session still signed in? (every /v1 request)
-   create or replace function private.session_is_active(session_id uuid) returns boolean
+   create or replace function private.session_is_active(p_session_id uuid) returns boolean
    language sql stable security definer set search_path = '' as $$
      select exists (select 1 from auth.sessions s
-                    where s.id = session_id and (s.not_after is null or s.not_after > now()))
+                    where s.id = p_session_id and (s.not_after is null or s.not_after > now()))
    $$;
 
    -- The user's signed-in devices (GET /v1/me/sessions)
