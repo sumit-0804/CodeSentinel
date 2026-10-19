@@ -78,6 +78,44 @@ Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `wh
    `postgres://prisma.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres`.
    Servers (gateway, orchestrator on Render) and migrations both use it.
 3. Copy [`.env.example`](.env.example) to `.env` and fill in `DATABASE_URL` and `DIRECT_URL`.
+4. **SQL Editor:** the session functions the gateway calls. Supabase owns `auth`, and `postgres` can't grant
+   it to `prisma`, so these `security definer` functions (owned by `postgres`) are the only way in. They
+   live in `private`, which the Data API doesn't expose, and only `prisma` may run them. They aren't in
+   a migration because CI and shadow databases have no `auth` schema (the gateway's integration test
+   installs stand-ins instead). Re-running the block is safe.
+   ```sql
+   create schema if not exists private;
+
+   -- Is this session still signed in? (every /v1 request)
+   create or replace function private.session_is_active(session_id uuid) returns boolean
+   language sql stable security definer set search_path = '' as $$
+     select exists (select 1 from auth.sessions s
+                    where s.id = session_id and (s.not_after is null or s.not_after > now()))
+   $$;
+
+   -- The user's signed-in devices (GET /v1/me/sessions)
+   create or replace function private.user_sessions(p_user_id uuid)
+   returns table (id uuid, created_at timestamptz, last_active_at timestamptz, user_agent text, ip text)
+   language sql stable security definer set search_path = '' as $$
+     select s.id, s.created_at, coalesce(s.updated_at, s.created_at), s.user_agent, host(s.ip)
+       from auth.sessions s
+      where s.user_id = p_user_id and (s.not_after is null or s.not_after > now())
+      order by coalesce(s.updated_at, s.created_at) desc
+   $$;
+
+   -- Sign one of them out; its refresh tokens go with it (DELETE /v1/me/sessions/{id})
+   create or replace function private.revoke_session(p_user_id uuid, p_session_id uuid) returns boolean
+   language sql volatile security definer set search_path = '' as $$
+     with gone as (delete from auth.sessions s where s.id = p_session_id and s.user_id = p_user_id returning 1)
+     select exists (select 1 from gone)
+   $$;
+
+   revoke all on function private.session_is_active(uuid), private.user_sessions(uuid),
+     private.revoke_session(uuid, uuid) from public, anon, authenticated;
+   grant usage on schema private to prisma;
+   grant execute on function private.session_is_active(uuid), private.user_sessions(uuid),
+     private.revoke_session(uuid, uuid) to prisma;
+   ```
 
 ## Develop
 

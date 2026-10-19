@@ -566,6 +566,30 @@ export function describeStoresContract(
       await expect(stores.sessions.isActive(sessionId)).resolves.toBe(true);
       await expect(stores.sessions.isActive(randomUUID())).resolves.toBe(false);
     });
+
+    it("lists a user's devices most recently active first, and signs one out only for its owner", async () => {
+      const [laptop, phone, someoneElses] = [randomUUID(), randomUUID(), randomUUID()];
+      const otherUser = randomUUID();
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.activeSessionIds.push(laptop, phone, someoneElses);
+        seed.sessions = [
+          { sessionId: laptop, userId: ids.userId, createdAt: new Date("2026-10-01T09:00:00Z"), lastActiveAt: new Date("2026-10-19T08:00:00Z"), userAgent: "Firefox", ip: "203.0.113.7" },
+          { sessionId: phone, userId: ids.userId, createdAt: new Date("2026-10-18T09:00:00Z"), lastActiveAt: new Date("2026-10-19T09:00:00Z") },
+          { sessionId: someoneElses, userId: otherUser, createdAt: new Date("2026-10-18T09:00:00Z") },
+        ];
+      });
+
+      const listed = await stores.sessions.listForUser(ids.userId);
+      expect(listed.map((s) => s.sessionId)).toEqual([phone, laptop]);
+      expect(listed[1]).toEqual({ sessionId: laptop, createdAt: new Date("2026-10-01T09:00:00Z"), lastActiveAt: new Date("2026-10-19T08:00:00Z"), userAgent: "Firefox", ip: "203.0.113.7" });
+
+      await expect(stores.sessions.revoke(ids.userId, someoneElses)).resolves.toBe(false);
+      await expect(stores.sessions.isActive(someoneElses)).resolves.toBe(true);
+      await expect(stores.sessions.revoke(ids.userId, laptop)).resolves.toBe(true);
+      await expect(stores.sessions.isActive(laptop)).resolves.toBe(false);
+      await expect(stores.sessions.revoke(ids.userId, laptop)).resolves.toBe(false);
+      await expect(stores.sessions.listForUser(ids.userId)).resolves.toMatchObject([{ sessionId: phone }]);
+    });
   });
 
   const repo = (githubRepoId: number, fullName: string) => ({ githubRepoId, fullName, defaultBranch: "main", isPrivate: true });

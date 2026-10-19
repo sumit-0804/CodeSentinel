@@ -108,7 +108,7 @@ export function createApp(deps: AppDeps): Express {
   );
   v1.use(limits.user, limits.write);
   const stepUp = { minutes: config.mfaStepUpMinutes, now: now ?? (() => new Date()) };
-  v1.use(createMeRouter({ users: stores.users }));
+  v1.use(createMeRouter({ users: stores.users, sessions: stores.sessions, stepUp, audit }));
   v1.use(createAgentsHealthRouter({ orchestrator, logger, ...(now ? { now } : {}) }));
   v1.use(createGithubRouter({ users: stores.users, installations: stores.installations, logger, stepUp, audit, ...(githubLink ? { link: githubLink } : {}) }));
   v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp, audit }));

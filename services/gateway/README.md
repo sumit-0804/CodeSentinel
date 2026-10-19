@@ -416,6 +416,14 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
+## Signed-in devices
+
+`GET /v1/me/sessions` lists the caller's live Supabase sessions, most recently active first, with
+the browser and IP Supabase recorded and `current` on the one making the request.
+`DELETE /v1/me/sessions/{id}` signs one out at once (its next request is 401 `session_revoked`, and its
+refresh tokens are gone): TOTP step-up, 409 `current_session` for this device (sign out instead), 404
+for another user's or an unknown session. Recorded in the audit log as `session_revoked`.
+
 ## Agent health
 
 `GET /v1/agents/health` (any signed-in user) relays the orchestrator's
@@ -439,7 +447,7 @@ entry never fails or delays the action: a failed write is logged as "audit event
 | `review_rerun` | `POST /v1/reviews` when a review starts |
 | `github_linked`, `installations_synced` | GitHub link and sync, once per organization the sync reached |
 | `step_up_refused` | any `/v1` write answered 403 `mfa_required` (method and path in `metadata`) |
-| `session_revoked` | signing out another device (Wave 2) |
+| `session_revoked` | `DELETE /v1/me/sessions/{id}` |
 
 `GET /v1/organizations/{id}/audit-events?before=&limit=` returns them newest first for the
 organization's **admins** (403 `admin_required` for members, 404 for another organization), with
@@ -550,11 +558,12 @@ with fresh random ids and deletes them afterwards, so it can also run against Su
 Differences to know:
 - `organizations.default_confidence_threshold` is `NOT NULL DEFAULT 0.800`, so with a database the
   threshold source is never `platform_default`; only the in-memory stores reach it.
-- Sessions belong to Supabase (`auth.sessions`). `PrismaStores.sessions.isActive` calls
-  `private.session_is_active(uuid)`, a `security definer` function created by hand in each Supabase
-  project (only `prisma` may run it; see `packages/db`). A test database has no `auth` schema, so the
-  integration test installs a stand-in backed by `private.test_sessions`. It never replaces a real
-  function, and against Supabase the session cases are skipped. In memory, `activeSessionIds` lists
+- Sessions belong to Supabase (`auth.sessions`). `PrismaStores.sessions` calls
+  `private.session_is_active`, `private.user_sessions` and `private.revoke_session`, `security definer`
+  functions created by hand in each Supabase project (only `prisma` may run them; the SQL is in
+  [`packages/db`](../../packages/db/README.md), Supabase setup step 4). A test database has no `auth`
+  schema, so the integration test installs stand-ins backed by `private.test_sessions`. They never
+  replace real functions, and against Supabase the session cases are skipped. In memory, `activeSessionIds` lists
   the live sessions, so without a database a real dashboard session is never accepted.
 - `users.recordSignIn` upserts by id and leaves memberships alone.
 - Installations and repositories are upserted by their GitHub ids. `repositories.removed_at` marks a

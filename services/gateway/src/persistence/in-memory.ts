@@ -24,6 +24,7 @@ import {
   type ReviewRecord,
   type ReviewStore,
   type SealedGithubTokens,
+  type SessionRecord,
   type SessionStore,
   type Stores,
   type SuggestionRecord,
@@ -73,6 +74,8 @@ export interface StoreSeed {
   organizationAgentDefaults: { organizationId: string; agent: AgentKind; mode: AgentMode }[];
   /** Supabase session ids that are still signed in; like `auth.sessions`, any other id is not active. */
   activeSessionIds: string[];
+  /** Who each session belongs to and its device, for the signed-in devices list; ids not here are listed for nobody. */
+  sessions?: ({ userId: string } & SessionRecord)[];
   users: UserRecord[];
   githubTokens: ({ userId: string } & SealedGithubTokens)[];
   /** `reviews` rows; the repository's name is looked up, as the database joins it. */
@@ -361,8 +364,19 @@ export class InMemoryStores implements Stores {
         }),
     };
 
+    const liveSessionsOf = (userId: string) =>
+      (data.sessions ?? []).filter((session) => session.userId === userId && data.activeSessionIds.includes(session.sessionId));
     this.sessions = {
       isActive: async (sessionId) => data.activeSessionIds.includes(sessionId),
+      listForUser: async (userId) =>
+        liveSessionsOf(userId)
+          .map(({ userId: _userId, ...session }) => structuredClone(session))
+          .sort((a, b) => (b.lastActiveAt ?? b.createdAt).getTime() - (a.lastActiveAt ?? a.createdAt).getTime()),
+      revoke: async (userId, sessionId) => {
+        if (!liveSessionsOf(userId).some((session) => session.sessionId === sessionId)) return false;
+        data.activeSessionIds = data.activeSessionIds.filter((id) => id !== sessionId);
+        return true;
+      },
     };
 
     this.users = {

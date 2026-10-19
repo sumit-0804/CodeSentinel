@@ -222,8 +222,21 @@ export const storedStatuses = (statuses: ReviewStatus[]): (ReviewStatus | "cance
   statuses.includes("failed") ? [...statuses, "cancelled"] : statuses;
 
 /** Supabase owns sessions; the gateway only asks whether one is still live, so sign-out applies before `exp`. */
+/** A signed-in device: one of the user's live Supabase sessions (`auth.sessions`). */
+export interface SessionRecord {
+  sessionId: string;
+  createdAt: Date;
+  lastActiveAt?: Date;
+  userAgent?: string;
+  ip?: string;
+}
+
 export interface SessionStore {
   isActive(sessionId: string): Promise<boolean>;
+  /** The user's live sessions, most recently active first. */
+  listForUser(userId: string): Promise<SessionRecord[]>;
+  /** Signs that session out at once; `false` when it isn't one of the user's live sessions. */
+  revoke(userId: string, sessionId: string): Promise<boolean>;
 }
 
 export interface UserStore {

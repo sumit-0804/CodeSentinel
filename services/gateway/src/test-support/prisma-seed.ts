@@ -5,21 +5,41 @@ import type { Prisma, PrismaClient } from "@code-sentinel/db";
 import type { StoreSeed } from "../persistence/in-memory.js";
 
 /**
- * A test database has no Supabase `auth` schema, so it gets a stand-in `private.session_is_active`
- * backed by `private.test_sessions`. A database that already has the real function is left alone;
- * then `false` is returned and active sessions cannot be seeded.
+ * A test database has no Supabase `auth` schema, so it gets stand-ins for the hand-made
+ * `private.session_is_active`, `private.user_sessions` and `private.revoke_session`, backed by
+ * `private.test_sessions`. A database with the real functions (no `test_sessions` table) is left
+ * alone; then `false` is returned and sessions cannot be seeded.
  */
 export async function installSessionStandIn(prisma: PrismaClient): Promise<boolean> {
-  const [fn] = await prisma.$queryRaw<{ exists: boolean }[]>`select to_regprocedure('private.session_is_active(uuid)') is not null as exists`;
-  if (fn?.exists) {
-    const [table] = await prisma.$queryRaw<{ exists: boolean }[]>`select to_regclass('private.test_sessions') is not null as exists`;
-    return table?.exists === true;
-  }
+  const [state] = await prisma.$queryRaw<{ fn: boolean; table: boolean }[]>`
+    select to_regprocedure('private.session_is_active(uuid)') is not null as fn, to_regclass('private.test_sessions') is not null as table`;
+  if (state?.fn && !state.table) return false;
+
   await prisma.$executeRawUnsafe(`create schema if not exists private`);
   await prisma.$executeRawUnsafe(`create table if not exists private.test_sessions (id uuid primary key)`);
+  // Columns added later; a test database from before has only `id`.
   await prisma.$executeRawUnsafe(
-    `create function private.session_is_active(session_id uuid) returns boolean language sql stable
+    `alter table private.test_sessions
+       add column if not exists user_id uuid,
+       add column if not exists created_at timestamptz not null default now(),
+       add column if not exists last_active_at timestamptz,
+       add column if not exists user_agent text,
+       add column if not exists ip text`,
+  );
+  await prisma.$executeRawUnsafe(
+    `create or replace function private.session_is_active(session_id uuid) returns boolean language sql stable
      as $$ select exists (select 1 from private.test_sessions where id = session_id) $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `create or replace function private.user_sessions(p_user_id uuid)
+     returns table (id uuid, created_at timestamptz, last_active_at timestamptz, user_agent text, ip text) language sql stable
+     as $$ select id, created_at, last_active_at, user_agent, ip from private.test_sessions where user_id = p_user_id
+           order by coalesce(last_active_at, created_at) desc $$`,
+  );
+  await prisma.$executeRawUnsafe(
+    `create or replace function private.revoke_session(p_user_id uuid, p_session_id uuid) returns boolean language sql volatile
+     as $$ with gone as (delete from private.test_sessions where id = p_session_id and user_id = p_user_id returning 1)
+           select exists (select 1 from gone) $$`,
   );
   return true;
 }
@@ -27,7 +47,12 @@ export async function installSessionStandIn(prisma: PrismaClient): Promise<boole
 /** Writes a `StoreSeed` as database rows. Logins and GitHub ids are random, so seeds never collide. */
 export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { sessions = false } = {}): Promise<void> {
   if (sessions) {
-    for (const id of seed.activeSessionIds) await prisma.$executeRaw`insert into private.test_sessions (id) values (${id}::uuid)`;
+    for (const id of seed.activeSessionIds) {
+      const session = seed.sessions?.find((candidate) => candidate.sessionId === id);
+      await prisma.$executeRaw`
+        insert into private.test_sessions (id, user_id, created_at, last_active_at, user_agent, ip)
+        values (${id}::uuid, ${session?.userId ?? null}::uuid, ${session?.createdAt ?? new Date()}, ${session?.lastActiveAt ?? null}, ${session?.userAgent ?? null}, ${session?.ip ?? null})`;
+    }
   }
   const displayNames = new Map(seed.users.flatMap((u) => u.memberships).map((m) => [m.organizationId, m.displayName]));
 
