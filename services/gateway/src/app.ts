@@ -72,6 +72,7 @@ export function createApp(deps: AppDeps): Express {
       orchestrator,
       logger,
       fileContentMaxBytes: config.fileContentMaxBytes,
+      ...(config.dashboardUrl ? { dashboardUrl: config.dashboardUrl } : {}),
       ...(publisher ? { publisher } : {}),
       ...(now ? { now } : {}),
     }),
@@ -95,7 +96,7 @@ export function createApp(deps: AppDeps): Express {
   v1.use(createRepositoriesRouter({ repositories: stores.repositories, repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
   v1.use(createOrganizationsRouter({ repositoryConfig: stores.repositoryConfig, users: stores.users, stepUp }));
   v1.use(createReviewsRouter({ reviews: stores.reviews, suggestions: stores.suggestions }));
-  v1.use(createFindingsRouter({ stores, github, logger, stepUp }));
+  v1.use(createFindingsRouter({ stores, github, logger, stepUp, ...(config.dashboardUrl ? { dashboardUrl: config.dashboardUrl } : {}) }));
   v1.use(createPullRequestsRouter({ stores, github, orchestrator, logger, fileContentMaxBytes: config.fileContentMaxBytes, ...(publisher ? { publisher } : {}), ...(now ? { now } : {}) }));
   app.use("/v1", v1);
 

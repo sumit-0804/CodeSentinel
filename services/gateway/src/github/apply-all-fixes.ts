@@ -101,6 +101,8 @@ export interface ApplyAllDeps {
   suggestions: Pick<SuggestionStore, "forReview" | "accept">;
   github: Pick<GitHubClient, "getPullRequest" | "getFileContent" | "commitFiles" | "commentOnPullRequest">;
   now: () => Date;
+  /** The dashboard's base URL; when set, the comment links to the review's page and to sign-in. */
+  dashboardUrl?: string;
 }
 
 export type ApplyAllOutcome =
@@ -131,8 +133,11 @@ export async function applyAllFixes(
     repo,
     pullNumber: review.prNumber,
   };
+  const links = deps.dashboardUrl
+    ? { review: `${deps.dashboardUrl}/pull-requests/${review.reviewId}`, signIn: `${deps.dashboardUrl}/sign-in` }
+    : undefined;
   if (fixes.length === 0) {
-    if (heldBack > 0) await deps.github.commentOnPullRequest(ref, heldBackNote(heldBack));
+    if (heldBack > 0) await deps.github.commentOnPullRequest(ref, heldBackNote(heldBack, links));
     return { ok: false, code: "nothing_to_apply", message: heldBack > 0 ? "Only AI fixes are open, and they need a Code Sentinel user" : "This review has no open fixes" };
   }
   const pull = await deps.github.getPullRequest(ref);
@@ -146,8 +151,8 @@ export async function applyAllFixes(
     await deps.suggestions.accept(fix.suggestionId, { ...(input.userId ? { userId: input.userId } : {}), commitSha: result.commitSha, at });
   }
   const aiApplied = result.applied.filter((fix) => fix.kind === "ai_suggested").length;
-  const comment = appliedComment(result, aiApplied, input.requestedBy);
-  await deps.github.commentOnPullRequest(ref, heldBack > 0 ? `${comment}\n\n${heldBackNote(heldBack)}` : comment);
+  const comment = appliedComment(result, aiApplied, input.requestedBy, heldBack > 0 ? undefined : links);
+  await deps.github.commentOnPullRequest(ref, heldBack > 0 ? `${comment}\n\n${heldBackNote(heldBack, links)}` : comment);
   return { ok: true, commitSha: result.commitSha, applied: result.applied.length, aiApplied, skipped: result.skipped.length };
 }
 
@@ -156,14 +161,23 @@ const SKIP_WORD: Record<SkippedFix["reason"], string> = {
   file_changed: "its lines changed since the review",
 };
 
-function heldBackNote(count: number): string {
+type DashboardLinks = { review: string; signIn: string };
+
+function heldBackNote(count: number, links: DashboardLinks | undefined): string {
+  const signIn = links ? `[Sign in to Code Sentinel](${links.signIn})` : "Sign in to Code Sentinel";
+  const dashboard = links ? `[this review on the dashboard](${links.review})` : "the dashboard";
   return (
     `**${count} AI-suggested fix${count === 1 ? " was" : "es were"} not applied.** Whoever clicked has no Code Sentinel account in this ` +
-    "organization, and an AI fix needs a person who can answer for it. Sign in to Code Sentinel with GitHub, or apply them from the dashboard."
+    `organization, and an AI fix needs a person who can answer for it. ${signIn} with GitHub, or apply them from ${dashboard}.`
   );
 }
 
-function appliedComment(result: Extract<CommitAllResult, { ok: true }>, aiApplied: number, requestedBy: string): string {
+function appliedComment(
+  result: Extract<CommitAllResult, { ok: true }>,
+  aiApplied: number,
+  requestedBy: string,
+  links: DashboardLinks | undefined,
+): string {
   const n = result.applied.length;
   const lines = [
     `**Code Sentinel applied ${n} fix${n === 1 ? "" : "es"}${aiApplied ? ` (${aiApplied} AI-suggested)` : ""} in ${result.commitSha}**, as ${requestedBy} asked.`,
@@ -174,5 +188,6 @@ function appliedComment(result: Extract<CommitAllResult, { ok: true }>, aiApplie
   if (result.skipped.length) {
     lines.push("", `**Not applied (${result.skipped.length})**`, ...result.skipped.map(({ suggestion, reason }) => `- \`${suggestion.filePath}:${suggestion.lineStart}\` ${suggestion.title}: ${SKIP_WORD[reason]}`));
   }
+  if (links) lines.push("", `[View this review on Code Sentinel](${links.review})`);
   return lines.join("\n");
 }

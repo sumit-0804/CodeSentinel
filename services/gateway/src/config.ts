@@ -14,6 +14,8 @@ export interface GatewayConfig {
   serviceToken: string;
   /** Supabase project URL; dashboard tokens are verified against its JWKS. Unset → every `/v1` call is 401. */
   supabaseUrl?: string;
+  /** The dashboard's base URL, no trailing slash; comments on GitHub link to a review's page there when set. */
+  dashboardUrl?: string;
   /** Verifies `X-Hub-Signature-256` on every webhook delivery (FR-GW-03). */
   githubWebhookSecret: string;
   /** `dev` loads in-memory demo data; never set in a deployed environment. */
@@ -81,6 +83,7 @@ const EnvSchema = z.object({
   FILE_CONTENT_MAX_BYTES: integer(0, 1_000_000, DEFAULT_FILE_CONTENT_MAX_BYTES),
   SERVICE_TOKEN: secret(1),
   SUPABASE_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
+  DASHBOARD_URL: z.preprocess(blankAsUndefined, httpUrl.optional()),
   GITHUB_WEBHOOK_SECRET: secret(16),
   GATEWAY_SEED: z.preprocess(blankAsUndefined, z.enum(["none", "dev"]).default("none")),
   DATABASE_URL: z.preprocess(
@@ -175,6 +178,7 @@ export function loadGatewayConfig(env: Record<string, string | undefined> = proc
   };
   if (values.DATABASE_URL !== undefined) config.databaseUrl = values.DATABASE_URL;
   if (values.SUPABASE_URL !== undefined) config.supabaseUrl = values.SUPABASE_URL.replace(/\/+$/, "");
+  if (values.DASHBOARD_URL !== undefined) config.dashboardUrl = values.DASHBOARD_URL.replace(/\/+$/, "");
   if (values.GITHUB_APP_ID !== undefined && values.GITHUB_PRIVATE_KEY_PATH !== undefined) {
     config.githubApp = { appId: values.GITHUB_APP_ID, privateKeyPath: values.GITHUB_PRIVATE_KEY_PATH };
   }

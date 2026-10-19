@@ -26,6 +26,8 @@ export interface GithubWebhookRouterDeps {
   publisher?: Pick<ReviewPublisher, "follow" | "nothingToReview">;
   now?: () => Date;
   fileContentMaxBytes?: number;
+  /** Linked from the Apply all fixes comment. */
+  dashboardUrl?: string;
 }
 
 /**
@@ -40,6 +42,7 @@ export function createGithubWebhookRouter({
   logger,
   publisher,
   fileContentMaxBytes,
+  dashboardUrl,
   now = () => new Date(),
 }: GithubWebhookRouterDeps): Router {
   const router = Router();
@@ -113,7 +116,7 @@ export function createGithubWebhookRouter({
         const userId = user?.memberships.some((m) => m.organizationId === review.organizationId) ? user.userId : undefined;
         // GitHub only offers the button to people with write access, and waits ~10 s for an answer: commit in the background.
         void applyAllFixes(
-          { suggestions: stores.suggestions, github, now },
+          { suggestions: stores.suggestions, github, now, ...(dashboardUrl ? { dashboardUrl } : {}) },
           { review, repository, ...(userId ? { userId } : {}), requestedBy: `@${sender.login} (Check Run)` },
         )
           .then((outcome) => logger.info("apply all fixes", { requestId: res.locals.requestId, reviewId: review.reviewId, ...outcome }))

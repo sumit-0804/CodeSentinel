@@ -223,4 +223,25 @@ describe("applyAllFixes", () => {
     expect(g.multiCommits).toHaveLength(0);
     expect(g.pullRequestComments[0]!.body).toContain("**1 AI-suggested fix was not applied.**");
   });
+
+  it("links the comment to the review on the dashboard when its URL is configured", async () => {
+    const fixes = [security(), styleTax()];
+    const deps = (g: StubGitHubClient) => ({
+      suggestions: { forReview: async () => fixes, accept: vi.fn(async () => true) },
+      github: g,
+      now: () => new Date(),
+      dashboardUrl: "https://codesentinel.example",
+    });
+    const reviewUrl = "https://codesentinel.example/pull-requests/33333333-3333-4333-8333-333333333333";
+
+    const member = github();
+    await applyAllFixes(deps(member), { review: reviewOf(fixes), repository, userId: USER_ID, requestedBy: "@octocat (Check Run)" });
+    expect(member.pullRequestComments[0]!.body).toContain(`[View this review on Code Sentinel](${reviewUrl})`);
+
+    const stranger = github();
+    await applyAllFixes(deps(stranger), { review: reviewOf([security()]), repository, requestedBy: "@stranger (Check Run)" });
+    expect(stranger.pullRequestComments[0]!.body).toContain(
+      `[Sign in to Code Sentinel](https://codesentinel.example/sign-in) with GitHub, or apply them from [this review on the dashboard](${reviewUrl}).`,
+    );
+  });
 });

@@ -298,7 +298,7 @@ Each decision is written only while the fix is `proposed`, so two people decidin
   gateway looks up the clicker's GitHub id among linked Code Sentinel users (`UserStore.findByGithubId`) who are
   members of the review's organization. A collaborator with no account here gets **only the exact Style fixes**, and the
   comment says how many AI fixes were left and why; with only AI fixes open, nothing is committed and the comment
-  explains. The dashboard always has the signed-in user. `SuggestionStore.accept` without a user only ever accepts an
+  explains. With `DASHBOARD_URL` set, the comment links to sign-in and to the review's page. The dashboard always has the signed-in user. `SuggestionStore.accept` without a user only ever accepts an
   exact fix, in both stores.
 - **Checks:** the same as one fix (open, not a fork, still the reviewed head). Where two fixes touch the same lines,
   the one higher in Security > Logic > Performance > Style > Documentation wins; a fix whose lines changed is skipped.
@@ -442,6 +442,7 @@ is not an error. The `gateway listening` log line names the file it loaded.
 | `MFA_STEP_UP_MINUTES` | `10` | How long an authenticator code counts for on step-up routes | integer 1..60 |
 | `FILE_CONTENT_MAX_BYTES` | `36000` | Changed files up to this size go to the agents whole; larger ones as diffs only. `0` sends diffs only | integer 0..1000000 |
 | `SUPABASE_URL` | unset | Supabase project URL; dashboard access tokens are verified against its JWKS. Unset → every `/v1` call is 401 | http or https URL; required when `NODE_ENV=production`. Signing in also needs `DATABASE_URL`, for the session check |
+| `DASHBOARD_URL` | unset | The dashboard's base URL. Set → the Apply all fixes comment links to the review's page (`/pull-requests/{reviewId}`) and to sign-in | http or https URL; a trailing slash is ignored |
 | `GITHUB_WEBHOOK_SECRET` | required | GitHub App webhook secret | at least 16 characters |
 | `GATEWAY_SEED` | `none` | `dev` loads in-memory demo data | `none` or `dev`; `dev` is refused when `NODE_ENV=production` or with `DATABASE_URL` |
 | `DATABASE_URL` | unset | Supabase Postgres (session pooler, port 5432, `prisma` role). Set → Prisma stores; unset → in-memory stores | `postgres://` or `postgresql://` URL; required when `NODE_ENV=production`; checked with `SELECT 1` at startup |

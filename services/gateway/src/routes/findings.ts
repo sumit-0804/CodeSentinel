@@ -15,6 +15,8 @@ export interface FindingsRouterDeps {
   github: Pick<GitHubClient, "getPullRequest" | "getFileContent" | "updateFile" | "replyToReviewComment" | "commitFiles" | "commentOnPullRequest">;
   logger: Logger;
   stepUp: StepUpPolicy;
+  /** Linked from the Apply all fixes comment on GitHub. */
+  dashboardUrl?: string;
 }
 
 const FindingIdSchema = z.string().uuid();
@@ -28,7 +30,7 @@ const githubUnavailable = () => badGateway("github_unavailable", "GitHub did not
  * open fix of a review in one commit. Any member of the organization may decide; committing writes
  * code, so it also needs a TOTP step-up.
  */
-export function createFindingsRouter({ stores, github, logger, stepUp }: FindingsRouterDeps): Router {
+export function createFindingsRouter({ stores, github, logger, stepUp, dashboardUrl }: FindingsRouterDeps): Router {
   const router = Router();
 
   // Another organization's finding answers 404, like an unknown one.
@@ -105,7 +107,7 @@ export function createFindingsRouter({ stores, github, logger, stepUp }: Finding
     let outcome;
     try {
       outcome = await applyAllFixes(
-        { suggestions: stores.suggestions, github, now: () => new Date(stepUp.now()) },
+        { suggestions: stores.suggestions, github, now: () => new Date(stepUp.now()), ...(dashboardUrl ? { dashboardUrl } : {}) },
         { review, repository, userId: principal.userId, requestedBy: "a member on the Code Sentinel dashboard" },
       );
     } catch (error) {
