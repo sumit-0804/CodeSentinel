@@ -22,7 +22,7 @@ services/        Deployable services (one per SOA component)
   gateway/       Express API gateway — webhook receipt, auth, routing to the orchestrator
   orchestrator/  LangGraph orchestrator — review-job API, fan-out, aggregation, severity ranking, context
   security-agent/ Security Agent — SAST and secret rules on added lines, plus an LLM pass over the whole files
-  style-agent/   Style Agent — ESLint/Prettier and Ruff/Black in a per-request Docker sandbox, no LLM
+  style-agent/   Style Agent — ESLint/Prettier and Ruff/Black in a per-request sandbox (Docker, or a child process on Render), no LLM
   performance-agent/ Performance Agent — N+1 queries, blocking calls and repeated work, by LLM over the whole files
   logic-agent/   Logic Agent — null handling, off-by-one and unhandled errors, by LLM over the whole files
   documentation-agent/ Documentation Agent — docstrings for public code the PR touches, by LLM (always info)
@@ -33,6 +33,8 @@ packages/        Shared libraries
   service-kit/   Shared HTTP plumbing — JSON logger, request id, request log, ApiError handler, env file
   db/            Prisma 7 schema, migrations and client for the Supabase Postgres database
 docs/            Course deliverables and design artifacts
+render/          Render Blueprints (gateway, orchestrator, agents)
+Dockerfile       One image per service (--build-arg SERVICE=<name>); the style-agent has its own
 ```
 
 Every agent gets each changed file whole (up to the gateway's `FILE_CONTENT_MAX_BYTES`) with the
@@ -103,7 +105,7 @@ npm run dev -w @code-sentinel/dashboard
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on every push
-to `main`. The `checks` job runs on Node 20 and Node 22 (`fail-fast: false`, so one version
+to `main` and `dev`. The `checks` job runs on Node 20 and Node 22 (`fail-fast: false`, so one version
 failing still reports the other) and executes, from a clean `npm ci`:
 
 ```bash
@@ -151,6 +153,59 @@ docker run --rm -v "$(pwd):/repo" -w /repo rhysd/actionlint:latest -color
 On Windows, run the same command from PowerShell with `"${PWD}:/repo"` as the volume.
 
 No output and exit code 0 means the workflow is valid.
+
+## Deployment
+
+| Part | Where | URL |
+| --- | --- | --- |
+| Dashboard | Vercel | `https://codesentinel.scribly.fun` |
+| Gateway | Render, workspace A | `https://api.codesentinel.scribly.fun` (GitHub webhook: `/webhooks/github`) |
+| Orchestrator | Render, workspace B | its `onrender.com` URL, called only by the gateway |
+| Five agents | Render, workspace C | their `onrender.com` URLs, called only by the orchestrator |
+| Database and sign-in | Supabase (dev project) | |
+
+Everything runs on free plans:
+
+- **Three Render workspaces.** Render gives each workspace 750 free hours a month, and a free
+  service sleeps after 15 idle minutes. GitHub waits only about 10 s for a webhook answer, so the
+  gateway and the orchestrator have a workspace each and stay awake (about 720 hours each).
+- **Keep-warm job.** A [cron-job.org](https://cron-job.org) job requests both `/healthz` URLs every
+  10 minutes.
+- **Agents sleep.** The orchestrator wakes each one through `/healthz` before its review call
+  (`AGENT_WAKE_TIMEOUT_MS=90000`).
+- **Public calls between services.** Workspaces don't share a private network, so each hop is a
+  public HTTPS call with `SERVICE_TOKEN`.
+
+**Images.** The root [`Dockerfile`](Dockerfile) builds any service from its pruned workspace
+(`turbo prune`). Render passes the `SERVICE` env var as the build arg:
+
+```bash
+docker build --build-arg SERVICE=gateway -t cs/gateway .
+```
+
+The style-agent has its own [`Dockerfile`](services/style-agent/Dockerfile), with the linters
+installed and `SANDBOX_MODE=process`. Render can't run Docker inside a service; see the
+[style-agent README](services/style-agent/README.md#process-mode-render).
+
+**Blueprints.** One per workspace: [`render/gateway.yaml`](render/gateway.yaml),
+[`render/orchestrator.yaml`](render/orchestrator.yaml) and [`render/agents.yaml`](render/agents.yaml).
+In each workspace: **New → Blueprint**, pick this repo and the file, then type the values marked
+`sync: false`:
+
+- **Secrets:** `SERVICE_TOKEN` (the same everywhere), `DATABASE_URL`, the GitHub App and LLM keys,
+  and `METRICS_TOKEN`.
+- **Service URLs:** the other workspaces' `onrender.com` URLs.
+- **The gateway also needs** the Secret File `github-app.pem`.
+
+**Deploys.** Each service redeploys after CI passes on `main` (`autoDeployTrigger: checksPass`), and
+only when its own paths change. The gateway runs `prisma migrate deploy` before it starts, because
+free services have no pre-deploy step.
+
+**The dashboard** is on Vercel; see the
+[dashboard README](apps/dashboard/README.md#deploy-vercel). The DNS records are in Hostinger:
+
+- `api.codesentinel`: CNAME to the gateway's `onrender.com` host
+- `codesentinel`: CNAME to Vercel's target
 
 ## Team
 

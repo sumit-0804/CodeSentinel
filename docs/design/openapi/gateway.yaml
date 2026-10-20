@@ -20,7 +20,7 @@ info:
     name: Academic project — DAIICT
 
 servers:
-  - url: https://api.codesentinel.dev
+  - url: https://api.codesentinel.scribly.fun
     description: Production
   - url: http://localhost:3000
     description: Local development

@@ -626,10 +626,10 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
 
 **One-time setup (GitHub web UI):**
 
-1. Create a smee.io channel: open https://smee.io/new and copy its URL.
-2. Settings → Developer settings → GitHub Apps → **New GitHub App**:
-   - Homepage URL: the Code-Sentinel repo URL. Webhook URL: the smee channel URL. Webhook secret:
-     the value of `GITHUB_WEBHOOK_SECRET` in `services/gateway/.env`.
+1. Settings → Developer settings → GitHub Apps → **New GitHub App**:
+   - Homepage URL: the Code-Sentinel repo URL. Webhook URL: the deployed gateway,
+     `https://api.codesentinel.scribly.fun/webhooks/github` (before deployment this was a smee.io
+     channel, see below). Webhook secret: the value of `GITHUB_WEBHOOK_SECRET`, the same locally and on Render.
    - Repository permissions: **Pull requests: Read and write** (inline review comments),
      **Checks: Read and write** (the Check Run), **Contents: Read and write** (reading files, and committing
      a fix someone accepts, UC-3) (Metadata: Read is automatic). After changing a permission, approve it on
@@ -639,15 +639,15 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
      `requested_action`). GitHub sends `installation` and `installation_repositories` to every App without a
      subscription.
    - Where can it be installed: **Any account**, so organizations and teammates can install it.
-   - **Identifying and authorizing users:** Callback URL `http://localhost:3001/onboarding/github/callback`
-     (the dashboard), **Expire user authorization tokens** on, **Request user authorization (OAuth)
-     during installation** on.
-   - **Post installation:** Setup URL the same callback, **Redirect on update** on.
-3. On the App page: note the **App ID** and **Client ID**, **Generate a new client secret**, then
+   - **Identifying and authorizing users:** Callback URLs `https://codesentinel.scribly.fun/onboarding/github/callback`
+     and `http://localhost:3001/onboarding/github/callback` (the dashboard), **Expire user authorization tokens**
+     on, **Request user authorization (OAuth) during installation** on.
+   - **Post installation:** Setup URL the live callback, **Redirect on update** on.
+2. On the App page: note the **App ID** and **Client ID**, **Generate a new client secret**, then
    **Generate a private key** and save the `.pem` as `services/gateway/github-app.pem`.
-4. **Install App** from the dashboard (Repositories → **Add repositories**), or from GitHub on
+3. **Install App** from the dashboard (Repositories → **Add repositories**), or from GitHub on
    `code-sentinel-playground` and then **Connect GitHub** in the dashboard.
-5. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`,
+4. In `services/gateway/.env`: `GITHUB_APP_ID=<id>`, `GITHUB_PRIVATE_KEY_PATH=github-app.pem`,
    `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` and `FIELD_ENCRYPTION_KEY` (see
    [Configuration](#configuration)), and in `apps/dashboard/.env.local` `GITHUB_APP_SLUG` and
    `GITHUB_APP_CLIENT_ID`. Then either of these:
@@ -657,11 +657,15 @@ example key (`AKIAIOSFODNN7EXAMPLE`, AWS's documented fake), `innerHTML` and bad
      `packages/db/.env` and run `npm run seed -w @code-sentinel/db`. `/healthz` then shows
      `"database":"ok"`.
 
-**Each run:**
+**Each run:** webhooks go to the deployed gateway. To receive them on a local gateway instead,
+create a channel at https://smee.io/new, set it as the App's Webhook URL for the session, run
 
 ```bash
 npx smee-client --url <smee channel URL> --target http://127.0.0.1:3000/webhooks/github
 ```
+
+and set the live URL back afterwards (the App has one webhook URL, so the live gateway gets nothing
+meanwhile).
 
 Start the orchestrator, the five agents and the gateway (see the root README), then
 open a pull request from `demo/risky-change` to `main` in the playground. The gateway log shows

@@ -136,6 +136,10 @@ statements by hand, then `npm run migrate:deploy`. Check for drift with
 `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma` ("No difference
 detected"), then regenerate `schema.sql` and the ER diagrams.
 
+**On deploy** the gateway applies pending migrations itself: its Render start command runs
+`npm run migrate:deploy -w @code-sentinel/db` before the server ([`render/gateway.yaml`](../../render/gateway.yaml)),
+with the gateway's `DATABASE_URL`. That's why `prisma` and `dotenv` are runtime dependencies here.
+
 Use `migrate deploy` rather than `migrate dev` to apply: `migrate dev` can stop at an interactive
 prompt and hold Prisma's advisory lock until it's killed.
 
