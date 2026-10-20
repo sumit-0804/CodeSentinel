@@ -33,9 +33,9 @@ services:
         value: production
       - key: GATEWAY_SEED
         value: none
-      # Render's proxy plus the dashboard's server: two hops before the browser's IP.
+      # Measured: Cloudflare (Render's edge), two Render proxies and the dashboard's server: four hops before the browser's IP.
       - key: TRUST_PROXY
-        value: "2"
+        value: "4"
       - key: DASHBOARD_URL
         value: https://codesentinel.scribly.fun
       - key: GITHUB_PRIVATE_KEY_PATH
