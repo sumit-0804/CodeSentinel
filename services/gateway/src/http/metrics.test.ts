@@ -20,6 +20,8 @@ describe("GET /metrics (gateway)", () => {
       expect(text).toContain('webhook_deliveries_total{event="ping",outcome="event_ignored",service="gateway"} 1');
       expect(text).toContain('webhook_deliveries_total{event="ping",outcome="rate_limited",service="gateway"} 1');
       expect(text).toContain('rate_limited_total{limiter="webhook",service="gateway"} 1');
+      // Limiters that never fired are still there at 0, so their first 429 shows up in increase().
+      expect(text).toContain('rate_limited_total{limiter="failed_auth",service="gateway"} 0');
       expect(text).toContain('route="/webhooks/github"');
     });
   });

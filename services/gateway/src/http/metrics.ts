@@ -1,5 +1,7 @@
 import { Counter, createMetrics, type ServiceHandler } from "@code-sentinel/service-kit";
 
+import { LIMITERS } from "./rate-limits.js";
+
 /** The gateway's Prometheus series on top of the kit's request histogram (WP6). */
 export function createGatewayMetrics() {
   const metrics = createMetrics("gateway");
@@ -15,6 +17,8 @@ export function createGatewayMetrics() {
     labelNames: ["limiter"] as const,
     registers: [metrics.registry],
   });
+  // Starts at 0 so the first 429 shows up in increase().
+  for (const limiter of LIMITERS) rateLimited.inc({ limiter }, 0);
 
   /** Reads the outcome the webhook route wrote to its log fields, once the response is sent. */
   const webhookOutcomes: ServiceHandler = (req, res, next) => {

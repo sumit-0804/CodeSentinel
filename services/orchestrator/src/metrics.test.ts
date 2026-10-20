@@ -29,6 +29,13 @@ describe("createOrchestratorMetrics", () => {
     expect(await metrics.registry.metrics()).toContain('llm_quota_remaining_ratio{provider="groq",account="cara",service="orchestrator"} 0.1');
   });
 
+  it("starts every agent and status at 0, so the first failure shows up in increase()", async () => {
+    const text = await createOrchestratorMetrics().registry.metrics();
+
+    expect(text).toContain('agent_runs_total{agent="security",status="failed",service="orchestrator"} 0');
+    expect(text).toContain('agent_runs_total{agent="documentation",status="timed_out",service="orchestrator"} 0');
+  });
+
   it("exposes the last health check per agent, asleep apart from down, and only the current status", async () => {
     const metrics = createOrchestratorMetrics();
     expect(await metrics.registry.metrics()).not.toMatch(/^agent_health\{/m);

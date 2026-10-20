@@ -1,4 +1,4 @@
-import type { AgentHealthSnapshot, CombinedReport } from "@code-sentinel/contracts";
+import { AgentKindSchema, AgentRunStatusSchema, type AgentHealthSnapshot, type CombinedReport } from "@code-sentinel/contracts";
 import type { QuotaBudget } from "@code-sentinel/llm";
 import { Counter, createMetrics, Gauge, Histogram } from "@code-sentinel/service-kit";
 
@@ -17,6 +17,10 @@ export function createOrchestratorMetrics(budgets: readonly WatchedBudget[] = []
   const registers = [metrics.registry];
 
   const agentRuns = new Counter({ name: "agent_runs_total", help: "Agent runs by agent and status", labelNames: ["agent", "status"] as const, registers });
+  // Every series starts at 0: one first seen at 1 hides its first run from increase(), so an alert would miss it.
+  for (const agent of AgentKindSchema.options) {
+    for (const status of AgentRunStatusSchema.options) agentRuns.inc({ agent, status }, 0);
+  }
   const agentLatency = new Histogram({
     name: "agent_latency_seconds",
     help: "How long each agent took in a review",

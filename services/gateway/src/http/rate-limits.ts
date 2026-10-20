@@ -4,7 +4,8 @@ import { rateLimit } from "express-rate-limit";
 
 import type { GatewayLocals } from "../auth/principal.js";
 
-export type Limiter = "webhook" | "user" | "write" | "failed_auth";
+export const LIMITERS = ["webhook", "user", "write", "failed_auth"] as const;
+export type Limiter = (typeof LIMITERS)[number];
 
 export interface RateLimitSettings {
   webhookPerMinute: number;
