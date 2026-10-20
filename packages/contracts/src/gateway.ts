@@ -377,7 +377,7 @@ export const AgentsHealthSchema = z.object({
   agents: z.array(
     z.object({
       agent: AgentKindSchema,
-      status: z.enum(["ok", "degraded", "unavailable", "unknown"]),
+      status: z.enum(["ok", "degraded", "asleep", "unavailable", "unknown"]),
       latencyMs: z.number().int().min(0).optional(),
     }),
   ),

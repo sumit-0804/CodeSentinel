@@ -85,6 +85,8 @@ export type ReviewJob = z.infer<typeof ReviewJobSchema>;
 export const AgentHealthEntrySchema = z.object({
   agent: AgentKindSchema,
   status: HealthStatusSchema,
+  /** Sleeping free-tier host: the health call timed out and the orchestrator is waking it. Only with `unavailable`. */
+  asleep: z.boolean().optional(),
   latencyMs: z.number().int().min(0).optional(),
   version: z.string().optional(),
 });

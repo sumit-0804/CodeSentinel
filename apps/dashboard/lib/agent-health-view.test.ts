@@ -30,6 +30,12 @@ describe("healthNotice", () => {
     expect(healthNotice({ agents: [{ agent: "style", status: "unknown" }] }, NAMES)).toMatchObject({ title: "Can't check the agents right now" });
   });
 
+  it("raises no notice for agents that are only asleep (free hosting)", () => {
+    expect(healthNotice({ agents: [{ agent: "logic", status: "asleep" }, { agent: "style", status: "ok" }] }, NAMES)).toBeUndefined();
+    const mixed = healthNotice({ agents: [{ agent: "logic", status: "asleep" }, { agent: "style", status: "unavailable" }] }, NAMES);
+    expect(mixed).toMatchObject({ tone: "crit", title: "Style isn't answering" });
+  });
+
   it("maps statuses by agent", () => {
     expect(healthByAgent({ agents: [{ agent: "style", status: "ok" }, { agent: "logic", status: "unavailable" }] })).toEqual({ style: "ok", logic: "unavailable" });
   });

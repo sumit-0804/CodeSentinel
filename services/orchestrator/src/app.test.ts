@@ -28,13 +28,13 @@ function pendingRun() {
   return { run, resolve: (report: CombinedReport) => resolve(report) };
 }
 
-function testApp({ run = pendingRun().run, health = {} as HealthClients } = {}) {
+function testApp({ run = pendingRun().run, health = {} as HealthClients, wakeMs = 0 } = {}) {
   const controller = new ReviewJobController({
     run,
     logger: noopLogger,
     store: new InMemoryJobStore({ retentionMs: 3_600_000 }),
   });
-  return createApp({ serviceToken: TOKEN, logger: noopLogger, controller, agentsHealth: { clients: health }, version: "test" });
+  return createApp({ serviceToken: TOKEN, logger: noopLogger, controller, agentsHealth: { clients: health, wakeMs }, version: "test" });
 }
 
 async function send(baseUrl: string, path: string, init: RequestInit = {}) {
@@ -160,6 +160,35 @@ describe("orchestrator app", () => {
         { agent: "documentation", status: "unavailable" },
       ]);
       expect(security.health).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("with wakeMs, reports a timed-out agent as asleep and wakes it in the background", async () => {
+    const timedOut = () => new AgentCallError("slow", { agent: "logic", kind: "timed_out", latencyMs: 2000 });
+    const logic = { health: vi.fn<HealthClients["logic"] & {}>().mockRejectedValueOnce(timedOut()).mockResolvedValue({ status: "ok", version: "1.0.0" }) };
+    const style = { health: vi.fn(async (): Promise<Health> => Promise.reject(new AgentCallError("502", { agent: "style", kind: "http", status: 502, latencyMs: 5 }))) };
+
+    await withServer(testApp({ health: { logic, style }, wakeMs: 90_000 }), async (baseUrl) => {
+      const first = AgentHealthSnapshotSchema.parse((await send(baseUrl, "/internal/v1/agents/health", { headers: AUTH })).body);
+      // The background wake answers, which drops the cache, so the next request polls again.
+      await vi.waitFor(() => expect(logic.health).toHaveBeenCalledTimes(2));
+      const second = AgentHealthSnapshotSchema.parse((await send(baseUrl, "/internal/v1/agents/health", { headers: AUTH })).body);
+
+      expect(first.agents.find((entry) => entry.agent === "logic")).toEqual({ agent: "logic", status: "unavailable", asleep: true });
+      // A fast failure is a real outage, not sleep.
+      expect(first.agents.find((entry) => entry.agent === "style")).toEqual({ agent: "style", status: "unavailable" });
+      expect(second.agents.find((entry) => entry.agent === "logic")).toMatchObject({ status: "ok" });
+    });
+  });
+
+  it("without wakeMs, a timed-out agent is just unavailable", async () => {
+    const logic = { health: vi.fn(async (): Promise<Health> => Promise.reject(new AgentCallError("slow", { agent: "logic", kind: "timed_out", latencyMs: 2000 }))) };
+
+    await withServer(testApp({ health: { logic } }), async (baseUrl) => {
+      const snapshot = AgentHealthSnapshotSchema.parse((await send(baseUrl, "/internal/v1/agents/health", { headers: AUTH })).body);
+
+      expect(snapshot.agents.find((entry) => entry.agent === "logic")).toEqual({ agent: "logic", status: "unavailable" });
+      expect(logic.health).toHaveBeenCalledTimes(1);
     });
   });
 });

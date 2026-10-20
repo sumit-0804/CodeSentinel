@@ -1661,8 +1661,11 @@ components:
                 $ref: './common.yaml#/components/schemas/AgentKind'
               status:
                 type: string
-                enum: [ok, degraded, unavailable, unknown]
-                description: '`unavailable` also covers an agent with no URL configured; `unknown` means the orchestrator did not answer.'
+                enum: [ok, degraded, asleep, unavailable, unknown]
+                description: >
+                  `asleep`: the agent sleeps when idle (free hosting) and is waking up; the next review wakes it,
+                  so nothing is wrong. `unavailable` also covers an agent with no URL configured; `unknown` means
+                  the orchestrator did not answer.
               latencyMs:
                 type: integer
                 minimum: 0

@@ -57,7 +57,11 @@ export function AgentModeRows({
                     <span
                       className={cn(
                         "rounded-full border px-2 text-[11.5px] font-semibold",
-                        health[agent] === "unavailable" ? "border-crit/40 text-crit" : "border-warn/35 text-warn",
+                        health[agent] === "unavailable"
+                          ? "border-crit/40 text-crit"
+                          : health[agent] === "asleep"
+                            ? "border-line-2 text-ink-3"
+                            : "border-warn/35 text-warn",
                       )}
                     >
                       {HEALTH_WORD[health[agent]]}

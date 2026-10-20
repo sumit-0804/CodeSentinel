@@ -5,6 +5,7 @@ export type AgentHealthStatus = AgentsHealth["agents"][number]["status"];
 /** What the dashboard says about an agent that isn't healthy; healthy agents need no words. */
 export const HEALTH_WORD: Record<Exclude<AgentHealthStatus, "ok">, string> = {
   degraded: "Running without its AI checks",
+  asleep: "Asleep, wakes on the next review",
   unavailable: "Not answering",
   unknown: "Status unknown",
 };

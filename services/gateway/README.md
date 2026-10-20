@@ -427,7 +427,8 @@ for another user's or an unknown session. Recorded in the audit log as `session_
 ## Agent health
 
 `GET /v1/agents/health` (any signed-in user) relays the orchestrator's
-`/internal/v1/agents/health`: per agent `ok`, `degraded` or `unavailable` (also an agent with no URL),
+`/internal/v1/agents/health`: per agent `ok`, `degraded`, `asleep` (a sleeping free-tier agent the
+orchestrator is waking; the orchestrator's `asleep: true`) or `unavailable` (also an agent with no URL),
 with `latencyMs` and `checkedAt`. One answer is reused for 15 seconds, so a burst of dashboard pages
 makes one call. When the orchestrator doesn't answer, every agent is `unknown` and the reason is
 logged. The dashboard uses it for the agent notices (`routes/agents-health.ts`).

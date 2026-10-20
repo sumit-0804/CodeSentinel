@@ -46,6 +46,18 @@ describe("GET /v1/agents/health", () => {
     });
   });
 
+  it("says asleep for an agent the orchestrator is waking", async () => {
+    const { app, headers } = await setup(async () => ({
+      checkedAt: "2026-10-19T09:59:58.000Z",
+      agents: [{ agent: "logic", status: "unavailable", asleep: true }],
+    }));
+
+    await withServer(app, async (baseUrl) => {
+      const body = AgentsHealthSchema.parse(await (await fetch(`${baseUrl}/v1/agents/health`, { headers })).json());
+      expect(body.agents).toEqual([{ agent: "logic", status: "asleep" }]);
+    });
+  });
+
   it("answers unknown for every agent when the orchestrator doesn't", async () => {
     const { app, headers } = await setup(async () => {
       throw new Error("connect ECONNREFUSED");

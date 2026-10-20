@@ -153,7 +153,7 @@ async function main(): Promise<void> {
     serviceToken: config.serviceToken,
     logger,
     controller,
-    agentsHealth: { clients },
+    agentsHealth: { clients, wakeMs: config.agentWakeMs },
     ...(database ? { database: { ping: () => database.$queryRaw`SELECT 1` } } : {}),
     version: packageVersion(),
     metrics,

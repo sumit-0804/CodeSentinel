@@ -25,7 +25,11 @@ export function createAgentsHealthRouter({ orchestrator, logger, cacheMs = 15_00
       const snapshot = await orchestrator.agentsHealth();
       return {
         checkedAt: snapshot.checkedAt,
-        agents: snapshot.agents.map(({ agent, status, latencyMs }) => ({ agent, status, ...(latencyMs !== undefined ? { latencyMs } : {}) })),
+        agents: snapshot.agents.map(({ agent, status, asleep, latencyMs }) => ({
+          agent,
+          status: asleep ? ("asleep" as const) : status,
+          ...(latencyMs !== undefined ? { latencyMs } : {}),
+        })),
       };
     } catch (error) {
       logger.warn("agent health unavailable", { error });

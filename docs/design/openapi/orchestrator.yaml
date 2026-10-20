@@ -147,6 +147,12 @@ paths:
                         status:
                           type: string
                           enum: [ok, degraded, unavailable]
+                        asleep:
+                          type: boolean
+                          description: >
+                            With `AGENT_WAKE_TIMEOUT_MS` set (agents on a free plan that sleep when idle): the
+                            health call timed out, so the agent is most likely starting up. The orchestrator
+                            wakes it in the background; a review wakes it too. Only set with `unavailable`.
                         latencyMs:
                           type: integer
                         version:
