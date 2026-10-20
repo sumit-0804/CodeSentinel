@@ -10,7 +10,7 @@ export async function createSupabaseServerClient() {
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = env();
 
   return createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
-    // Supabase records the session's browser and IP from these; without them every device is this server.
+    // Supabase records the session's browser from these; without them every device reads "node".
     global: { headers: supabaseOriginHeaders(incoming) },
     cookies: {
       getAll: () => cookieStore.getAll(),

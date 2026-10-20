@@ -7,7 +7,7 @@ describe("browserOrigin", () => {
     const incoming = new Headers({ "x-forwarded-for": "110.226.114.105, 76.76.21.21", "user-agent": "Mozilla/5.0 Chrome" });
 
     expect(browserOrigin(incoming)).toEqual({ ip: "110.226.114.105", userAgent: "Mozilla/5.0 Chrome" });
-    expect(supabaseOriginHeaders(incoming)).toEqual({ "User-Agent": "Mozilla/5.0 Chrome", "Sb-Forwarded-For": "110.226.114.105" });
+    expect(supabaseOriginHeaders(incoming)).toEqual({ "User-Agent": "Mozilla/5.0 Chrome" });
   });
 
   it("falls back to X-Real-IP and leaves out what it doesn't know", () => {

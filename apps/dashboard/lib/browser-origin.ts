@@ -9,10 +9,10 @@ export function browserOrigin(incoming: HeaderSource): { ip?: string; userAgent?
 }
 
 /**
- * Headers for this server's calls to Supabase Auth, which otherwise records the server as the session's device:
- * the browser's User-Agent, and its IP in `Sb-Forwarded-For` (Supabase Auth's header for server-side callers).
+ * Headers for this server's calls to Supabase Auth: the browser's User-Agent, which Supabase records as the
+ * session's device. Hosted Supabase ignores a forwarded IP, so the gateway records the real one (`session_activity`).
  */
 export function supabaseOriginHeaders(incoming: HeaderSource): Record<string, string> {
-  const { ip, userAgent } = browserOrigin(incoming);
-  return { ...(userAgent ? { "User-Agent": userAgent } : {}), ...(ip ? { "Sb-Forwarded-For": ip } : {}) };
+  const { userAgent } = browserOrigin(incoming);
+  return userAgent ? { "User-Agent": userAgent } : {};
 }

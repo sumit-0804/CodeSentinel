@@ -12,7 +12,7 @@ export async function proxy(request: NextRequest) {
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = env();
 
   const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
-    // Token refreshes happen here; Supabase records the session's browser and IP from these headers.
+    // Token refreshes happen here; Supabase records the session's browser from these headers.
     global: { headers: supabaseOriginHeaders(request.headers) },
     cookies: {
       getAll: () => request.cookies.getAll(),
