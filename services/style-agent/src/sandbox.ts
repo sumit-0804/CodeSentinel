@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -102,10 +102,88 @@ export class DockerSandbox implements Sandbox {
   }
 }
 
-/** `execFile`, never a shell, so no file name or option is ever interpreted. */
+export interface ProcessSandboxOptions {
+  /** Folder holding `run.mjs`, its `node_modules`, `eslint.config.mjs` and `ruff.toml`. */
+  root: string;
+  timeoutMs?: number;
+  maxOldSpaceMb?: number;
+}
+
+/**
+ * For hosts with no Docker (Render): `run.mjs` runs as a child process with a minimal env, one
+ * request at a time. It loses the container's `--network none` and hard memory cap.
+ */
+export class ProcessSandbox implements Sandbox {
+  private readonly options: Required<ProcessSandboxOptions>;
+  private queue: Promise<unknown> = Promise.resolve();
+  private healthy = false;
+
+  constructor(options: ProcessSandboxOptions) {
+    this.options = { timeoutMs: 60_000, maxOldSpaceMb: 384, ...options };
+  }
+
+  run(files: SandboxFile[], signal: AbortSignal): Promise<SandboxResult> {
+    const next = this.queue.then(() => this.runOne(files, signal));
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async runOne(files: SandboxFile[], signal: AbortSignal): Promise<SandboxResult> {
+    signal.throwIfAborted();
+    // ESLint only lints files under its cwd that match `work/**` in eslint.config.mjs.
+    const dir = join(this.options.root, "work", randomUUID());
+    try {
+      await mkdir(dir, { recursive: true });
+      await Promise.all(files.map((file) => writeFile(join(dir, file.name), file.content, "utf8")));
+      const stdout = await exec(
+        process.execPath,
+        [`--max-old-space-size=${this.options.maxOldSpaceMb}`, join(this.options.root, "run.mjs")],
+        AbortSignal.any([signal, AbortSignal.timeout(this.options.timeoutMs)]),
+        { cwd: this.options.root, env: this.childEnv(dir) },
+      );
+      return SandboxResultSchema.parse(JSON.parse(stdout));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  /** Only what the linters need, so no service secret reaches the child. */
+  private childEnv(work: string): NodeJS.ProcessEnv {
+    return {
+      PATH: process.env.PATH,
+      HOME: tmpdir(),
+      LINT_ROOT: this.options.root,
+      LINT_WORK: work,
+      NODE_ENV: "production",
+      RUFF_NO_CACHE: "true",
+      BLACK_CACHE_DIR: join(tmpdir(), "black"),
+    };
+  }
+
+  async health(): Promise<HealthStatus> {
+    if (this.healthy) return "ok";
+    try {
+      const signal = AbortSignal.timeout(10_000);
+      await access(join(this.options.root, "run.mjs"));
+      await access(join(this.options.root, "node_modules", "eslint", "package.json"));
+      await exec("ruff", ["--version"], signal);
+      await exec("black", ["--version"], signal);
+      this.healthy = true;
+      return "ok";
+    } catch {
+      return "unavailable";
+    }
+  }
+}
+
 function docker(args: string[], signal: AbortSignal): Promise<string> {
+  return exec("docker", args, signal);
+}
+
+/** `execFile`, never a shell, so no file name or option is ever interpreted. */
+function exec(file: string, args: string[], signal: AbortSignal, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile("docker", args, { signal, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
+    execFile(file, args, { ...options, signal, maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         reject(Object.assign(error, { stderr: String(stderr).slice(0, 2000) }));
         return;

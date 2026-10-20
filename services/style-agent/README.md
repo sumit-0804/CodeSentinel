@@ -72,14 +72,31 @@ image is missing, `POST /v1/review` answers 503 `sandbox_unavailable` and `/heal
 npm run sandbox:build -w @code-sentinel/style-agent   # tags code-sentinel/style-sandbox:1
 ```
 
-Change a version in `sandbox/package.json` or the `Dockerfile`, then rebuild and bump the tag.
+Change a version in `sandbox/package.json` or the `Dockerfile`, then rebuild and bump the tag. Keep
+the versions in the service's own [`Dockerfile`](Dockerfile) the same.
+
+## Process mode (Render)
+
+Render can't run Docker inside a service, so the deployed agent uses `SANDBOX_MODE=process`
+(`ProcessSandbox`). Its image ([`Dockerfile`](Dockerfile), built from the repo root) holds the
+same pinned linters in `/opt/lint`; each request's files go in `/opt/lint/work/<uuid>` and
+`run.mjs` runs as a child process:
+
+- `execFile`, never a shell, with only `PATH`, `HOME` and the lint paths in its env, so no
+  `SERVICE_TOKEN` or other secret reaches it
+- a 384 MB Node heap cap and the 60 s timeout; one request at a time
+- the folder is deleted afterwards
+
+It gives up the container's `--network none`, read-only root and hard memory cap. That's acceptable:
+the agent holds no LLM key, and the linters parse the code without running it. `/healthz` checks
+that `run.mjs`, ESLint, `ruff` and `black` are there.
 
 ## Configuration
 
-See [`.env.example`](.env.example): `PORT` (default 8082), `SERVICE_TOKEN` (required) and
-`STYLE_SANDBOX_IMAGE` (default `code-sentinel/style-sandbox:1`). The host running the agent needs
-a Docker engine; in a container that means access to the Docker socket, which the deployment task
-sets up.
+See [`.env.example`](.env.example): `PORT` (default 8082), `SERVICE_TOKEN` (required),
+`SANDBOX_MODE` (`docker`, the default, or `process`), `STYLE_SANDBOX_IMAGE` (Docker mode, default
+`code-sentinel/style-sandbox:1`) and `LINT_ROOT` (process mode, default `/opt/lint`). Docker mode
+needs a Docker engine on the host.
 
 ## Develop
 
@@ -90,4 +107,9 @@ STYLE_SANDBOX_IT=1 npm run test -w @code-sentinel/style-agent       # also runs 
 npm run start -w @code-sentinel/style-agent                         # reads services/style-agent/.env
 ```
 
-CI runs the unit tests only; the real-image test needs Docker and the built image.
+CI runs the unit tests only; the real-image test needs Docker and the built image. The process-mode
+test runs inside the service image:
+
+```bash
+docker build -f services/style-agent/Dockerfile -t cs/style-agent .   # from the repo root
+```

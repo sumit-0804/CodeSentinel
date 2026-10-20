@@ -1,13 +1,14 @@
 // Runs inside the sandbox: lints and formats every file in /opt/lint/work, prints one JSON result.
+// Process mode passes LINT_ROOT and a per-request LINT_WORK, which must sit under ROOT/work.
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { ESLint } from "eslint";
 import * as prettier from "prettier";
 
-const ROOT = "/opt/lint";
-const WORK = join(ROOT, "work");
+const ROOT = process.env.LINT_ROOT || "/opt/lint";
+const WORK = process.env.LINT_WORK || join(ROOT, "work");
 const JS = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/;
 const PY = /\.py$/;
 
@@ -19,7 +20,7 @@ const text = (name) => readFileSync(join(WORK, name), "utf8");
 const RETURN_OUTSIDE = /'return' outside of function/;
 
 async function lint(jsNames) {
-  const results = await new ESLint({ cwd: ROOT }).lintFiles(jsNames.map((name) => join("work", name)));
+  const results = await new ESLint({ cwd: ROOT }).lintFiles(jsNames.map((name) => relative(ROOT, join(WORK, name))));
   const retry = results.filter((result) => result.messages.some((m) => m.fatal && RETURN_OUTSIDE.test(m.message)));
   if (!retry.length) return results;
   const commonjs = new ESLint({ cwd: ROOT, overrideConfig: { languageOptions: { sourceType: "commonjs" } } });
