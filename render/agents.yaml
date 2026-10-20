@@ -1,0 +1,136 @@
+# Render Blueprint, workspace C: the five agents (free plan). They sleep when idle; the orchestrator
+# wakes them through /healthz before a review (AGENT_WAKE_TIMEOUT_MS).
+# Values marked `sync: false` are typed in Render's dashboard when the Blueprint is created.
+# SERVICE_TOKEN is the same on all seven services. Each LLM agent's GROQ_API_KEY is the key of the
+# account the orchestrator names in GROQ_ACCOUNT_<AGENT> (security and documentation: default,
+# performance: sid, logic: cara). LLM_* sizes must match the orchestrator's defaults.
+services:
+  - type: web
+    name: code-sentinel-security-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths: [services/security-agent/**, packages/**, Dockerfile, package-lock.json]
+    envVars:
+      - key: SERVICE
+        value: security-agent
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+  - type: web
+    name: code-sentinel-style-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    # Linters run in process (SANDBOX_MODE=process): Render can't run Docker inside a service.
+    dockerfilePath: ./services/style-agent/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths: [services/style-agent/**, packages/**, package-lock.json]
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+  - type: web
+    name: code-sentinel-performance-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths: [services/performance-agent/**, packages/**, Dockerfile, package-lock.json]
+    envVars:
+      - key: SERVICE
+        value: performance-agent
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+  - type: web
+    name: code-sentinel-logic-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths: [services/logic-agent/**, packages/**, Dockerfile, package-lock.json]
+    envVars:
+      - key: SERVICE
+        value: logic-agent
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+  - type: web
+    name: code-sentinel-documentation-agent
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths: [services/documentation-agent/**, packages/**, Dockerfile, package-lock.json]
+    envVars:
+      - key: SERVICE
+        value: documentation-agent
+      - key: NODE_ENV
+        value: production
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false

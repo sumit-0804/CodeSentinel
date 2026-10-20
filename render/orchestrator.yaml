@@ -1,0 +1,67 @@
+# Render Blueprint, workspace B: the orchestrator (free plan, kept awake by a /healthz ping every 10 min).
+# Values marked `sync: false` are typed in Render's dashboard when the Blueprint is created.
+services:
+  - type: web
+    name: code-sentinel-orchestrator
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths:
+        - services/orchestrator/**
+        - packages/contracts/**
+        - packages/db/**
+        - packages/llm/**
+        - packages/service-kit/**
+        - Dockerfile
+        - package-lock.json
+    envVars:
+      - key: SERVICE # Docker build arg: which workspace to build
+        value: orchestrator
+      - key: NODE_ENV
+        value: production
+      # The agents sleep on the free plan: wake them first, and give LLM calls more time.
+      - key: AGENT_WAKE_TIMEOUT_MS
+        value: "90000"
+      - key: AGENT_TIMEOUT_MS
+        value: "30000"
+      - key: LLM_AGENT_TIMEOUT_MS
+        value: "60000"
+      # Which Groq account each agent's own GROQ_API_KEY belongs to (shared quota per account).
+      - key: GROQ_ACCOUNT_PERFORMANCE
+        value: sid
+      - key: GROQ_ACCOUNT_LOGIC
+        value: cara
+      - key: GEMINI_EMBED_RPM
+        value: "100"
+      - key: GEMINI_EMBED_TPM
+        value: "30000"
+      - key: GEMINI_EMBED_RPD
+        value: "1000"
+      # The five agents' https://….onrender.com URLs (workspace C)
+      - key: AGENT_SECURITY_URL
+        sync: false
+      - key: AGENT_STYLE_URL
+        sync: false
+      - key: AGENT_PERFORMANCE_URL
+        sync: false
+      - key: AGENT_LOGIC_URL
+        sync: false
+      - key: AGENT_DOCUMENTATION_URL
+        sync: false
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

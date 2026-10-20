@@ -1,0 +1,65 @@
+# Render Blueprint, workspace A: the gateway (free plan, kept awake by a /healthz ping every 10 min).
+# Values marked `sync: false` are typed in Render's dashboard when the Blueprint is created.
+# Also add the Secret File `github-app.pem` (the GitHub App private key) under Environment.
+services:
+  - type: web
+    name: code-sentinel-gateway
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/sumit-0804/CodeSentinel
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Free services have no pre-deploy step, so migrations run before the server starts.
+    dockerCommand: sh -c "npm run migrate:deploy -w @code-sentinel/db && exec node services/gateway/dist/server.js"
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    buildFilter:
+      paths:
+        - services/gateway/**
+        - packages/contracts/**
+        - packages/db/**
+        - packages/service-kit/**
+        - Dockerfile
+        - package-lock.json
+    domains:
+      - api.codesentinel.scribly.fun
+    envVars:
+      - key: SERVICE # Docker build arg: which workspace to build
+        value: gateway
+      - key: NODE_ENV
+        value: production
+      - key: GATEWAY_SEED
+        value: none
+      # Render's proxy plus the dashboard's server: two hops before the browser's IP.
+      - key: TRUST_PROXY
+        value: "2"
+      - key: DASHBOARD_URL
+        value: https://codesentinel.scribly.fun
+      - key: GITHUB_PRIVATE_KEY_PATH
+        value: /etc/secrets/github-app.pem
+      - key: MFA_STEP_UP_MINUTES
+        value: "10"
+      - key: FILE_CONTENT_MAX_BYTES
+        value: "36000"
+      - key: ORCHESTRATOR_URL # the orchestrator's https://….onrender.com URL (workspace B)
+        sync: false
+      - key: SERVICE_TOKEN # same value on all seven services
+        sync: false
+      - key: DATABASE_URL # Supabase session pooler (port 5432), prisma role
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: GITHUB_APP_CLIENT_SECRET
+        sync: false
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
