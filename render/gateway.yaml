@@ -12,8 +12,8 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     # Free services have no pre-deploy step, so migrations run before the server starts.
-    # Render runs this through `sh -c` itself, so it takes `&&` without a wrapper.
-    dockerCommand: npm run migrate:deploy -w @code-sentinel/db && exec node services/gateway/dist/server.js
+    # Render splits this into words without a shell, so the `&&` lives in the npm script.
+    dockerCommand: npm run start:deploy -w @code-sentinel/gateway
     healthCheckPath: /healthz
     autoDeployTrigger: checksPass
     buildFilter:
