@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { supabaseOriginHeaders } from "@/lib/browser-origin";
 import { env } from "@/lib/env";
 import { isAppRoute, isGuestOnlyRoute } from "@/lib/routes";
 import { DEFAULT_NEXT_PATH } from "@/lib/safe-next-path";
@@ -10,10 +11,9 @@ export async function proxy(request: NextRequest) {
   let cacheHeaders: Record<string, string> = {};
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = env();
 
-  const userAgent = request.headers.get("user-agent");
   const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
-    // Token refreshes happen here; Supabase records the session's browser from this header.
-    ...(userAgent ? { global: { headers: { "User-Agent": userAgent } } } : {}),
+    // Token refreshes happen here; Supabase records the session's browser and IP from these headers.
+    global: { headers: supabaseOriginHeaders(request.headers) },
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet, headers) {
