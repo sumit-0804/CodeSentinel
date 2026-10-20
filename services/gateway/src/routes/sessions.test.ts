@@ -28,16 +28,29 @@ async function setup() {
 }
 
 describe("/v1/me/sessions", () => {
-  it("lists the caller's devices, newest activity first, marking this one", async () => {
+  it("lists the caller's devices, newest activity first, marking this one with the device the gateway saw", async () => {
     const { app, auth } = await setup();
 
     await withServer(app, async (baseUrl) => {
-      const body = SessionListSchema.parse(await (await fetch(`${baseUrl}/v1/me/sessions`, { headers: await auth(false) })).json());
+      const headers = { ...(await auth(false)), "User-Agent": "Chrome on the gateway" };
+      const body = SessionListSchema.parse(await (await fetch(`${baseUrl}/v1/me/sessions`, { headers })).json());
       expect(body.items).toEqual([
+        // Supabase recorded "Firefox" (the dashboard's server); the request's own browser and IP win.
+        { sessionId: TEST_SUPABASE_SESSION_ID, createdAt: "2026-10-19T08:00:00.000Z", lastActiveAt: expect.any(String), userAgent: "Chrome on the gateway", ip: expect.any(String), current: true },
         { sessionId: PHONE, createdAt: "2026-10-10T08:00:00.000Z", lastActiveAt: "2026-10-19T09:00:00.000Z", ip: "198.51.100.4", current: false },
-        { sessionId: TEST_SUPABASE_SESSION_ID, createdAt: "2026-10-19T08:00:00.000Z", userAgent: "Firefox", current: true },
       ]);
     });
+  });
+
+  it("forgets a signed-out device's activity", async () => {
+    const { stores } = await setup();
+    await stores.sessions.touch({ sessionId: PHONE, userId: TEST_USER_ID, ip: "203.0.113.9", userAgent: "Safari" }, new Date("2026-10-20T10:00:00Z"));
+
+    expect((await stores.sessions.listForUser(TEST_USER_ID)).find((s) => s.sessionId === PHONE)).toMatchObject({ ip: "203.0.113.9", userAgent: "Safari" });
+    await stores.sessions.revoke(TEST_USER_ID, PHONE);
+    await stores.sessions.touch({ sessionId: TEST_SUPABASE_SESSION_ID, userId: TEST_USER_ID }, new Date("2026-10-20T10:05:00Z"));
+
+    expect((await stores.sessions.listForUser(TEST_USER_ID)).map((s) => s.sessionId)).toEqual([TEST_SUPABASE_SESSION_ID]);
   });
 
   it("signs another device out with a fresh code, and records it", async () => {

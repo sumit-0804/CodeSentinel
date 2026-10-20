@@ -9,7 +9,7 @@ the orchestrator use. The database is **Supabase Postgres**: `code-sentinel-dev`
 - [`docs/design/schema/schema.sql`](../../docs/design/schema/schema.sql) is **generated** from them for
   the design documents (`npm run schema:sql`, see its header). Never edit it by hand.
 - [`docs/design/diagrams/database_schema.png`](../../docs/design/diagrams/database_schema.png) is the
-  ER diagram of all 16 tables. Its Excalidraw source is
+  ER diagram of all 17 tables. Its Excalidraw source is
   [`database_schema.excalidraw`](../../docs/design/diagrams/database_schema.excalidraw): open it at
   excalidraw.com, edit it when a table or relation changes, and export the PNG again (scale 3x).
 - Only the `public` schema is ours. Supabase owns `auth` (users, OAuth identities, sessions, TOTP
@@ -34,6 +34,7 @@ changes for Supabase Auth and job persistence:
 | `api_keys` and the editor review trigger removed; `review_trigger` is `github_pull_request` or `dashboard_manual` (migration `20261014120000`) | There is no editor client; every caller is the GitHub App or a signed-in dashboard user |
 | `finding_embeddings`: `collection` / `vector_id` (Chroma) replaced by `embedding vector(768)`, the `vector` extension enabled (migration `20261017100000`) | pgvector in the same database replaces ChromaDB. Search is exact over one organization's rows (`idx_embeddings_org`): an HNSW index filters after the nearest-neighbour step and can miss matches, and Prisma can't declare one |
 | `audit_events` and the `audit_action` enum (migration `20261019100000`); RLS on | The admins' audit log (WP6): who changed configuration, decided fixes, re-ran reviews, linked GitHub or signed out a device, from which IP and browser |
+| `session_activity` (migration `20261020150000`); RLS on | The device behind each Supabase session (IP, browser, last seen) as the gateway sees it. Supabase records the dashboard's server instead, because sign-in and token refresh run on Vercel; Signed-in devices shows ours first. Rows of ended sessions are dropped when the list is read |
 | `organizations.default_review_branches` removed; repositories that followed a non-empty list and had none of their own get it copied into `repository_settings.review_branches` (migration `20261016100000`) | Branches to review are set per repository only; an organization default made the list hard to find and edit |
 
 Prisma can't express the CHECK constraints or row-level security, so they are hand-written at the

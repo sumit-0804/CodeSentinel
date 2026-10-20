@@ -9,6 +9,8 @@ export const ORGANIZATION_HEADER = "x-organization-id";
 
 /** A signed-in user's profile is written at most this often, not on every request. */
 const RECORD_SIGN_IN_EVERY_MS = 5 * 60_000;
+/** A session's device is written at most this often, or at once when its IP or browser changes. */
+const TOUCH_SESSION_EVERY_MS = 60_000;
 
 export interface AuthMiddlewareDeps {
   sessions: SessionStore;
@@ -27,6 +29,24 @@ const invalidCredentials = () => unauthorized("invalid_credentials", "The suppli
  */
 export function createAuthMiddleware({ sessions, users, supabase, logger, now = () => new Date() }: AuthMiddlewareDeps) {
   const recordedAt = new Map<string, number>();
+  const touched = new Map<string, { at: number; device: string }>();
+
+  // Supabase sees the dashboard's server, so the gateway records the browser's IP and name itself.
+  async function touchSession(sessionId: string, userId: string, req: Request, at: Date): Promise<void> {
+    const ip = req.ip;
+    const userAgent = req.get("user-agent");
+    const device = `${ip ?? ""}|${userAgent ?? ""}`;
+    const last = touched.get(sessionId);
+    if (last && last.device === device && at.getTime() - last.at < TOUCH_SESSION_EVERY_MS) return;
+    touched.set(sessionId, { at: at.getTime(), device });
+    try {
+      await sessions.touch({ sessionId, userId, ...(ip ? { ip } : {}), ...(userAgent ? { userAgent } : {}) }, at);
+    } catch (error) {
+      // A missed device update must never fail the request.
+      touched.delete(sessionId);
+      logger?.warn("session device not recorded", { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   async function supabasePrincipal(token: string, req: Request): Promise<Principal> {
     if (!supabase) throw invalidCredentials();
@@ -57,6 +77,8 @@ export function createAuthMiddleware({ sessions, users, supabase, logger, now = 
       );
       recordedAt.set(claims.userId, at.getTime());
     }
+    // After recordSignIn: the device row refers to the user's row.
+    await touchSession(claims.sessionId, claims.userId, req, at);
 
     const organizationId = await resolveOrganization(claims.userId, req.get(ORGANIZATION_HEADER), users);
     return {

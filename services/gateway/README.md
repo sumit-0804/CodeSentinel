@@ -419,7 +419,11 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 ## Signed-in devices
 
 `GET /v1/me/sessions` lists the caller's live Supabase sessions, most recently active first, with
-the browser and IP Supabase recorded and `current` on the one making the request.
+`current` on the one making the request. The browser and IP are the gateway's own record
+(`session_activity`): Supabase only sees the dashboard's server, because sign-in and token refresh run
+there, so the auth middleware stores each session's `req.ip` and `User-Agent` (forwarded by the
+dashboard, see `TRUST_PROXY`) at most once a minute, or at once when they change. A failed write is
+logged and never fails the request. A session the gateway hasn't seen yet shows Supabase's values.
 `DELETE /v1/me/sessions/{id}` signs one out at once (its next request is 401 `session_revoked`, and its
 refresh tokens are gone): TOTP step-up, 409 `current_session` for this device (sign out instead), 404
 for another user's or an unknown session. Recorded in the audit log as `session_revoked`.

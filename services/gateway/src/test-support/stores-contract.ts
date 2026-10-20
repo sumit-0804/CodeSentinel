@@ -590,6 +590,29 @@ export function describeStoresContract(
       await expect(stores.sessions.revoke(ids.userId, laptop)).resolves.toBe(false);
       await expect(stores.sessions.listForUser(ids.userId)).resolves.toMatchObject([{ sessionId: phone }]);
     });
+
+    it("shows the device the gateway saw over Supabase's, and drops it once the session ends", async () => {
+      const [laptop, phone] = [randomUUID(), randomUUID()];
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.activeSessionIds.push(laptop, phone);
+        seed.sessions = [
+          // What Supabase records behind the dashboard: its own server.
+          { sessionId: laptop, userId: ids.userId, createdAt: new Date("2026-10-01T09:00:00Z"), lastActiveAt: new Date("2026-10-19T08:00:00Z"), userAgent: "node", ip: "44.200.28.110" },
+          { sessionId: phone, userId: ids.userId, createdAt: new Date("2026-10-18T09:00:00Z"), lastActiveAt: new Date("2026-10-19T09:00:00Z") },
+        ];
+      });
+
+      await stores.sessions.touch({ sessionId: laptop, userId: ids.userId, ip: "110.226.114.105", userAgent: "Chrome" }, new Date("2026-10-20T10:00:00Z"));
+      await stores.sessions.touch({ sessionId: laptop, userId: ids.userId, ip: "110.226.114.106", userAgent: "Chrome" }, new Date("2026-10-20T10:01:00Z"));
+      const listed = await stores.sessions.listForUser(ids.userId);
+      expect(listed[0]).toEqual({ sessionId: laptop, createdAt: new Date("2026-10-01T09:00:00Z"), lastActiveAt: new Date("2026-10-20T10:01:00Z"), userAgent: "Chrome", ip: "110.226.114.106" });
+      expect(listed[1]).toMatchObject({ sessionId: phone, lastActiveAt: new Date("2026-10-19T09:00:00Z") });
+
+      await stores.sessions.revoke(ids.userId, laptop);
+      await stores.sessions.touch({ sessionId: laptop, userId: ids.userId, ip: "110.226.114.105" }, new Date("2026-10-20T10:02:00Z"));
+      // A row left for a session that's no longer live is cleaned up on the next list.
+      await expect(stores.sessions.listForUser(ids.userId)).resolves.toEqual([expect.objectContaining({ sessionId: phone })]);
+    });
   });
 
   const repo = (githubRepoId: number, fullName: string) => ({ githubRepoId, fullName, defaultBranch: "main", isPrivate: true });

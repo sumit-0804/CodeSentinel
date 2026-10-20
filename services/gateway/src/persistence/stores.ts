@@ -231,9 +231,36 @@ export interface SessionRecord {
   ip?: string;
 }
 
+/** What the gateway saw of a session's device; it overrides Supabase's, which is the dashboard's server. */
+export interface SessionActivity {
+  sessionId: string;
+  userId: string;
+  ip?: string;
+  userAgent?: string;
+}
+
+export interface SessionActivityRecord extends SessionActivity {
+  lastSeenAt: Date;
+}
+
+/** The gateway's view of each device wins over Supabase's; last active is the later of the two. */
+export function withSessionActivity(sessions: SessionRecord[], activity: SessionActivityRecord[]): SessionRecord[] {
+  const byId = new Map(activity.map((row) => [row.sessionId, row]));
+  return sessions
+    .map((session) => {
+      const seen = byId.get(session.sessionId);
+      if (!seen) return session;
+      const lastActiveAt = session.lastActiveAt && session.lastActiveAt > seen.lastSeenAt ? session.lastActiveAt : seen.lastSeenAt;
+      return { ...session, lastActiveAt, ...(seen.ip ? { ip: seen.ip } : {}), ...(seen.userAgent ? { userAgent: seen.userAgent } : {}) };
+    })
+    .sort((a, b) => (b.lastActiveAt ?? b.createdAt).getTime() - (a.lastActiveAt ?? a.createdAt).getTime());
+}
+
 export interface SessionStore {
   isActive(sessionId: string): Promise<boolean>;
-  /** The user's live sessions, most recently active first. */
+  /** Records the device behind a request (`session_activity`). */
+  touch(activity: SessionActivity, at: Date): Promise<void>;
+  /** The user's live sessions, most recently active first, with the device the gateway last saw on each. */
   listForUser(userId: string): Promise<SessionRecord[]>;
   /** Signs that session out at once; `false` when it isn't one of the user's live sessions. */
   revoke(userId: string, sessionId: string): Promise<boolean>;

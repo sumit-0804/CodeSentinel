@@ -82,6 +82,17 @@ CREATE TABLE "users" (
 );
 
 -- CreateTable
+CREATE TABLE "session_activity" (
+    "session_id" UUID NOT NULL,
+    "user_id" UUID NOT NULL,
+    "ip" TEXT,
+    "user_agent" TEXT,
+    "last_seen_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "session_activity_pkey" PRIMARY KEY ("session_id")
+);
+
+-- CreateTable
 CREATE TABLE "organization_members" (
     "organization_id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
@@ -322,6 +333,9 @@ CREATE UNIQUE INDEX "users_github_user_id_key" ON "users"("github_user_id");
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
 -- CreateIndex
+CREATE INDEX "idx_session_activity_user" ON "session_activity"("user_id");
+
+-- CreateIndex
 CREATE INDEX "idx_org_members_user" ON "organization_members"("user_id");
 
 -- CreateIndex
@@ -392,6 +406,9 @@ CREATE INDEX "idx_embeddings_org" ON "finding_embeddings"("organization_id");
 
 -- CreateIndex
 CREATE INDEX "idx_similarities_score" ON "finding_similarities"("finding_id", "similarity_score" DESC);
+
+-- AddForeignKey
+ALTER TABLE "session_activity" ADD CONSTRAINT "session_activity_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "organization_members" ADD CONSTRAINT "organization_members_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -509,6 +526,7 @@ ALTER TABLE "suggestions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "finding_embeddings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "finding_similarities" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "audit_events" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "session_activity" ENABLE ROW LEVEL SECURITY;
 
 -- Prisma's bookkeeping table sits in `public` too; hide it from Supabase's publishable key like every other table.
 ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;

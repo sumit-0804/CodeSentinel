@@ -189,6 +189,36 @@ describe("createAuthMiddleware: Supabase access tokens", () => {
     expect(recordSignIn).toHaveBeenCalledTimes(2);
   });
 
+  it("records the session's device at most once a minute, and at once when the browser changes", async () => {
+    const supabase = await testSupabase(() => NOW);
+    const seeded = await seededStores();
+    const touch = vi.spyOn(seeded.stores.sessions, "touch");
+    let clock = NOW.getTime();
+    const app = authApp(seeded, supabase, () => new Date(clock));
+    const token = await supabase.sign(TEST_USER_ID);
+
+    await call(app, "/whoami", { ...bearer(token), "User-Agent": "Chrome" });
+    clock += 30_000;
+    await call(app, "/whoami", { ...bearer(token), "User-Agent": "Chrome" });
+    await call(app, "/whoami", { ...bearer(token), "User-Agent": "Firefox" });
+    clock += 60_000;
+    await call(app, "/whoami", { ...bearer(token), "User-Agent": "Firefox" });
+
+    expect(touch).toHaveBeenCalledTimes(3);
+    expect(touch.mock.calls[0]![0]).toMatchObject({ sessionId: TEST_SUPABASE_SESSION_ID, userId: TEST_USER_ID, userAgent: "Chrome", ip: expect.any(String) });
+    expect(touch.mock.calls[1]![0]).toMatchObject({ userAgent: "Firefox" });
+  });
+
+  it("still lets the request through when recording the device fails", async () => {
+    const supabase = await testSupabase(() => NOW);
+    const seeded = await seededStores();
+    vi.spyOn(seeded.stores.sessions, "touch").mockRejectedValue(new Error("database down"));
+
+    const result = await call(authApp(seeded, supabase), "/whoami", bearer(await supabase.sign(TEST_USER_ID)));
+
+    expect(result.status).toBe(200);
+  });
+
   it("uses X-Organization-Id when the user is a member", async () => {
     const supabase = await testSupabase(() => NOW);
     const token = await supabase.sign(TEST_USER_ID);

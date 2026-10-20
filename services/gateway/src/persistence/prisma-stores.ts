@@ -15,6 +15,7 @@ import {
   type ReviewRecord,
   type ReviewStore,
   type SessionStore,
+  withSessionActivity,
   type SuggestionRecord,
   type SuggestionStore,
   type Stores,
@@ -362,21 +363,45 @@ export class PrismaStores implements Stores {
         const rows = await prisma.$queryRaw<{ active: boolean }[]>`select private.session_is_active(${sessionId}::uuid) as active`;
         return rows[0]?.active === true;
       },
+      touch: async ({ sessionId, userId, ip, userAgent }, at) => {
+        const device = { ip: ip ?? null, userAgent: userAgent ?? null, lastSeenAt: at };
+        await prisma.sessionActivity.upsert({ where: { sessionId }, create: { sessionId, userId, ...device }, update: device });
+      },
       // Both read and change `auth.sessions` through hand-made security definer functions (packages/db README).
       listForUser: async (userId) => {
-        const rows = await prisma.$queryRaw<{ id: string; created_at: Date; last_active_at: Date | null; user_agent: string | null; ip: string | null }[]>`
-          select id, created_at, last_active_at, user_agent, ip from private.user_sessions(${userId}::uuid)`;
-        return rows.map((row) => ({
+        const [rows, activity] = await Promise.all([
+          prisma.$queryRaw<{ id: string; created_at: Date; last_active_at: Date | null; user_agent: string | null; ip: string | null }[]>`
+            select id, created_at, last_active_at, user_agent, ip from private.user_sessions(${userId}::uuid)`,
+          prisma.sessionActivity.findMany({ where: { userId } }),
+        ]);
+        // Devices of sessions that ended (signed out, expired) are dropped, so the table only holds live ones.
+        const liveIds = rows.map((row) => row.id);
+        if (activity.some((row) => !liveIds.includes(row.sessionId))) {
+          await prisma.sessionActivity.deleteMany({ where: { userId, sessionId: { notIn: liveIds } } });
+        }
+        const sessions = rows.map((row) => ({
           sessionId: row.id,
           createdAt: row.created_at,
           ...(row.last_active_at ? { lastActiveAt: row.last_active_at } : {}),
           ...(row.user_agent ? { userAgent: row.user_agent } : {}),
           ...(row.ip ? { ip: row.ip } : {}),
         }));
+        return withSessionActivity(
+          sessions,
+          activity.map((row) => ({
+            sessionId: row.sessionId,
+            userId: row.userId,
+            lastSeenAt: row.lastSeenAt,
+            ...(row.ip ? { ip: row.ip } : {}),
+            ...(row.userAgent ? { userAgent: row.userAgent } : {}),
+          })),
+        );
       },
       revoke: async (userId, sessionId) => {
         const rows = await prisma.$queryRaw<{ revoked: boolean }[]>`select private.revoke_session(${userId}::uuid, ${sessionId}::uuid) as revoked`;
-        return rows[0]?.revoked === true;
+        const revoked = rows[0]?.revoked === true;
+        if (revoked) await prisma.sessionActivity.deleteMany({ where: { sessionId } });
+        return revoked;
       },
     };
 

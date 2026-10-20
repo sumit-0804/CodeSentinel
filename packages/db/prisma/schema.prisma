@@ -183,8 +183,25 @@ model User {
   reviewsTriggered     Review[]
   suggestionsResolved  Suggestion[]
   auditEvents          AuditEvent[]
+  sessionActivity      SessionActivity[]
 
   @@map("users")
+}
+
+/// The device behind each Supabase session, as the gateway sees it. Supabase records the dashboard's
+/// server (Vercel) instead, because sign-in and token refresh happen there.
+model SessionActivity {
+  /// Supabase's `auth.sessions.id`; no foreign key, because `auth` isn't ours.
+  sessionId  String   @id @map("session_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_session_activity_user")
+  @@map("session_activity")
 }
 
 model OrganizationMember {

@@ -12,6 +12,7 @@ erDiagram
     ORGANIZATIONS ||--o{ ORGANIZATION_AGENT_DEFAULTS : "sets default modes in"
     ORGANIZATIONS |o--o{ AUDIT_EVENTS            : "logs actions in"
     USERS         |o--o{ AUDIT_EVENTS            : "performs"
+    USERS         ||--o{ SESSION_ACTIVITY        : "signs in on"
 
     ORGANIZATIONS {
         uuid        id                           PK
@@ -114,4 +115,12 @@ erDiagram
         text        request_id
         jsonb       metadata
         timestamptz created_at      "indexed with organization_id, newest first"
+    }
+
+    SESSION_ACTIVITY {
+        uuid        session_id   PK "= auth.sessions.id (no FK: auth is Supabase's)"
+        uuid        user_id      FK
+        text        ip           "the browser's, as the gateway sees it"
+        text        user_agent
+        timestamptz last_seen_at
     }

@@ -16,6 +16,7 @@ import {
   type AuditEventInput,
   type AuditStore,
   storedStatuses,
+  withSessionActivity,
   type GithubTokenStore,
   type InstallationStore,
   type RepositoryConfigStore,
@@ -24,6 +25,7 @@ import {
   type ReviewRecord,
   type ReviewStore,
   type SealedGithubTokens,
+  type SessionActivityRecord,
   type SessionRecord,
   type SessionStore,
   type Stores,
@@ -366,15 +368,22 @@ export class InMemoryStores implements Stores {
 
     const liveSessionsOf = (userId: string) =>
       (data.sessions ?? []).filter((session) => session.userId === userId && data.activeSessionIds.includes(session.sessionId));
+    const activity = new Map<string, SessionActivityRecord>();
     this.sessions = {
       isActive: async (sessionId) => data.activeSessionIds.includes(sessionId),
-      listForUser: async (userId) =>
-        liveSessionsOf(userId)
-          .map(({ userId: _userId, ...session }) => structuredClone(session))
-          .sort((a, b) => (b.lastActiveAt ?? b.createdAt).getTime() - (a.lastActiveAt ?? a.createdAt).getTime()),
+      touch: async (seen, at) => {
+        activity.set(seen.sessionId, { ...structuredClone(seen), lastSeenAt: at });
+      },
+      listForUser: async (userId) => {
+        const live = liveSessionsOf(userId).map(({ userId: _userId, ...session }) => structuredClone(session));
+        const liveIds = new Set(live.map((session) => session.sessionId));
+        for (const [sessionId, row] of activity) if (row.userId === userId && !liveIds.has(sessionId)) activity.delete(sessionId);
+        return withSessionActivity(live, [...activity.values()].filter((row) => row.userId === userId));
+      },
       revoke: async (userId, sessionId) => {
         if (!liveSessionsOf(userId).some((session) => session.sessionId === sessionId)) return false;
         data.activeSessionIds = data.activeSessionIds.filter((id) => id !== sessionId);
+        activity.delete(sessionId);
         return true;
       },
     };
