@@ -1,6 +1,6 @@
 # Style Agent sandbox (FR-STY-02): ESLint + Prettier for JS/TS, Ruff + Black for Python, pinned.
 # The agent runs one container per review request, with no network and a read-only filesystem.
-FROM node:20-slim
+FROM node:22-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-pip \

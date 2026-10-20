@@ -1,6 +1,6 @@
 # One image per service: docker build --build-arg SERVICE=gateway .
 # The style-agent has its own Dockerfile (it also needs the linters).
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 # Prisma's migrate engine needs OpenSSL.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 

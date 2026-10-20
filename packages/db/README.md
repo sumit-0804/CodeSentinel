@@ -167,4 +167,4 @@ docker rm -f cs-test-pg
 The suites also run against Supabase dev (the session pooler URL), but there the gateway's session
 cases are skipped.
 
-Requires Node 20.19+ (Prisma 7).
+Requires Node 22.12+ (Prisma 7 and the Prometheus client).

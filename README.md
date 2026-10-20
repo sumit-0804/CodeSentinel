@@ -43,7 +43,7 @@ reviewed in the same LLM call, and every call also sees the rest of the pull req
 
 ## Getting started
 
-Requires Node.js 20.19+ (Prisma 7). The database setup is in
+Requires Node.js 22.12+ (Prisma 7 and the Prometheus client need Node 22). The database setup is in
 [`packages/db/README.md`](packages/db/README.md).
 
 ```bash
@@ -105,7 +105,7 @@ npm run dev -w @code-sentinel/dashboard
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and on every push
-to `main` and `dev`. The `checks` job runs on Node 20 and Node 22 (`fail-fast: false`, so one version
+to `main` and `dev`. The `checks` job runs on Node 22 and Node 24 (`fail-fast: false`, so one version
 failing still reports the other) and executes, from a clean `npm ci`:
 
 ```bash

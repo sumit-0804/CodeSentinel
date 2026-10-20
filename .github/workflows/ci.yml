@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24]
     # A throwaway database for packages/db's migration and integration tests (pgvector, as Supabase has it).
     services:
       postgres:

@@ -65,11 +65,11 @@ image is missing, `POST /v1/review` answers 503 `sandbox_unavailable` and `/heal
 
 ## The sandbox image
 
-`sandbox/Dockerfile`: `node:20-slim` with pinned **ESLint 9.39.5**, **Prettier 3.9.9**,
+`sandbox/Dockerfile`: `node:22-slim` with pinned **ESLint 9.39.5**, **Prettier 3.9.9**,
 **typescript-eslint 8.70.1**, **Ruff 0.16.9** and **Black 26.5.1** (about 480 MB).
 
 ```bash
-npm run sandbox:build -w @code-sentinel/style-agent   # tags code-sentinel/style-sandbox:1
+npm run sandbox:build -w @code-sentinel/style-agent   # tags code-sentinel/style-sandbox:2
 ```
 
 Change a version in `sandbox/package.json` or the `Dockerfile`, then rebuild and bump the tag. Keep
@@ -95,7 +95,7 @@ that `run.mjs`, ESLint, `ruff` and `black` are there.
 
 See [`.env.example`](.env.example): `PORT` (default 8082), `SERVICE_TOKEN` (required),
 `SANDBOX_MODE` (`docker`, the default, or `process`), `STYLE_SANDBOX_IMAGE` (Docker mode, default
-`code-sentinel/style-sandbox:1`) and `LINT_ROOT` (process mode, default `/opt/lint`). Docker mode
+`code-sentinel/style-sandbox:2`) and `LINT_ROOT` (process mode, default `/opt/lint`). Docker mode
 needs a Docker engine on the host.
 
 ## Develop

@@ -15,7 +15,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22.12"
   },
   "scripts": {
     "build": "turbo run build",

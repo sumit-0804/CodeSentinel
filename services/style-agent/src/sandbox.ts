@@ -47,7 +47,7 @@ export interface DockerSandboxOptions {
   timeoutMs?: number;
 }
 
-export const DEFAULT_SANDBOX_IMAGE = "code-sentinel/style-sandbox:1";
+export const DEFAULT_SANDBOX_IMAGE = "code-sentinel/style-sandbox:2";
 
 /**
  * `DockerSandbox` from `class_agent.mmd` (FR-STY-02): every request runs in a fresh container with
