@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from "prom-client";
+import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from "@prometheus-io/client";
 
 import { serviceAuthMiddleware } from "./http/service-auth.js";
 import type { ServiceHandler } from "./locals.js";

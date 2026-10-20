@@ -28,9 +28,9 @@
   },
   "dependencies": {
     "@code-sentinel/contracts": "*",
+    "@prometheus-io/client": "^0.16.1",
     "express": "^5.2.1",
     "morgan": "^1.12.1",
-    "prom-client": "^15.1.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
