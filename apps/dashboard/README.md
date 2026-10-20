@@ -128,7 +128,7 @@ The secret key is never put in a file or deployed.
 
 ## Supabase setup (dev project)
 
-Already done: Site URL `http://localhost:3001`, redirect allow-list `http://localhost:3001/**`, GitHub and Google
+Already done: Site URL (the live site since deployment, see below), redirect allow-list `http://localhost:3001/**`, GitHub and Google
 providers, Resend SMTP, TOTP, 600 s access tokens. Three more steps for this app:
 
 1. **Email templates** (Authentication → Emails → Templates). Paste each file from [`emails/`](emails/) into the
@@ -146,6 +146,30 @@ providers, Resend SMTP, TOTP, 600 s access tokens. Three more steps for this app
 2. **Allow manual linking** (Authentication → Sign In / Providers), which "Link GitHub / Google" needs.
 3. **Password policy** (Authentication → Sign In / Providers → Email): minimum length 8, letters and digits required,
    matching the form.
+
+## Deploy (Vercel)
+
+Live at `https://codesentinel.scribly.fun`, on the same Supabase project as local development.
+
+1. **New Project** from `sumit-0804/CodeSentinel`, **Root Directory** `apps/dashboard`. [`vercel.json`](vercel.json)
+   installs at the repo root and builds the workspace packages first (they export `dist`), through
+   `turbo run build --filter=@code-sentinel/dashboard`.
+2. **Environment variables** (Production):
+
+   | Name | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | as in `.env.local` |
+   | `NEXT_PUBLIC_SITE_URL` | `https://codesentinel.scribly.fun` |
+   | `GATEWAY_URL` | `https://api.codesentinel.scribly.fun` |
+   | `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID` | as in `.env.local` |
+
+   `NEXT_PUBLIC_*` values are baked in at build time (the CSP too), so redeploy after changing them.
+3. **Domains:** add `codesentinel.scribly.fun`, then the CNAME Vercel shows in Hostinger's DNS zone.
+4. **Supabase** (Authentication → URL Configuration): Site URL `https://codesentinel.scribly.fun`, and add
+   `https://codesentinel.scribly.fun/**` to the redirect allow-list next to `http://localhost:3001/**`. The email
+   templates link to the Site URL, so emails sent while developing locally also open the live site.
+5. **GitHub App** (Settings → Developer settings → the App): add the callback URL
+   `https://codesentinel.scribly.fun/onboarding/github/callback`, and keep the localhost one.
 
 ## Security headers
 
