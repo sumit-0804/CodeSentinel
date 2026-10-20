@@ -28,4 +28,28 @@ describe("createOrchestratorMetrics", () => {
     share = 0.1;
     expect(await metrics.registry.metrics()).toContain('llm_quota_remaining_ratio{provider="groq",account="cara",service="orchestrator"} 0.1');
   });
+
+  it("exposes the last health check per agent, asleep apart from down, and only the current status", async () => {
+    const metrics = createOrchestratorMetrics();
+    expect(await metrics.registry.metrics()).not.toMatch(/^agent_health\{/m);
+
+    metrics.recordHealth({
+      checkedAt: "2026-10-20T15:00:00.000Z",
+      agents: [
+        { agent: "security", status: "ok" },
+        { agent: "logic", status: "unavailable", asleep: true },
+        { agent: "style", status: "unavailable" },
+      ],
+    });
+    const first = await metrics.registry.metrics();
+    expect(first).toContain('agent_health{agent="security",status="ok",service="orchestrator"} 1');
+    expect(first).toContain('agent_health{agent="logic",status="asleep",service="orchestrator"} 1');
+    expect(first).toContain('agent_health{agent="style",status="unavailable",service="orchestrator"} 1');
+    expect(first).toContain(`agent_health_checked_timestamp_seconds{service="orchestrator"} ${Date.parse("2026-10-20T15:00:00.000Z") / 1000}`);
+
+    metrics.recordHealth({ checkedAt: "2026-10-20T15:01:00.000Z", agents: [{ agent: "logic", status: "ok" }] });
+    const second = await metrics.registry.metrics();
+    expect(second).toContain('agent_health{agent="logic",status="ok",service="orchestrator"} 1');
+    expect(second).not.toContain('status="asleep"');
+  });
 });

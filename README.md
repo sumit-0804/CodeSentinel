@@ -201,6 +201,27 @@ In each workspace: **New → Blueprint**, pick this repo and the file, then type
 only when its own paths change. The gateway runs `prisma migrate deploy` before it starts, because
 free services have no pre-deploy step.
 
+**Monitoring** is on Grafana Cloud (free stack), from [`docs/monitoring/`](docs/monitoring/):
+
+- **Scraping:** two **Metrics Endpoint** scrape jobs read `/metrics` once a minute with `METRICS_TOKEN`
+  as the bearer token: `https://api.codesentinel.scribly.fun/metrics` (gateway) and the
+  orchestrator's `https://….onrender.com/metrics`.
+- **The agents aren't scraped:** a scrape every minute would keep all five awake and use up their
+  workspace's free hours. The orchestrator reports their runs, latency, last known health
+  (`agent_health`) and LLM quota instead.
+- **Dashboard:** [`code-sentinel.json`](docs/monitoring/code-sentinel.json), imported with Dashboards → New
+  → Import. It covers scrape status, requests, the 5xx share, latency, webhooks, rate limits, agent runs,
+  latency and health, LLM quota, similar-issue lookups, memory and event-loop lag.
+- **Alerts:** [`alerts.yaml`](docs/monitoring/alerts.yaml), imported with Alert rules → More → Import →
+  Prometheus YAML file. They email the default policy's contact point:
+
+  | Alert | Fires when |
+  | --- | --- |
+  | `CodeSentinelServiceDown` | `/metrics` unreadable for 5 min |
+  | `CodeSentinelAgentDown` | an agent's runs failed or timed out for 30 min with no success (learned from reviews, so a sleeping agent never counts) |
+  | `CodeSentinelGatewayErrors` | over 5% of gateway requests are 5xx for 5 min |
+  | `CodeSentinelLlmQuotaLow` | any LLM key under 15% of its quota |
+
 **The dashboard** is on Vercel; see the
 [dashboard README](apps/dashboard/README.md#deploy-vercel). The DNS records are in Hostinger:
 

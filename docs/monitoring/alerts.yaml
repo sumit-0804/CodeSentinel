@@ -1,0 +1,49 @@
+# Code Sentinel alert rules (WP6), Prometheus format. Grafana Cloud: Alerting → Alert rules → More →
+# Import alert rules → Prometheus YAML file. They notify the default policy's contact point (email).
+groups:
+  - name: code-sentinel
+    interval: 1m
+    rules:
+      - alert: CodeSentinelServiceDown
+        # Grafana couldn't read a service's /metrics: it's down, or its METRICS_TOKEN changed.
+        expr: max by (scrape_job) (up{scrape_job=~"code-sentinel-.*"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.scrape_job }} isn't answering /metrics"
+          description: "Check the service in Render (deploy, logs) and that the scrape job's bearer token matches its METRICS_TOKEN."
+
+      - alert: CodeSentinelAgentDown
+        # Learned from reviews, not health checks, so a sleeping free-tier agent never counts as down:
+        # runs failed or timed out in the last 30 minutes, and none succeeded.
+        expr: |
+          sum by (agent) (increase(agent_runs_total{status=~"failed|timed_out"}[30m])) > 0
+          unless on (agent)
+          sum by (agent) (increase(agent_runs_total{status="succeeded"}[30m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The {{ $labels.agent }} agent failed in every review for 30 minutes"
+          description: "Its runs failed or timed out with no success. Check the agent's Render service, its LLM key and quota."
+
+      - alert: CodeSentinelGatewayErrors
+        expr: |
+          sum(rate(http_request_duration_seconds_count{service="gateway", status=~"5.."}[5m]))
+            / sum(rate(http_request_duration_seconds_count{service="gateway"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Over 5% of gateway requests are failing with 5xx"
+          description: "Look at the gateway's Render logs for the failing route; the dashboard's Server errors panel shows when it started."
+
+      - alert: CodeSentinelLlmQuotaLow
+        expr: min by (provider, account) (llm_quota_remaining_ratio) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.provider }} ({{ $labels.account }}) has under 15% of its quota left"
+          description: "Reviews will skip LLM batches once it runs out; it refills with the provider's window (per minute or per day)."

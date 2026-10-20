@@ -1,0 +1,131 @@
+{
+  "title": "Code Sentinel",
+  "uid": "code-sentinel",
+  "description": "Gateway and orchestrator metrics (WP6). The agents aren't scraped: on Render's free plan a scrape would keep them awake; the orchestrator reports their runs, latency, health and LLM quota.",
+  "tags": ["code-sentinel"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "datasource", "label": "Data source", "type": "datasource", "query": "prometheus", "current": {}, "hide": 0 }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "Services", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat", "title": "Scrape up", "description": "1 when Grafana could read the service's /metrics in the last minute.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "targets": [{ "refId": "A", "expr": "max by (scrape_job) (up{scrape_job=~\"code-sentinel-.*\"})", "legendFormat": "{{scrape_job}}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "down", "color": "red" }, "1": { "text": "up", "color": "green" } } }], "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Requests per second", "description": "By service, method and status.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 1 },
+      "targets": [{ "refId": "A", "expr": "sum by (service, status) (rate(http_request_duration_seconds_count[$__rate_interval]))", "legendFormat": "{{service}} {{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Server errors (5xx share)", "description": "Alert fires above 5% on the gateway for 5 minutes.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 1 },
+      "targets": [{ "refId": "A", "expr": "sum by (service) (rate(http_request_duration_seconds_count{status=~\"5..\"}[$__rate_interval])) / sum by (service) (rate(http_request_duration_seconds_count[$__rate_interval]))", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.05 }] }, "custom": { "thresholdsStyle": { "mode": "line" } } }, "overrides": [] }
+    },
+    {
+      "type": "stat", "title": "LLM quota left (lowest)", "description": "Smallest share left in any quota window, per provider and account. Alert below 15%.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 5 },
+      "targets": [{ "refId": "A", "expr": "min(llm_quota_remaining_ratio)", "legendFormat": "lowest" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.15 }, { "color": "green", "value": 0.4 }] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "timeseries", "title": "Latency p95 by route", "description": "95th percentile request duration per route pattern.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service, route) (rate(http_request_duration_seconds_bucket{route!=\"/metrics\"}[$__rate_interval])))", "legendFormat": "{{service}} {{route}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Webhook deliveries", "description": "GitHub webhooks by event and outcome.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 9 },
+      "targets": [{ "refId": "A", "expr": "sum by (event, outcome) (increase(webhook_deliveries_total[$__rate_interval]))", "legendFormat": "{{event}} {{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Rate-limited requests", "description": "429s by limiter (webhook, user, write, failed_auth).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 9 },
+      "targets": [{ "refId": "A", "expr": "sum by (limiter) (increase(rate_limited_total[$__rate_interval]))", "legendFormat": "{{limiter}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "type": "row", "title": "Reviews and agents", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }
+    },
+    {
+      "type": "timeseries", "title": "Agent runs by status", "description": "From finished reviews. Failed or timed-out runs with no success for 30 minutes raise the agent alert.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 9, "x": 0, "y": 18 },
+      "targets": [{ "refId": "A", "expr": "sum by (agent, status) (increase(agent_runs_total[$__rate_interval]))", "legendFormat": "{{agent}} {{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Agent latency p95", "description": "How long each agent took in a review.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 9, "x": 9, "y": 18 },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, agent) (rate(agent_latency_seconds_bucket[$__rate_interval])))", "legendFormat": "{{agent}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "table", "title": "Agent health (last check)", "description": "Checked when someone opens the dashboard app, so it never wakes a sleeping agent. Asleep is normal on the free plan.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 18 },
+      "targets": [{ "refId": "A", "expr": "max by (agent, status) (agent_health) == 1", "format": "table", "instant": true }],
+      "transformations": [{ "id": "organize", "options": { "excludeByName": { "Time": true, "Value": true } } }],
+      "fieldConfig": { "defaults": {}, "overrides": [{ "matcher": { "id": "byName", "options": "status" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-text" } }, { "id": "mappings", "value": [{ "type": "value", "options": { "ok": { "color": "green" }, "asleep": { "color": "blue" }, "degraded": { "color": "orange" }, "unavailable": { "color": "red" } } }] }] }] }
+    },
+    {
+      "type": "timeseries", "title": "LLM quota left", "description": "Per provider and account.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "targets": [{ "refId": "A", "expr": "min by (provider, account) (llm_quota_remaining_ratio)", "legendFormat": "{{provider}} {{account}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.15 }] }, "custom": { "thresholdsStyle": { "mode": "line" } } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Similar past issues lookups", "description": "Vector context per review: found, none or failed.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "targets": [{ "refId": "A", "expr": "sum by (outcome) (increase(vector_lookups_total[$__rate_interval]))", "legendFormat": "{{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "type": "row", "title": "Process", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 }
+    },
+    {
+      "type": "timeseries", "title": "Memory (resident)", "description": "Render's free instances have 512 MB.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+      "targets": [{ "refId": "A", "expr": "max by (service) (process_resident_memory_bytes)", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 536870912 }] }, "custom": { "thresholdsStyle": { "mode": "line" } } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Event loop lag p99", "description": "A slow event loop delays every request.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+      "targets": [{ "refId": "A", "expr": "max by (service) (nodejs_eventloop_lag_p99_seconds)", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}

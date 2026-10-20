@@ -1,4 +1,4 @@
-import type { CombinedReport } from "@code-sentinel/contracts";
+import type { AgentHealthSnapshot, CombinedReport } from "@code-sentinel/contracts";
 import type { QuotaBudget } from "@code-sentinel/llm";
 import { Counter, createMetrics, Gauge, Histogram } from "@code-sentinel/service-kit";
 
@@ -40,8 +40,32 @@ export function createOrchestratorMetrics(budgets: readonly WatchedBudget[] = []
     },
   });
 
+  // The last health check, refreshed when the dashboard asks: polling here would keep sleeping agents awake.
+  let lastHealth: AgentHealthSnapshot | undefined;
+  new Gauge({
+    name: "agent_health",
+    help: "Each agent's last known health: 1 on its current status (ok, degraded, asleep, unavailable)",
+    labelNames: ["agent", "status"] as const,
+    registers,
+    collect() {
+      this.reset();
+      for (const entry of lastHealth?.agents ?? []) this.set({ agent: entry.agent, status: entry.asleep ? "asleep" : entry.status }, 1);
+    },
+  });
+  new Gauge({
+    name: "agent_health_checked_timestamp_seconds",
+    help: "When the agents' health was last checked (Unix time)",
+    registers,
+    collect() {
+      if (lastHealth) this.set(Date.parse(lastHealth.checkedAt) / 1000);
+    },
+  });
+
   return {
     ...metrics,
+    recordHealth(snapshot: AgentHealthSnapshot): void {
+      lastHealth = snapshot;
+    },
     /** Every agent run of a finished review. */
     recordReport(report: CombinedReport): void {
       for (const run of report.agentRuns) {

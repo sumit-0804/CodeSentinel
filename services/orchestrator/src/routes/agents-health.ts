@@ -16,12 +16,14 @@ export interface AgentsHealthRouterDeps {
   timeoutMs?: number;
   /** `AGENT_WAKE_TIMEOUT_MS`: agents sleep when idle, so a timed-out call means "asleep" and starts a wake. 0 = off. */
   wakeMs?: number;
+  /** Each new snapshot, for the `agent_health` metric. */
+  onSnapshot?: (snapshot: AgentHealthSnapshot) => void;
   now?: () => Date;
 }
 
 /** `GET /agents/health`: the last known health of each agent, polled on demand and cached. */
 export function createAgentsHealthRouter(deps: AgentsHealthRouterDeps): Router {
-  const { clients, cacheMs = 30_000, timeoutMs = 2_000, wakeMs = 0, now = () => new Date() } = deps;
+  const { clients, cacheMs = 30_000, timeoutMs = 2_000, wakeMs = 0, onSnapshot, now = () => new Date() } = deps;
   let cached: { snapshot: Promise<AgentHealthSnapshot>; at: number } | undefined;
   const waking = new Set<AgentKind>();
   // An agent whose last wake gave up is reported as down, not asleep, until it answers again.
@@ -60,7 +62,9 @@ export function createAgentsHealthRouter(deps: AgentsHealthRouterDeps): Router {
         }
       }),
     );
-    return { checkedAt: now().toISOString(), agents };
+    const snapshot = { checkedAt: now().toISOString(), agents };
+    onSnapshot?.(snapshot);
+    return snapshot;
   };
 
   const router = Router();
