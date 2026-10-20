@@ -132,6 +132,7 @@ async function main(): Promise<void> {
   if (!similarIssueLookup) logger.warn("vector context off: needs DATABASE_URL, GEMINI_API_KEY and GEMINI_EMBED_RPM/TPM/RPD");
   const graph = buildReviewGraph({
     clients,
+    agentWakeMs: config.agentWakeMs,
     ...(llmRouting ? { llmRouting } : {}),
     ...(similarIssueLookup ? { similarIssueLookup } : {}),
   });

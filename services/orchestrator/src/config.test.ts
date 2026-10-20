@@ -9,6 +9,7 @@ describe("loadOrchestratorConfig", () => {
       serviceToken: "token",
       jobRetentionMs: 3_600_000,
       llmAgentTimeoutMs: 45_000,
+      agentWakeMs: 0,
       groqAccounts: { security: "default", performance: "default", logic: "default", documentation: "default" },
       context: { maxFindings: 20, timeoutMs: 5000, minSimilarity: 0.8 },
     });

@@ -9,6 +9,8 @@ export interface OrchestratorConfig {
   jobRetentionMs: number;
   /** Minimum per-agent timeout for LLM agents; a Gemini call can take over 20 s on the free tier. */
   llmAgentTimeoutMs: number;
+  /** How long to wake a sleeping agent host before its review call; 0 = don't (always-on agents). */
+  agentWakeMs: number;
   /** Supabase Postgres (session pooler). Set → reviews are stored in `reviews`; unset → in memory. */
   databaseUrl?: string;
   /** Which Groq account (organization) each LLM agent calls with; agents on one account share its quota. */
@@ -55,6 +57,7 @@ const EnvSchema = z.object({
   SERVICE_TOKEN: z.preprocess(blankAsUndefined, z.string().min(1, "must not be empty")),
   JOB_RETENTION_MS: integer(60_000, 86_400_000, 3_600_000),
   LLM_AGENT_TIMEOUT_MS: integer(1_000, 120_000, 45_000),
+  AGENT_WAKE_TIMEOUT_MS: integer(0, 180_000, 0),
   DATABASE_URL: z.preprocess(
     blankAsUndefined,
     z.string().regex(/^postgres(ql)?:\/\/\S+$/, "must be a postgres:// or postgresql:// URL").optional(),
@@ -99,6 +102,7 @@ export function loadOrchestratorConfig(env: Record<string, string | undefined> =
     serviceToken: values.SERVICE_TOKEN,
     jobRetentionMs: values.JOB_RETENTION_MS,
     llmAgentTimeoutMs: values.LLM_AGENT_TIMEOUT_MS,
+    agentWakeMs: values.AGENT_WAKE_TIMEOUT_MS,
     groqAccounts: {
       security: values.GROQ_ACCOUNT_SECURITY,
       performance: values.GROQ_ACCOUNT_PERFORMANCE,

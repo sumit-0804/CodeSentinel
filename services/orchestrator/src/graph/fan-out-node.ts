@@ -12,6 +12,7 @@ import type { LlmProviderName } from "@code-sentinel/llm";
 
 import { AgentCallError } from "../agents/agent-call-error.js";
 import type { AgentClient } from "../agents/agent-client.js";
+import { wakeAgent } from "../agents/wake-agent.js";
 import type { AgentSkippedFiles } from "../aggregation/skipped-files.js";
 import { agentBudgetMs, LLM_AGENTS, reserveBatch, settleCall, type LlmRouting } from "../budget/llm-routing.js";
 import { planLlmReview } from "../budget/plan.js";
@@ -19,7 +20,7 @@ import { DEADLINE_MARGIN_MS } from "./defaults.js";
 import type { ReviewState } from "./review-state.js";
 
 /** The part of `AgentClient` the fan-out uses, so tests can pass plain objects. */
-export type ReviewClient = Pick<AgentClient, "review">;
+export type ReviewClient = Pick<AgentClient, "review"> & Partial<Pick<AgentClient, "health">>;
 export type ReviewClients = Partial<Record<AgentKind, ReviewClient>>;
 
 /** The slice of the LangGraph node config the fan-out reads: the run's abort signal. */
@@ -39,15 +40,18 @@ type BatchResult = { ok: true; response: AgentReviewResponse } | { ok: false; er
  * `FanOutNode`: calls every enabled agent in parallel (FR-ORC-01). A slow or failing agent becomes
  * a `timed_out` / `failed` run instead of failing the review (FR-ORC-02, NFR-04). With `routing`,
  * LLM agents get their files in planned batches, each sent only after quota was reserved on Groq
- * or Gemini (`plans/large-diffs.md`). Runs are reported in `enabledAgents` order.
+ * or Gemini (`plans/large-diffs.md`). Runs are reported in `enabledAgents` order. With `wakeMs`,
+ * each agent is woken through `/healthz` first, so a sleeping host doesn't eat its review timeout.
  */
-export function createFanOutNode(clients: ReviewClients, routing?: LlmRouting) {
+export function createFanOutNode(clients: ReviewClients, routing?: LlmRouting, wakeMs = 0) {
   return async function fanOut(state: ReviewState, config?: NodeRunConfig): Promise<Partial<ReviewState>> {
     const signal = config?.signal;
     const outcomes = await Promise.all(
       state.enabledAgents.map(async (agent): Promise<AgentOutcome> => {
         const client = clients[agent];
         if (!client) return { run: { agent, status: "skipped", errorCode: "agent_not_configured" }, findings: [], skipped: [] };
+        // An agent that never wakes fails on the review call below, as it does today.
+        if (wakeMs > 0 && client.health) await wakeAgent({ health: client.health.bind(client) }, wakeMs, signal);
         if (routing && LLM_AGENTS.has(agent)) return runLlmAgent(agent, client, state, routing, signal);
         return runOnce(agent, client, state, signal);
       }),

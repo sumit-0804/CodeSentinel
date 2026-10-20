@@ -17,6 +17,8 @@ export interface ReviewGraphDeps {
   similarIssueLookup?: SimilarIssueLookup;
   /** Quota routing for LLM agents; without it every agent gets one request and no LLM provider. */
   llmRouting?: LlmRouting;
+  /** Wake each agent through `/healthz` before its review call, for up to this long; 0 = off. */
+  agentWakeMs?: number;
 }
 
 export interface ReviewRunInput {
@@ -57,7 +59,7 @@ export function toInitialState(input: ReviewRunInput): ReviewState {
  */
 export function buildReviewGraph(deps: ReviewGraphDeps) {
   const graph = new StateGraph(ReviewStateAnnotation)
-    .addNode("fanOut", createFanOutNode(deps.clients, deps.llmRouting))
+    .addNode("fanOut", createFanOutNode(deps.clients, deps.llmRouting, deps.agentWakeMs))
     .addNode("aggregate", aggregateNode)
     .addNode("context", createContextNode(deps.similarIssueLookup))
     .addNode("threshold", thresholdNode)

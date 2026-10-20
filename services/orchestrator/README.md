@@ -259,6 +259,7 @@ the HTTP settings and reports every invalid one at once. `loadAgentConfig()` rea
 | `SERVICE_TOKEN` | required | Expected from the gateway on `/internal/*` and sent to every agent as `Authorization: Bearer <token>`. Same value as the gateway's |
 | `METRICS_TOKEN` | unset | Bearer token for `GET /metrics`; unset → the route isn't mounted | at least 16 characters |
 | `AGENT_TIMEOUT_MS` | `20000` | Client default timeout, integer in 1000..120000; anything else throws at startup. A job's `agentTimeoutMs` overrides it per review |
+| `AGENT_WAKE_TIMEOUT_MS` | `0` | Before each agent's review call, ping its `/healthz` (retrying every 2 s) for up to this long, so a sleeping free-tier host wakes without eating the review timeout. Integer 0..180000; 0 = off. `90000` on Render |
 
 An unset agent URL is not an error: that agent is recorded as `skipped` when a job enables it.
 

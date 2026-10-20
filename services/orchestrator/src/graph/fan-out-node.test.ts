@@ -265,4 +265,24 @@ describe("createFanOutNode with LLM routing", () => {
     expect(update.rawFindings).toHaveLength(1);
     expect(update.agentSkippedFiles).toEqual([{ agent: "security", files: [{ path: "huge.py", reason: "too_large" }] }]);
   });
+
+  it("wakes each agent through /healthz before its review call when wakeMs is set", async () => {
+    const calls: string[] = [];
+    const client: ReviewClient = {
+      health: vi.fn(async () => (calls.push("health"), { status: "ok" as const, version: "1.0.0" })),
+      review: vi.fn(async () => (calls.push("review"), { ...exampleAgentReviewResponse, agent: "security" as const })),
+    };
+
+    await createFanOutNode({ security: client }, undefined, 90_000)(state({ enabledAgents: ["security"] }));
+
+    expect(calls).toEqual(["health", "review"]);
+  });
+
+  it("skips the wake by default", async () => {
+    const client = { ...respondingClient("security"), health: vi.fn() };
+
+    await createFanOutNode({ security: client })(state({ enabledAgents: ["security"] }));
+
+    expect(client.health).not.toHaveBeenCalled();
+  });
 });
