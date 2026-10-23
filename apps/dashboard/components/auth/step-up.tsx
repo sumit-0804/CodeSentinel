@@ -1,10 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import Link from "next/link";
+import { createContext, useCallback, useContext, useRef, useState, useTransition, type ReactNode } from "react";
 import { ShieldCheck } from "lucide-react";
 import { DEFAULT_MFA_STEP_UP_MINUTES } from "@code-sentinel/contracts";
-import { getStepUpState, verifyStepUp } from "@/app/(app)/settings/security-actions";
+import { verifyStepUp } from "@/app/(app)/settings/security-actions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -55,25 +54,28 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Asks for the 6-digit code, or explains how to set up an authenticator first. Used in the dialog and on `/step-up`. */
-export function StepUpForm({ onVerified, onCancel, inDialog = true }: { onVerified: () => void; onCancel?: () => void; inDialog?: boolean }) {
-  const [hasAuthenticator, setHasAuthenticator] = useState<boolean | null>(null);
+const STEP_UP_DESCRIPTION = `Security changes need a fresh code. It counts for ${DEFAULT_MFA_STEP_UP_MINUTES} minutes.`;
+
+/**
+ * Asks for the 6-digit code. Used in the dialog, on `/step-up` and on `/verify-code` at sign-in; only
+ * someone with an authenticator app is ever asked.
+ */
+export function StepUpForm({
+  onVerified,
+  onCancel,
+  inDialog = true,
+  description = STEP_UP_DESCRIPTION,
+}: {
+  onVerified: () => void;
+  onCancel?: () => void;
+  inDialog?: boolean;
+  description?: string;
+}) {
   const [code, setCode] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const Title = inDialog ? DialogTitle : "h2";
   const Description = inDialog ? DialogDescription : "p";
-
-  useEffect(() => {
-    let live = true;
-    getStepUpState().then(
-      (state) => live && setHasAuthenticator(state.hasAuthenticator),
-      () => live && setHasAuthenticator(true),
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const submit = (value: string) =>
     startTransition(async () => {
@@ -82,39 +84,6 @@ export function StepUpForm({ onVerified, onCancel, inDialog = true }: { onVerifi
       setProblem(result.message);
       setCode("");
     });
-
-  if (hasAuthenticator === null) {
-    return (
-      <div>
-        <Title className="sr-only">Enter your authenticator code</Title>
-        <Loader label="Checking your authenticator" className="text-cyan" />
-      </div>
-    );
-  }
-
-  if (!hasAuthenticator) {
-    return (
-      <div className="grid gap-4">
-        <Title className="font-display text-lg font-semibold">Set up an authenticator app first</Title>
-        <Description className="text-sm text-ink-2">
-          Changing repositories and agents needs a code from an authenticator app, such as Google Authenticator, 1Password or Authy.
-          It takes a minute.
-        </Description>
-        <div className="flex flex-wrap gap-2.5">
-          <Button asChild variant="default">
-            <Link href="/settings?section=security" onClick={onCancel}>
-              Set up an authenticator
-            </Link>
-          </Button>
-          {onCancel ? (
-            <Button variant="ghost" onClick={onCancel}>
-              Not now
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <form
@@ -130,9 +99,7 @@ export function StepUpForm({ onVerified, onCancel, inDialog = true }: { onVerifi
         </span>
         <div className="grid gap-1">
           <Title className="font-display text-lg leading-tight font-semibold">Enter your authenticator code</Title>
-          <Description className="text-sm text-ink-2">
-            Security changes need a fresh code. It counts for {DEFAULT_MFA_STEP_UP_MINUTES} minutes.
-          </Description>
+          <Description className="text-sm text-ink-2">{description}</Description>
         </div>
       </div>
       <label className="grid gap-1.5 text-sm font-semibold">

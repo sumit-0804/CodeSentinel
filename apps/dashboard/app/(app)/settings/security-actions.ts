@@ -18,13 +18,6 @@ const NameSchema = z.string().trim().min(1).max(40);
 const BAD_CODE = { ok: false, message: "Enter the 6-digit code from your authenticator app." } as const;
 const STEP_UP = { ok: false, message: "Enter a code from your authenticator app first.", code: "mfa_required" } as const;
 
-/** What the step-up dialog shows: the code field, or a pointer to set up an authenticator first. */
-export async function getStepUpState(): Promise<{ hasAuthenticator: boolean; fresh: boolean }> {
-  await requireUser();
-  const [authenticators, fresh] = await Promise.all([listAuthenticators(), hasFreshStepUp()]);
-  return { hasAuthenticator: authenticators.length > 0, fresh };
-}
-
 /** Checks a code against the user's first authenticator; the session's new token is `aal2` with a fresh TOTP time. */
 export async function verifyStepUp(code: string): Promise<MfaResult> {
   await requireUser();

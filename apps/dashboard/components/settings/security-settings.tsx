@@ -20,7 +20,7 @@ function suggestedName(authenticators: Authenticator[]): string {
 
 const added = (iso: string) => new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(iso));
 
-/** Settings → Security: authenticator apps (TOTP) for the step-up before repository and agent changes (A7). */
+/** Settings → Security: optional authenticator apps (TOTP); once added, sign-in and security changes need a code (A7). */
 export function SecuritySettings({ authenticators }: { authenticators: Authenticator[] }) {
   const withStepUp = useStepUp();
   const [pending, startTransition] = useTransition();
@@ -77,13 +77,13 @@ export function SecuritySettings({ authenticators }: { authenticators: Authentic
         <div>
           <h2 className="text-base font-bold">Authenticator apps</h2>
           <p className="mt-1.5 max-w-[62ch] text-[14.5px] text-ink-2">
-            Changing repositories, agents and review defaults asks for a code from an authenticator app, such as Google Authenticator,
-            1Password or Authy.
+            Optional, and recommended. Once you add an app such as Google Authenticator, 1Password or Authy, signing in and security
+            changes (repositories, agents, fixes, signing out devices) also ask for a code from it.
           </p>
         </div>
         <ul className="panel">
           {authenticators.length === 0 ? (
-            <li className="px-5 py-[18px] text-sm text-ink-2">No authenticator yet. Add one to change repository and agent settings.</li>
+            <li className="px-5 py-[18px] text-sm text-ink-2">No authenticator yet. Your password or GitHub/Google sign-in is all that protects this account.</li>
           ) : (
             authenticators.map((authenticator) => (
               <li key={authenticator.id} className="flex flex-wrap items-center gap-x-[18px] gap-y-3 border-b border-line px-5 py-[18px] last:border-b-0">
@@ -98,7 +98,7 @@ export function SecuritySettings({ authenticators }: { authenticators: Authentic
                   <div role="alert" className="flex w-full flex-wrap items-center gap-x-3.5 gap-y-2.5 rounded-xl border border-crit/30 bg-crit/8 px-3.5 py-3 text-sm">
                     <span>
                       {authenticators.length === 1
-                        ? "This is your only authenticator. Without one you can't change repository or agent settings."
+                        ? "This is your only authenticator. Without it, signing in and security changes won't ask for a code any more."
                         : "Codes from this app will stop working."}
                     </span>
                     <Button variant="destructive" onClick={() => remove(authenticator.id)} disabled={pending}>

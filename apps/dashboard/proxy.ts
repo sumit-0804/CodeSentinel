@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseOriginHeaders } from "@/lib/browser-origin";
 import { env } from "@/lib/env";
-import { isAppRoute, isGuestOnlyRoute } from "@/lib/routes";
+import { isAppRoute, isGuestOnlyRoute, isVerifyCodeRoute, VERIFY_CODE_PATH } from "@/lib/routes";
 import { DEFAULT_NEXT_PATH } from "@/lib/safe-next-path";
 
 // Refreshes the Supabase session on every page request and redirects early. Pages still verify for themselves.
@@ -38,11 +38,18 @@ export async function proxy(request: NextRequest) {
     return redirect;
   };
 
-  if (!signedIn && isAppRoute(pathname)) {
+  if (!signedIn && (isAppRoute(pathname) || isVerifyCodeRoute(pathname))) {
     return redirectTo(`/sign-in?next=${encodeURIComponent(pathname + search)}`);
   }
   if (signedIn && isGuestOnlyRoute(pathname)) {
     return redirectTo(DEFAULT_NEXT_PATH);
+  }
+  // Someone with an authenticator app signed in with a password or OAuth only: the code comes first. The gateway enforces it too.
+  if (signedIn && isAppRoute(pathname)) {
+    const { data: level } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (level?.currentLevel === "aal1" && level.nextLevel === "aal2") {
+      return redirectTo(`${VERIFY_CODE_PATH}?next=${encodeURIComponent(pathname + search)}`);
+    }
   }
   return response;
 }

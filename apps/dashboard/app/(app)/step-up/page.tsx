@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { StepUpContinue } from "@/components/auth/step-up-continue";
 import { PageHead } from "@/components/app/page-parts";
 import { requireUser } from "@/lib/auth";
-import { hasFreshStepUp } from "@/lib/mfa";
+import { needsStepUp } from "@/lib/mfa";
 import { safeNextPath } from "@/lib/safe-next-path";
 
 export const metadata: Metadata = { title: "Enter your code" };
@@ -13,7 +13,7 @@ async function StepUpBody({ searchParams }: { searchParams: PageProps<"/step-up"
   await requireUser();
   const { next } = await searchParams;
   const target = safeNextPath(next, "/repositories");
-  if (await hasFreshStepUp()) redirect(target);
+  if (!(await needsStepUp())) redirect(target);
   return (
     <div className="panel max-w-[460px] p-6">
       <StepUpContinue next={target} />
