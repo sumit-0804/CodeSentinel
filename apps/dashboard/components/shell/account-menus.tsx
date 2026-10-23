@@ -66,7 +66,7 @@ export function OrgSwitcher({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className={pickerClass} disabled={pending}>
+      <DropdownMenuTrigger className={pickerClass} disabled={pending} aria-label={`Organization: ${name}. Switch organization`}>
         <OrgBadge letter={name.charAt(0).toUpperCase()} />
         <span className="min-w-0">
           <span className="block truncate">{name}</span>

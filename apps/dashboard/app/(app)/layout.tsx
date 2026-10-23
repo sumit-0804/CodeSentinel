@@ -39,9 +39,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <Link href="/overview" className="self-start rounded-md px-2 pt-0.5 pb-3">
                 <Logo />
               </Link>
-              <Suspense fallback={<PickerSkeleton />}>
-                <SignedInOrg />
-              </Suspense>
+              <div className="grid gap-1.5">
+                <p id="org-picker-label" className="px-2 text-[11.5px] font-semibold tracking-[0.08em] text-ink-3 uppercase">
+                  Organization
+                </p>
+                <Suspense fallback={<PickerSkeleton />}>
+                  <SignedInOrg />
+                </Suspense>
+              </div>
               <PaletteTrigger />
               <NavLinks group="main" />
               <div className="px-3 pt-3.5 pb-1 text-[11.5px] font-semibold tracking-[0.02em] text-ink-3">Workspace</div>
