@@ -164,6 +164,15 @@ CREATE TABLE "repositories" (
 );
 
 -- CreateTable
+CREATE TABLE "repository_members" (
+    "repository_id" UUID NOT NULL,
+    "user_id" UUID NOT NULL,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "repository_members_pkey" PRIMARY KEY ("repository_id","user_id")
+);
+
+-- CreateTable
 CREATE TABLE "repository_settings" (
     "repository_id" UUID NOT NULL,
     "confidence_threshold_override" DECIMAL(4,3),
@@ -354,6 +363,9 @@ CREATE INDEX "idx_repositories_org" ON "repositories"("organization_id") WHERE (
 CREATE UNIQUE INDEX "uq_repositories_org_name_active" ON "repositories"("organization_id", "full_name") WHERE (removed_at IS NULL);
 
 -- CreateIndex
+CREATE INDEX "idx_repository_members_user" ON "repository_members"("user_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "reviews_job_id_key" ON "reviews"("job_id");
 
 -- CreateIndex
@@ -433,6 +445,12 @@ ALTER TABLE "repositories" ADD CONSTRAINT "repositories_organization_id_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "repositories" ADD CONSTRAINT "repositories_github_installation_id_fkey" FOREIGN KEY ("github_installation_id") REFERENCES "github_installations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "repository_members" ADD CONSTRAINT "repository_members_repository_id_fkey" FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "repository_members" ADD CONSTRAINT "repository_members_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "repository_settings" ADD CONSTRAINT "repository_settings_repository_id_fkey" FOREIGN KEY ("repository_id") REFERENCES "repositories"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -527,6 +545,7 @@ ALTER TABLE "finding_embeddings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "finding_similarities" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "audit_events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "session_activity" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "repository_members" ENABLE ROW LEVEL SECURITY;
 
 -- Prisma's bookkeeping table sits in `public` too; hide it from Supabase's publishable key like every other table.
 ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;

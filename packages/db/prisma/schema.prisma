@@ -184,6 +184,7 @@ model User {
   suggestionsResolved  Suggestion[]
   auditEvents          AuditEvent[]
   sessionActivity      SessionActivity[]
+  repositoryAccess     RepositoryMember[]
 
   @@map("users")
 }
@@ -296,11 +297,26 @@ model Repository {
   settings     RepositorySetting?
   agentConfig  RepositoryAgentConfig[]
   reviews      Review[]
+  members      RepositoryMember[]
 
   // Only active rows must have unique names: a removed repository may be recreated on GitHub under the same name.
   @@unique([organizationId, fullName], map: "uq_repositories_org_name_active", where: raw("removed_at IS NULL"))
   @@index([organizationId], map: "idx_repositories_org", where: raw("review_enabled AND removed_at IS NULL"))
   @@map("repositories")
+}
+
+/// The repositories an organization `member` can open on GitHub, as of their last sync. Admins have no rows: they see every repository.
+model RepositoryMember {
+  repositoryId String   @map("repository_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([repositoryId, userId])
+  @@index([userId], map: "idx_repository_members_user")
+  @@map("repository_members")
 }
 
 /// A NULL threshold means inherit: the organization default, else the platform default of 0.800 (FR-ORC-06).

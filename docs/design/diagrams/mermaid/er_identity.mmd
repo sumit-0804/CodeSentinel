@@ -13,6 +13,8 @@ erDiagram
     ORGANIZATIONS |o--o{ AUDIT_EVENTS            : "logs actions in"
     USERS         |o--o{ AUDIT_EVENTS            : "performs"
     USERS         ||--o{ SESSION_ACTIVITY        : "signs in on"
+    REPOSITORIES  ||--o{ REPOSITORY_MEMBERS      : "readable by"
+    USERS         ||--o{ REPOSITORY_MEMBERS      : "can open"
 
     ORGANIZATIONS {
         uuid        id                           PK
@@ -115,6 +117,12 @@ erDiagram
         text        request_id
         jsonb       metadata
         timestamptz created_at      "indexed with organization_id, newest first"
+    }
+
+    REPOSITORY_MEMBERS {
+        uuid        repository_id PK, FK
+        uuid        user_id       PK, FK "a member; admins have no rows and see all"
+        timestamptz created_at    "rewritten at each sync from GitHub"
     }
 
     SESSION_ACTIVITY {
