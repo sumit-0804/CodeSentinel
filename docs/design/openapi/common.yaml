@@ -389,7 +389,9 @@ components:
       description: >
         Authenticated but not allowed (NFR-13). `code` is `organization_forbidden` (not a member of
         that organization), `organization_required` (no organization chosen), `admin_required` (not an admin of the
-        organization), or `mfa_required` (no authenticator code entered within `MFA_STEP_UP_MINUTES`).
+        organization), or `mfa_required`. That code is only for a user who has set up an authenticator
+        app (it's optional): they signed in without its code, or a step-up route had no code entered
+        within `MFA_STEP_UP_MINUTES`.
       content:
         application/json:
           schema:

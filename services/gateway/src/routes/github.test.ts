@@ -37,8 +37,11 @@ async function setup({
   users = [octocat()],
   linkConfigured = true,
   ttlMs,
-}: { users?: StubGitHubUser[]; linkConfigured?: boolean; ttlMs?: number } = {}) {
-  const { stores } = await seededStores();
+  authenticator = false,
+}: { users?: StubGitHubUser[]; linkConfigured?: boolean; ttlMs?: number; authenticator?: boolean } = {}) {
+  const { stores } = await seededStores((seed) => {
+    if (authenticator) seed.authenticatorUserIds = [ME];
+  });
   const supabase = await testSupabase();
   const github = new StubGitHubClient();
   github.installationRepositories.set(11, repos("octocat/dotfiles"));
@@ -64,11 +67,11 @@ async function setup({
   async function call(
     method: string,
     path: string,
-    { as = ME, body, headers = {}, stepUp = true }: { as?: string; body?: unknown; headers?: Record<string, string>; stepUp?: boolean } = {},
+    { as = ME, body, headers = {}, stepUp = true }: { as?: string; body?: unknown; headers?: Record<string, string>; stepUp?: boolean | "stale" } = {},
   ) {
     let result!: { status: number; body: Record<string, unknown> };
-    // A signed-in session per call, stepped up unless asked not to; the test seed marks the token's session active.
-    const token = await supabase.sign(as, stepUp ? stepUpClaims() : {});
+    // A signed-in session per call, stepped up unless asked not to ("stale": a code from an hour ago); the seed marks it active.
+    const token = await supabase.sign(as, stepUp === "stale" ? stepUpClaims(3600) : stepUp ? stepUpClaims() : {});
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}${path}`, {
         method,
@@ -148,15 +151,30 @@ describe("POST /v1/github/link", () => {
     expect(body.code).toBe("github_link_unconfigured");
   });
 
-  it("needs a TOTP step-up before using the code, and so does sync", async () => {
-    const { call, stores } = await setup();
+  it("needs a fresh TOTP step-up before using the code, and so does sync, once an authenticator is set up", async () => {
+    const { call, stores } = await setup({ authenticator: true });
 
-    const linked = await call("POST", "/v1/github/link", { body: { code: "code-1" }, stepUp: false });
-    const synced = await call("POST", "/v1/installations/sync", { stepUp: false });
+    const linked = await call("POST", "/v1/github/link", { body: { code: "code-1" }, stepUp: "stale" });
+    const synced = await call("POST", "/v1/installations/sync", { stepUp: "stale" });
 
     expect([linked.status, linked.body.code]).toEqual([403, "mfa_required"]);
     expect([synced.status, synced.body.code]).toEqual([403, "mfa_required"]);
     expect((await stores.users.findById(ME))?.githubLogin).toBeUndefined();
+  });
+
+  it("links without any code for someone who hasn't set up an authenticator app", async () => {
+    const { call } = await setup();
+
+    expect((await call("POST", "/v1/github/link", { body: { code: "code-1" }, stepUp: false })).status).toBe(200);
+  });
+
+  it("refuses every request of someone with an authenticator app who signed in without a code", async () => {
+    const { call } = await setup({ authenticator: true });
+
+    const { status, body } = await call("GET", "/v1/me", { stepUp: false });
+
+    expect([status, body.code]).toEqual([403, "mfa_required"]);
+    expect((await call("GET", "/v1/me", { stepUp: "stale" })).status).toBe(200);
   });
 });
 

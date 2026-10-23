@@ -50,8 +50,10 @@ const pull = (overrides: Partial<PullRequestInfo> = {}): PullRequestInfo => ({
   ...overrides,
 });
 
-async function setup({ edit, pulls = [pull()], stepUp = true }: { edit?: (seed: StoreSeed) => void; pulls?: PullRequestInfo[]; stepUp?: boolean } = {}) {
+/** `stepUp: "stale"`: the user has an authenticator app and entered a code an hour ago, too old for a write. */
+async function setup({ edit, pulls = [pull()], stepUp = true }: { edit?: (seed: StoreSeed) => void; pulls?: PullRequestInfo[]; stepUp?: boolean | "stale" } = {}) {
   const { stores } = await seededStores((seed) => {
+    if (stepUp === "stale") seed.authenticatorUserIds = [TEST_USER_ID];
     seed.installations.push({ installationId: seed.repositories[0]!.githubInstallationId, organizationId: EXAMPLE_ORGANIZATION_ID, githubInstallationId: 77, accountLogin: "code-sentinel" });
     seed.reviews.push({
       reviewId: REVIEW_ID,
@@ -92,7 +94,7 @@ async function setup({ edit, pulls = [pull()], stepUp = true }: { edit?: (seed: 
   const app = createApp(testAppDeps({ stores, github, supabaseVerifier: supabase.verifier }));
 
   async function call(path: string, body?: unknown) {
-    const token = await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {});
+    const token = await supabase.sign(TEST_USER_ID, stepUp === "stale" ? stepUpClaims(3600) : stepUp ? stepUpClaims() : {});
     let result!: { status: number; body: Record<string, unknown> };
     await withServer(app, async (baseUrl) => {
       const response = await fetch(`${baseUrl}${path}`, {
@@ -129,7 +131,7 @@ describe("POST /v1/reviews/{id}/apply-all-fixes", () => {
   });
 
   it("asks for an authenticator code first, and answers 404 for another organization's review", async () => {
-    const noCode = await setup({ stepUp: false });
+    const noCode = await setup({ stepUp: "stale" });
     expect((await noCode.call(APPLY_ALL)).body.code).toBe("mfa_required");
     expect(noCode.github.multiCommits).toEqual([]);
 
@@ -157,10 +159,17 @@ describe("POST /v1/findings/{id}/suggestion/accept", () => {
   });
 
   it("asks for a fresh authenticator code first", async () => {
-    const noCode = await setup({ stepUp: false });
+    const noCode = await setup({ stepUp: "stale" });
     const refused = await noCode.call(ACCEPT);
     expect([refused.status, refused.body.code]).toEqual([403, "mfa_required"]);
     expect(noCode.github.commits).toEqual([]);
+  });
+
+  it("commits without any code for someone who hasn't set up an authenticator app", async () => {
+    const { call, github } = await setup({ stepUp: false });
+
+    expect((await call(ACCEPT)).status).toBe(200);
+    expect(github.commits).toHaveLength(1);
   });
 
   it("answers 404 for an unknown finding and one in another organization", async () => {

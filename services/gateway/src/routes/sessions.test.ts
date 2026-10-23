@@ -12,8 +12,9 @@ import { stepUpClaims, testSupabase, TEST_SUPABASE_SESSION_ID } from "../test-su
 const PHONE = randomUUID();
 const STRANGER = randomUUID();
 
-async function setup() {
+async function setup({ authenticator = false } = {}) {
   const seeded = await seededStores((seed) => {
+    if (authenticator) seed.authenticatorUserIds = [TEST_USER_ID];
     seed.activeSessionIds.push(PHONE, STRANGER);
     seed.sessions = [
       { sessionId: TEST_SUPABASE_SESSION_ID, userId: TEST_USER_ID, createdAt: new Date("2026-10-19T08:00:00Z"), userAgent: "Firefox" },
@@ -23,7 +24,10 @@ async function setup() {
   });
   const supabase = await testSupabase();
   const app = createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier }));
-  const auth = async (stepUp: boolean) => ({ Authorization: `Bearer ${await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {})}` });
+  // "stale": signed in with a code an hour ago, too old for a step-up.
+  const auth = async (stepUp: boolean | "stale") => ({
+    Authorization: `Bearer ${await supabase.sign(TEST_USER_ID, stepUp === "stale" ? stepUpClaims(3600) : stepUp ? stepUpClaims() : {})}`,
+  });
   return { app, stores: seeded.stores, auth };
 }
 
@@ -54,10 +58,10 @@ describe("/v1/me/sessions", () => {
   });
 
   it("signs another device out with a fresh code, and records it", async () => {
-    const { app, auth, stores } = await setup();
+    const { app, auth, stores } = await setup({ authenticator: true });
 
     await withServer(app, async (baseUrl) => {
-      const refused = await fetch(`${baseUrl}/v1/me/sessions/${PHONE}`, { method: "DELETE", headers: await auth(false) });
+      const refused = await fetch(`${baseUrl}/v1/me/sessions/${PHONE}`, { method: "DELETE", headers: await auth("stale") });
       expect([refused.status, ((await refused.json()) as { code: string }).code]).toEqual([403, "mfa_required"]);
 
       const done = await fetch(`${baseUrl}/v1/me/sessions/${PHONE}`, { method: "DELETE", headers: await auth(true) });

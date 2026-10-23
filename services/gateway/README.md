@@ -132,7 +132,7 @@ its installation is **marked removed, never deleted**, and comes back with its h
 | `github_unavailable` | 502 | GitHub did not answer during the exchange or the sync |
 | `github_link_unconfigured` | 503 | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` or `FIELD_ENCRYPTION_KEY` not set |
 
-`link` and `sync` need a TOTP step-up (403 `mfa_required`, see [Authentication](#authentication)).
+`link` and `sync` need a TOTP step-up from a user with an authenticator app (403 `mfa_required`, see [Authentication](#authentication)).
 
 ## Repository configuration
 
@@ -170,7 +170,7 @@ configuration. The repository `PUT` also takes `reviewEnabled` and `useOrgDefaul
 `confidenceThresholdOverride: null` restores inheritance. Errors: 400 `invalid_body` (with zod's
 `issues`), 400 `no_agents_enabled` when every agent would end up `off` (switch reviews off instead),
 403 `admin_required` for a member, and 403 `mfa_required`
-without a recent authenticator code (see [Step-up](#authentication)). Each row written records `updated_by`.
+without a recent authenticator code, for someone who has set one up (see [Step-up](#authentication)). Each row written records `updated_by`.
 
 **File filter** (`filterPullRequestFiles`), applied to GitHub's PR file list in GitHub's order:
 
@@ -386,6 +386,10 @@ The token is checked in this order (`auth/supabase-token.ts`, then the middlewar
    HS256 and unsigned tokens never verify. The reason for a rejection is logged, never returned.
 2. **Session still live:** `private.session_is_active(session_id)`, so signing out (here or "on all
    devices") takes effect immediately, not when the token expires.
+   - **Code at sign-in:** in the same round trip, `private.user_has_totp(sub)` says whether the user has
+     set up an authenticator app. If they have, the token must be `aal2` (a code was entered when signing
+     in), or the request is 403 `mfa_required`, so a password alone isn't enough. The app is optional:
+     without one, `aal1` is fine.
 3. **User row:** the `users` row is inserted or refreshed from the claims (email, name, avatar,
    `last_seen_at`), at most once every 5 minutes per user. An email another row already holds is
    skipped rather than failing the sign-in.
@@ -399,21 +403,20 @@ Without `SUPABASE_URL`, every bearer is `invalid_credentials`.
 - `assertOrgAdmin` needs the organization's admin role on configuration writes.
 - `assertStepUp` is the TOTP step-up (A7), described below.
 
-**Step-up (A7).** These writes change what Code Sentinel reviews or can access, so they need an
-authenticator code entered within `MFA_STEP_UP_MINUTES` (10):
+**Step-up (A7).** These writes change what Code Sentinel reviews or can access. For a user who has set up
+an authenticator app, they need a code entered within `MFA_STEP_UP_MINUTES` (10). A user without one
+isn't asked: there is no code to give. Fixes, re-runs and signing out a device use the same check.
 - `PUT /v1/repositories/{id}/config`
 - `PUT /v1/organizations/{id}/review-defaults`
 - `POST /v1/github/link`
 - `POST /v1/installations/sync`
 
-The check reads only the token:
+For a user with an authenticator app, the check reads the token:
 - it must be `aal2`
 - its `amr` must have a `totp` entry whose `timestamp` is no older than the limit
 
 Entering a code (`mfa.challenge` + `mfa.verify` in the dashboard) gives the session a new token like
-that. The admin check runs first, so members aren't asked for a code they can't use. The gateway has
-no Supabase admin key, so it can't tell "no authenticator yet" from "code too old". Both are
-`mfa_required`; the dashboard knows the user's factors and shows the right step.
+that. The admin check runs first, so members aren't asked for a code they can't use.
 
 | `code` | HTTP | When |
 | --- | --- | --- |
@@ -423,7 +426,7 @@ no Supabase admin key, so it can't tell "no authenticator yet" from "code too ol
 | `organization_forbidden` | 403 | `X-Organization-Id` names an organization the user is not a member of |
 | `organization_required` | 403 | No organization could be resolved (`requireOrganization`) |
 | `admin_required` | 403 | A configuration write by someone who isn't an admin of the organization (`assertOrgAdmin`) |
-| `mfa_required` | 403 | A step-up route without an authenticator code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
+| `mfa_required` | 403 | Only for a user with an authenticator app: a token from a sign-in without its code (the middleware), or a step-up route without a code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
 ## Signed-in devices

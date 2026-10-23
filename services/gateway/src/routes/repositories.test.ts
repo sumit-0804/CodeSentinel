@@ -17,15 +17,17 @@ type Caller = "admin" | "member" | "outsider";
 async function call(
   method: string,
   path: string,
-  { as = "admin", body, edit, stepUp = true }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void; stepUp?: boolean } = {},
+  { as = "admin", body, edit, stepUp = true }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void; stepUp?: boolean | "stale" } = {},
 ) {
+  // "stale": the admin has an authenticator app and entered a code an hour ago, too old for a write.
   const seeded = await seededStores((seed) => {
+    if (stepUp === "stale") seed.authenticatorUserIds = [TEST_USER_ID];
     if (as !== "admin") seed.users[0]!.memberships[0]!.role = "member";
     if (as === "member") seed.repositoryMembers = [{ repositoryId: EXAMPLE_REPOSITORY_ID, userId: TEST_USER_ID }];
     edit?.(seed);
   });
   const supabase = await testSupabase();
-  const authorization = await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {});
+  const authorization = await supabase.sign(TEST_USER_ID, stepUp === "stale" ? stepUpClaims(3600) : stepUp ? stepUpClaims() : {});
   let result!: { status: number; body: Record<string, unknown> };
   await withServer(createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier })), async (baseUrl) => {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -104,11 +106,18 @@ describe("PUT /v1/repositories/{id}/config", () => {
     expect([member.status, member.body.code]).toEqual([403, "admin_required"]);
   });
 
-  it("needs a TOTP step-up: an admin without one gets 403 mfa_required and nothing changes", async () => {
-    const { status, body, stores } = await call("PUT", CONFIG_PATH, { body: { reviewEnabled: false }, stepUp: false });
+  it("needs a fresh TOTP step-up once an authenticator is set up: a stale code gets 403 mfa_required and nothing changes", async () => {
+    const { status, body, stores } = await call("PUT", CONFIG_PATH, { body: { reviewEnabled: false }, stepUp: "stale" });
 
     expect([status, body.code]).toEqual([403, "mfa_required"]);
     await expect(stores.repositoryConfig.getConfigInputs(EXAMPLE_REPOSITORY_ID)).resolves.toMatchObject({ reviewEnabled: true });
+  });
+
+  it("saves without any code for an admin who hasn't set up an authenticator app", async () => {
+    const { status, body } = await call("PUT", CONFIG_PATH, { body: { reviewEnabled: false }, stepUp: false });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ reviewEnabled: false });
   });
 
   it("rejects turning every agent off with 400 no_agents_enabled", async () => {
@@ -158,9 +167,9 @@ describe("/v1/organizations/{id}/review-defaults", () => {
   });
 
   it("needs a TOTP step-up to save, but not to read", async () => {
-    const put = await call("PUT", DEFAULTS_PATH, { body: { confidenceThreshold: 0.5 }, stepUp: false });
+    const put = await call("PUT", DEFAULTS_PATH, { body: { confidenceThreshold: 0.5 }, stepUp: "stale" });
     expect([put.status, put.body.code]).toEqual([403, "mfa_required"]);
-    expect((await call("GET", DEFAULTS_PATH, { stepUp: false })).status).toBe(200);
+    expect((await call("GET", DEFAULTS_PATH, { stepUp: "stale" })).status).toBe(200);
   });
 
   it("rejects defaults with every agent off", async () => {

@@ -11,15 +11,17 @@ const CONFIG_PATH = `/v1/repositories/${EXAMPLE_REPOSITORY_ID}/config`;
 const AUDIT_PATH = `/v1/organizations/${EXAMPLE_ORGANIZATION_ID}/audit-events`;
 const BROWSER = "Mozilla/5.0 (Windows NT 10.0) Firefox/131.0";
 
-async function setup({ role = "admin" as "admin" | "member" } = {}) {
+async function setup({ role = "admin" as "admin" | "member", authenticator = false } = {}) {
   const seeded = await seededStores((seed) => {
     seed.users[0]!.memberships[0]!.role = role;
+    if (authenticator) seed.authenticatorUserIds = [TEST_USER_ID];
   });
   const supabase = await testSupabase();
   const { logger, lines } = captureLogger();
   const app = createApp(testAppDeps({ stores: seeded.stores, supabaseVerifier: supabase.verifier, logger }));
-  const headers = async (stepUp: boolean) => ({
-    Authorization: `Bearer ${await supabase.sign(TEST_USER_ID, stepUp ? stepUpClaims() : {})}`,
+  // "stale": signed in with a code an hour ago, too old for a step-up.
+  const headers = async (stepUp: boolean | "stale") => ({
+    Authorization: `Bearer ${await supabase.sign(TEST_USER_ID, stepUp === "stale" ? stepUpClaims(3600) : stepUp ? stepUpClaims() : {})}`,
     "Content-Type": "application/json",
     "User-Agent": BROWSER,
   });
@@ -70,10 +72,10 @@ describe("audit log (WP6)", () => {
   });
 
   it("records a write refused for want of a fresh authenticator code, and still answers 403", async () => {
-    const { app, headers, stores } = await setup();
+    const { app, headers, stores } = await setup({ authenticator: true });
 
     await withServer(app, async (baseUrl) => {
-      const put = await fetch(`${baseUrl}${CONFIG_PATH}`, { method: "PUT", headers: await headers(false), body: JSON.stringify({ reviewEnabled: false }) });
+      const put = await fetch(`${baseUrl}${CONFIG_PATH}`, { method: "PUT", headers: await headers("stale"), body: JSON.stringify({ reviewEnabled: false }) });
       expect(put.status).toBe(403);
     });
     await expect(stores.audit.listForOrganization(EXAMPLE_ORGANIZATION_ID, { limit: 5 })).resolves.toMatchObject([

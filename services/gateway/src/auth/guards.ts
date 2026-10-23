@@ -12,11 +12,12 @@ export interface StepUpPolicy {
 }
 
 /**
- * Writes that change repositories or agents need a token from a TOTP code entered within `minutes`
- * (A7): `aal2` plus a fresh `totp` entry in `amr`. Anything else is 403 `mfa_required`.
+ * For a user with an authenticator app, writes that change repositories or agents need a token from a
+ * TOTP code entered within `minutes` (A7): `aal2` plus a fresh `totp` entry in `amr`, else 403
+ * `mfa_required`. The app is optional; without one there is no code to ask for.
  */
 export function assertStepUp(principal: Principal, { minutes, now }: StepUpPolicy): void {
-  if (!isStepUpFresh(principal, now().getTime(), minutes)) {
+  if (principal.mfaEnrolled && !isStepUpFresh(principal, now().getTime(), minutes)) {
     throw forbidden("mfa_required", `Enter a code from your authenticator app; it counts for ${minutes} minutes`);
   }
 }

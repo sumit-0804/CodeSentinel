@@ -797,9 +797,9 @@ paths:
         repository follows the organization's defaults, reviews on or off, and optionally a
         confidence threshold override (FR-WEB-03). A partial update: omitted fields keep their
         value. Needs the admin role
-        in the owning organization (403 admin_required), then a TOTP step-up: the token must be
-        `aal2` with an authenticator code from the last `MFA_STEP_UP_MINUTES` (10), otherwise 403
-        mfa_required.
+        in the owning organization (403 admin_required), then, for a user with an authenticator app,
+        a TOTP step-up: the token must be `aal2` with a code from the last `MFA_STEP_UP_MINUTES`
+        (10), otherwise 403 mfa_required.
 
         Turning every agent off is rejected with 400 no_agents_enabled, because a repository with
         no agents would produce empty reports rather than an obvious error (UC-4 exception flow);
