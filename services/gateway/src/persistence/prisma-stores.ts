@@ -11,6 +11,7 @@ import {
   type InstallationStore,
   type RepositoryConfigStore,
   type RepositoryRecord,
+  type RepositoryScope,
   type RepositoryStore,
   type ReviewRecord,
   type ReviewStore,
@@ -30,6 +31,7 @@ const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
 
 const USER_INCLUDE = {
   memberships: { orderBy: { addedAt: "asc" }, include: { organization: { select: { displayName: true } } } },
+  repositoryAccess: { select: { repositoryId: true, repository: { select: { organizationId: true } } } },
 } as const;
 
 function toUserRecord(row: Prisma.UserGetPayload<{ include: typeof USER_INCLUDE }>): UserRecord {
@@ -44,9 +46,25 @@ function toUserRecord(row: Prisma.UserGetPayload<{ include: typeof USER_INCLUDE 
       organizationId: m.organizationId,
       displayName: m.organization.displayName,
       role: m.role,
+      // A member with no rows (not synced yet) sees no repositories, never all of them.
+      ...(m.role === "member"
+        ? { repositoryIds: row.repositoryAccess.filter((a) => a.repository.organizationId === m.organizationId).map((a) => a.repositoryId) }
+        : {}),
     })),
   };
 }
+
+/** Repositories in the caller's scope (NFR-13). */
+const repositoryScope = ({ organizationId, repositoryIds }: RepositoryScope): Prisma.RepositoryWhereInput => ({
+  organizationId,
+  ...(repositoryIds ? { id: { in: [...repositoryIds] } } : {}),
+});
+
+/** Reviews of repositories in the caller's scope. */
+const reviewScope = ({ organizationId, repositoryIds }: RepositoryScope): Prisma.ReviewWhereInput => ({
+  organizationId,
+  ...(repositoryIds ? { repositoryId: { in: [...repositoryIds] } } : {}),
+});
 
 const SUGGESTION_INCLUDE = {
   finding: { include: { review: { select: { organizationId: true, repositoryId: true, prNumber: true, headSha: true } } } },
@@ -165,16 +183,16 @@ export class PrismaStores implements Stores {
         });
         return row ? toRepositoryRecord(row) : undefined;
       },
-      findForOrganization: async (organizationId, repositoryId) => {
+      findForOrganization: async (scope, repositoryId) => {
         const row = await prisma.repository.findFirst({
-          where: { id: repositoryId, organizationId, ...LIVE_REPOSITORY },
+          where: { AND: [repositoryScope(scope), { id: repositoryId, ...LIVE_REPOSITORY }] },
           include: { installation: { select: { githubInstallationId: true } } },
         });
         return row ? toRepositoryRecord(row) : undefined;
       },
-      listForOrganization: async (organizationId) => {
+      listForOrganization: async (scope) => {
         const rows = await prisma.repository.findMany({
-          where: { organizationId, removedAt: null, installation: { uninstalledAt: null } },
+          where: { ...repositoryScope(scope), removedAt: null, installation: { uninstalledAt: null } },
           orderBy: { fullName: "asc" },
         });
         return rows.map((row) => ({
@@ -284,9 +302,9 @@ export class PrismaStores implements Stores {
     };
 
     this.reviews = {
-      list: async (organizationId, { repositoryId, status, latest, limit, offset }) => {
+      list: async (scope, { repositoryId, status, latest, limit, offset }) => {
         const where: Prisma.ReviewWhereInput = {
-          organizationId,
+          AND: [reviewScope(scope)],
           ...(repositoryId ? { repositoryId } : {}),
           ...(status ? { status: { in: storedStatuses(status) } } : {}),
           // Pull request reviews only, whether a push or a dashboard re-run started them.
@@ -301,8 +319,8 @@ export class PrismaStores implements Stores {
         ]);
         return { rows: rows.map(toReviewRecord), total };
       },
-      get: async (organizationId, reviewId) => {
-        const row = await prisma.review.findFirst({ where: { id: reviewId, organizationId }, include: REVIEW_INCLUDE });
+      get: async (scope, reviewId) => {
+        const row = await prisma.review.findFirst({ where: { id: reviewId, AND: [reviewScope(scope)] }, include: REVIEW_INCLUDE });
         return row ? toReviewRecord(row) : undefined;
       },
       findByCheckRun: async (checkRunId) => {
@@ -326,9 +344,9 @@ export class PrismaStores implements Stores {
         const rows = await prisma.suggestion.findMany({ where: { finding: { reviewId } }, include: SUGGESTION_INCLUDE, orderBy: { createdAt: "asc" } });
         return rows.map(toSuggestionRecord);
       },
-      findByFinding: async (organizationId, findingId) => {
+      findByFinding: async (scope, findingId) => {
         const row = await prisma.suggestion.findFirst({
-          where: { findingId, finding: { review: { organizationId } } },
+          where: { findingId, finding: { review: reviewScope(scope) } },
           include: SUGGESTION_INCLUDE,
         });
         return row ? toSuggestionRecord(row) : undefined;
@@ -446,6 +464,17 @@ export class PrismaStores implements Stores {
           where: { organizationId_userId: { organizationId, userId } },
           create: { organizationId, userId, role: role ?? "member" },
           update: role !== undefined ? { role } : {},
+        });
+      },
+      setRepositoryAccess: async (organizationId, userId, githubRepoIds) => {
+        await prisma.$transaction(async (tx) => {
+          await tx.repositoryMember.deleteMany({ where: { userId, repository: { organizationId } } });
+          if (!githubRepoIds?.length) return;
+          const repos = await tx.repository.findMany({
+            where: { organizationId, githubRepoId: { in: githubRepoIds.map((id) => BigInt(id)) } },
+            select: { id: true },
+          });
+          await tx.repositoryMember.createMany({ data: repos.map((repo) => ({ repositoryId: repo.id, userId })) });
         });
       },
     };

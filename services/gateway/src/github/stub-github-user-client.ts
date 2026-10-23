@@ -8,6 +8,8 @@ export interface StubGitHubUser {
   installations: UserInstallation[];
   /** Role per organization login; missing means GitHub won't tell. */
   orgRoles?: Record<string, "admin" | "member">;
+  /** GitHub repo ids the user can open, per installation id; missing means none. */
+  repositoryIds?: Record<number, number[]>;
 }
 
 /**
@@ -50,6 +52,10 @@ export class StubGitHubUserClient implements GitHubUserClient {
 
   async listInstallations(accessToken: string) {
     return structuredClone(this.userFor(accessToken).installations);
+  }
+
+  async listInstallationRepositoryIds(accessToken: string, installationId: number) {
+    return [...(this.userFor(accessToken).repositoryIds?.[installationId] ?? [])];
   }
 
   async getOrgRole(accessToken: string, org: string) {

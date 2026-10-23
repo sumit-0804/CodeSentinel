@@ -203,6 +203,20 @@ describe("GET /v1/installations and /v1/repositories", () => {
     expect(RepositoryListResponseSchema.parse(listed.body).items.map((r) => r.fullName)).toEqual(["octo-org/api", "octo-org/web"]);
   });
 
+  it("shows a member only the repositories GitHub lets them open, and follows a later sync", async () => {
+    const [api, web] = repos("octo-org/api", "octo-org/web");
+    const { call, githubUsers } = await setup({ users: [octocat({ orgRoles: { "octo-org": "member" }, repositoryIds: { 12: [api!.id] } })] });
+    const linked = GithubLinkResultSchema.parse((await call("POST", "/v1/github/link", { body: { code: "code-1" } })).body);
+    const headers = { "X-Organization-Id": linked.installations.find((i) => i.accountLogin === "octo-org")!.organizationId };
+    const listed = async () => RepositoryListResponseSchema.parse((await call("GET", "/v1/repositories", { headers })).body).items.map((r) => r.fullName);
+
+    expect(await listed()).toEqual(["octo-org/api"]);
+
+    githubUsers.users[0]!.repositoryIds = { 12: [web!.id] };
+    expect((await call("POST", "/v1/installations/sync")).status).toBe(200);
+    expect(await listed()).toEqual(["octo-org/web"]);
+  });
+
   it("needs a chosen organization when the user belongs to several", async () => {
     const { call } = await setup();
     await call("POST", "/v1/github/link", { body: { code: "code-1" } });

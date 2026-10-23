@@ -122,7 +122,7 @@ describe("POST /v1/reviews/{id}/apply-all-fixes", () => {
     expect(ApplyAllFixesResultSchema.parse(body)).toEqual({ reviewId: REVIEW_ID, commitSha: github.multiCommits[0]!.commitSha, applied: 1, aiApplied: 1, skipped: 0 });
     expect(github.multiCommits[0]).toMatchObject({ branch: "fix/retry", parentSha: HEAD, message: "Apply 1 Code Sentinel fix" });
     expect(github.pullRequestComments[0]!.body).toContain("as a member on the Code Sentinel dashboard asked");
-    await expect(stores.suggestions.findByFinding(EXAMPLE_ORGANIZATION_ID, FINDING_ID)).resolves.toMatchObject({ state: "accepted", resolutionCommitSha: github.multiCommits[0]!.commitSha });
+    await expect(stores.suggestions.findByFinding({ organizationId: EXAMPLE_ORGANIZATION_ID }, FINDING_ID)).resolves.toMatchObject({ state: "accepted", resolutionCommitSha: github.multiCommits[0]!.commitSha });
 
     const again = await call(APPLY_ALL);
     expect([again.status, again.body.code]).toEqual([409, "nothing_to_apply"]);
@@ -153,7 +153,7 @@ describe("POST /v1/findings/{id}/suggestion/accept", () => {
     expect(github.replies).toEqual([
       { ref: { installationId: 77, owner: "code-sentinel", repo: "consumer-api", pullNumber: 42 }, commentId: 5550, body: `Applied in ${decision.commitSha} from the Code Sentinel dashboard.` },
     ]);
-    await expect(stores.suggestions.findByFinding(EXAMPLE_ORGANIZATION_ID, FINDING_ID)).resolves.toMatchObject({ state: "accepted", resolutionCommitSha: decision.commitSha });
+    await expect(stores.suggestions.findByFinding({ organizationId: EXAMPLE_ORGANIZATION_ID }, FINDING_ID)).resolves.toMatchObject({ state: "accepted", resolutionCommitSha: decision.commitSha });
   });
 
   it("asks for a fresh authenticator code first", async () => {
@@ -217,7 +217,7 @@ describe("POST /v1/findings/{id}/suggestion/reject", () => {
     expect(first.status).toBe(200);
     expect(SuggestionDecisionSchema.parse(first.body)).toMatchObject({ findingId: FINDING_ID, state: "rejected" });
     expect([second.status, second.body.code]).toEqual([409, "suggestion_decided"]);
-    await expect(stores.suggestions.findByFinding(EXAMPLE_ORGANIZATION_ID, FINDING_ID)).resolves.toMatchObject({ state: "rejected", rejectionReason: "false_positive" });
+    await expect(stores.suggestions.findByFinding({ organizationId: EXAMPLE_ORGANIZATION_ID }, FINDING_ID)).resolves.toMatchObject({ state: "rejected", rejectionReason: "false_positive" });
     expect(github.commits).toEqual([]);
   });
 

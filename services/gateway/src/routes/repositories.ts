@@ -4,7 +4,7 @@ import { Router, type Request } from "express";
 
 import type { AuditLog } from "../audit/audit-log.js";
 import { assertOrgAdmin, assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
-import type { GatewayResponse } from "../auth/principal.js";
+import { scopeOf, type GatewayResponse } from "../auth/principal.js";
 import { applyRepositoryConfigUpdate, resolveEffectiveConfig, toRepositoryConfig } from "../persistence/effective-config.js";
 import type { RepositoryConfigStore, RepositoryStore, UserStore } from "../persistence/stores.js";
 
@@ -21,17 +21,18 @@ export function createRepositoriesRouter({ repositories, repositoryConfig, users
   const router = Router();
 
   router.get("/repositories", requireOrganization, async (req: Request, res: GatewayResponse) => {
-    const all = await repositories.listForOrganization(res.locals.principal!.organizationId!);
+    const all = await repositories.listForOrganization(scopeOf(res.locals.principal!));
     // `?enabledOnly=true` (gateway.yaml) keeps only repositories with reviews switched on.
     const items = req.query.enabledOnly === "true" ? all.filter((repo) => repo.reviewEnabled) : all;
     const body: RepositoryListResponse = { items };
     res.json(body);
   });
 
-  // Another organization's repository answers 404, like an unknown one, so ids can't be probed.
+  // A repository outside the caller's scope answers 404, like an unknown one, so ids can't be probed.
   const loadOwn = async (req: Request<{ repositoryId: string }>, res: GatewayResponse) => {
+    const { organizationId, repositoryIds } = scopeOf(res.locals.principal!);
     const inputs = await repositoryConfig.getConfigInputs(req.params.repositoryId);
-    if (!inputs || inputs.organizationId !== res.locals.principal!.organizationId) {
+    if (!inputs || inputs.organizationId !== organizationId || (repositoryIds && !repositoryIds.includes(inputs.repositoryId))) {
       throw notFound("repository_not_found", "No such repository in this organization");
     }
     return inputs;

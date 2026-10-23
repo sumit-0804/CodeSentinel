@@ -1,7 +1,7 @@
 import { forbidden, unauthorized, type Logger } from "@code-sentinel/service-kit";
 import type { NextFunction, Request } from "express";
 
-import type { SessionStore, UserStore } from "../persistence/stores.js";
+import type { MembershipRecord, SessionStore, UserStore } from "../persistence/stores.js";
 import type { GatewayResponse, Principal } from "./principal.js";
 import type { SupabaseClaims, SupabaseTokenVerifier } from "./supabase-token.js";
 
@@ -80,14 +80,15 @@ export function createAuthMiddleware({ sessions, users, supabase, logger, now = 
     // After recordSignIn: the device row refers to the user's row.
     await touchSession(claims.sessionId, claims.userId, req, at);
 
-    const organizationId = await resolveOrganization(claims.userId, req.get(ORGANIZATION_HEADER), users);
+    const membership = await resolveOrganization(claims.userId, req.get(ORGANIZATION_HEADER), users);
     return {
       userId: claims.userId,
       sessionId: claims.sessionId,
       aal: claims.aal,
       amr: claims.amr,
       providers: claims.providers,
-      ...(organizationId ? { organizationId } : {}),
+      ...(membership ? { organizationId: membership.organizationId } : {}),
+      ...(membership?.repositoryIds ? { repositoryIds: membership.repositoryIds } : {}),
     };
   }
 
@@ -107,13 +108,12 @@ export function createAuthMiddleware({ sessions, users, supabase, logger, now = 
 }
 
 /** The requested organization must be one of the user's; without a header, the only one they have. */
-async function resolveOrganization(userId: string, requested: string | undefined, users: UserStore): Promise<string | undefined> {
+async function resolveOrganization(userId: string, requested: string | undefined, users: UserStore): Promise<MembershipRecord | undefined> {
   const memberships = (await users.findById(userId))?.memberships ?? [];
   if (requested !== undefined) {
-    if (!memberships.some((m) => m.organizationId === requested)) {
-      throw forbidden("organization_forbidden", "You are not a member of that organization");
-    }
-    return requested;
+    const membership = memberships.find((m) => m.organizationId === requested);
+    if (!membership) throw forbidden("organization_forbidden", "You are not a member of that organization");
+    return membership;
   }
-  return memberships.length === 1 ? memberships[0]!.organizationId : undefined;
+  return memberships.length === 1 ? memberships[0] : undefined;
 }

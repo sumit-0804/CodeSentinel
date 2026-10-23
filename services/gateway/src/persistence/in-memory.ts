@@ -21,6 +21,7 @@ import {
   type InstallationStore,
   type RepositoryConfigStore,
   type RepositoryRecord,
+  type RepositoryScope,
   type RepositoryStore,
   type ReviewRecord,
   type ReviewStore,
@@ -79,6 +80,8 @@ export interface StoreSeed {
   /** Who each session belongs to and its device, for the signed-in devices list; ids not here are listed for nobody. */
   sessions?: ({ userId: string } & SessionRecord)[];
   users: UserRecord[];
+  /** `repository_members` rows: the repositories a `member` may read. A member with none sees no repositories. */
+  repositoryMembers?: { repositoryId: string; userId: string }[];
   githubTokens: ({ userId: string } & SealedGithubTokens)[];
   /** `reviews` rows; the repository's name is looked up, as the database joins it. */
   reviews: SeedReview[];
@@ -146,6 +149,8 @@ export class InMemoryStores implements Stores {
         reviewEnabled,
       };
     };
+    const inScope = ({ organizationId, repositoryIds }: RepositoryScope, row: { organizationId: string; repositoryId: string }) =>
+      row.organizationId === organizationId && (!repositoryIds || repositoryIds.includes(row.repositoryId));
     const displayNameOf = (organizationId: string) => {
       const org = data.organizations.find((o) => o.organizationId === organizationId);
       return org?.displayName ?? org?.login ?? "Organization";
@@ -180,13 +185,13 @@ export class InMemoryStores implements Stores {
         const repo = data.repositories.find((r) => r.githubRepoId === githubRepoId);
         return repo && isLive(repo) ? toRepositoryRecord(repo) : undefined;
       },
-      findForOrganization: async (organizationId, repositoryId) => {
-        const repo = data.repositories.find((r) => r.repositoryId === repositoryId && r.organizationId === organizationId);
+      findForOrganization: async (scope, repositoryId) => {
+        const repo = data.repositories.find((r) => r.repositoryId === repositoryId && inScope(scope, r));
         return repo && isLive(repo) ? toRepositoryRecord(repo) : undefined;
       },
-      listForOrganization: async (organizationId) =>
+      listForOrganization: async (scope) =>
         data.repositories
-          .filter((r) => r.organizationId === organizationId && r.removedAt === undefined && installationById(r.githubInstallationId)?.uninstalledAt === undefined)
+          .filter((r) => inScope(scope, r) && r.removedAt === undefined && installationById(r.githubInstallationId)?.uninstalledAt === undefined)
           .sort((a, b) => a.fullName.localeCompare(b.fullName))
           .map((r) => ({
             repositoryId: r.repositoryId,
@@ -275,12 +280,12 @@ export class InMemoryStores implements Stores {
       });
 
     this.reviews = {
-      list: async (organizationId, { repositoryId, status, latest, limit, offset }) => {
+      list: async (scope, { repositoryId, status, latest, limit, offset }) => {
         const statuses = status ? storedStatuses(status) : undefined;
         let rows = data.reviews
           .filter(
             (r) =>
-              r.organizationId === organizationId &&
+              inScope(scope, r) &&
               (!repositoryId || r.repositoryId === repositoryId) &&
               (!statuses || statuses.includes(r.status)) &&
               (!latest || r.prNumber !== undefined),
@@ -297,8 +302,8 @@ export class InMemoryStores implements Stores {
         }
         return { rows: rows.slice(offset, offset + limit).map(toRecord), total: rows.length };
       },
-      get: async (organizationId, reviewId) => {
-        const review = data.reviews.find((r) => r.reviewId === reviewId && r.organizationId === organizationId);
+      get: async (scope, reviewId) => {
+        const review = data.reviews.find((r) => r.reviewId === reviewId && inScope(scope, r));
         return review ? toRecord(review) : undefined;
       },
       findByCheckRun: async (checkRunId) => {
@@ -337,9 +342,9 @@ export class InMemoryStores implements Stores {
     this.suggestions = {
       forReview: async (reviewId) =>
         data.suggestions.filter((s) => s.reviewId === reviewId).flatMap((s) => toSuggestionRecord(s) ?? []),
-      findByFinding: async (organizationId, findingId) => {
+      findByFinding: async (scope, findingId) => {
         const record = data.suggestions.map(toSuggestionRecord).find((s) => s?.findingId === findingId);
-        return record?.organizationId === organizationId ? record : undefined;
+        return record && inScope(scope, record) ? record : undefined;
       },
       recordPosted: async (posted) => {
         for (const { suggestionId, commentId } of posted) {
@@ -388,9 +393,24 @@ export class InMemoryStores implements Stores {
       },
     };
 
+    // Like the Prisma store: a member's repositories come from `repository_members`, an admin's are all of them.
+    const withAccess = (user: UserRecord | undefined): UserRecord | undefined =>
+      user && {
+        ...user,
+        memberships: user.memberships.map(({ repositoryIds: _seeded, ...m }) =>
+          m.role === "member"
+            ? {
+                ...m,
+                repositoryIds: (data.repositoryMembers ?? [])
+                  .filter((a) => a.userId === user.userId && data.repositories.some((r) => r.repositoryId === a.repositoryId && r.organizationId === m.organizationId))
+                  .map((a) => a.repositoryId),
+              }
+            : m,
+        ),
+      };
     this.users = {
-      findById: async (userId) => copy(data.users.find((u) => u.userId === userId)),
-      findByGithubId: async (githubUserId) => copy(data.users.find((u) => u.githubUserId === githubUserId)),
+      findById: async (userId) => copy(withAccess(data.users.find((u) => u.userId === userId))),
+      findByGithubId: async (githubUserId) => copy(withAccess(data.users.find((u) => u.githubUserId === githubUserId))),
       recordSignIn: async ({ userId, email, name, avatarUrl }) => {
         // Mirrors the unique `users.email`: an address another row holds is skipped, not an error.
         const emailFree = email !== undefined && !data.users.some((u) => u.email === email && u.userId !== userId);
@@ -417,6 +437,14 @@ export class InMemoryStores implements Stores {
         } else {
           user.memberships.push({ organizationId, displayName: displayNameOf(organizationId), role: role ?? "member" });
         }
+      },
+      setRepositoryAccess: async (organizationId, userId, githubRepoIds) => {
+        const ofOrganization = new Set(data.repositories.filter((r) => r.organizationId === organizationId).map((r) => r.repositoryId));
+        const kept = (data.repositoryMembers ?? []).filter((a) => a.userId !== userId || !ofOrganization.has(a.repositoryId));
+        const added = data.repositories
+          .filter((r) => r.organizationId === organizationId && githubRepoIds?.includes(r.githubRepoId))
+          .map((r) => ({ repositoryId: r.repositoryId, userId }));
+        data.repositoryMembers = [...kept, ...added];
       },
     };
 

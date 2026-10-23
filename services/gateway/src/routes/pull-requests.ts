@@ -13,12 +13,12 @@ import { z } from "zod";
 
 import type { AuditLog } from "../audit/audit-log.js";
 import { requireOrganization } from "../auth/guards.js";
-import type { GatewayResponse } from "../auth/principal.js";
+import { scopeOf, type GatewayResponse } from "../auth/principal.js";
 import type { GitHubClient, PullRequestInfo, RepositoryRef } from "../github/github-client.js";
 import type { ReviewPublisher } from "../github/review-publisher.js";
 import { OrchestratorCallError } from "../orchestrator/orchestrator-call-error.js";
 import type { OrchestratorClientLike } from "../orchestrator/orchestrator-client.js";
-import type { RepositoryRecord, Stores } from "../persistence/stores.js";
+import type { RepositoryRecord, RepositoryScope, Stores } from "../persistence/stores.js";
 import { matchesReviewBranches } from "../webhooks/branch-match.js";
 import { startPullRequestReview } from "../webhooks/start-review.js";
 import { toListItem } from "./review-view.js";
@@ -64,16 +64,16 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
   const pullsCache = new Map<string, { at: number; pulls: PullRequestInfo[] }>();
   const branchesCache = new Map<string, { at: number; body: BranchListResponse }>();
 
-  const loadRepository = async (organizationId: string, repositoryId: unknown) => {
+  const loadRepository = async (scope: RepositoryScope, repositoryId: unknown) => {
     const id = RepositoryIdSchema.safeParse(repositoryId);
-    const repository = id.success ? await stores.repositories.findForOrganization(organizationId, id.data) : undefined;
+    const repository = id.success ? await stores.repositories.findForOrganization(scope, id.data) : undefined;
     if (!repository) throw notFound("repository_not_found", "No such repository in this organization");
     return repository;
   };
 
   router.get("/repositories/:repositoryId/pulls", requireOrganization, async (req: Request<{ repositoryId: string }>, res: GatewayResponse) => {
-    const organizationId = res.locals.principal!.organizationId!;
-    const repository = await loadRepository(organizationId, req.params.repositoryId);
+    const scope = scopeOf(res.locals.principal!);
+    const repository = await loadRepository(scope, req.params.repositoryId);
 
     let cached = pullsCache.get(repository.repositoryId);
     if (!cached || now().getTime() - cached.at > PULLS_CACHE_MS) {
@@ -88,7 +88,7 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
 
     const [config, latest] = await Promise.all([
       stores.repositoryConfig.getEffectiveConfig(repository.repositoryId),
-      stores.reviews.list(organizationId, { repositoryId: repository.repositoryId, latest: true, limit: 100, offset: 0 }),
+      stores.reviews.list(scope, { repositoryId: repository.repositoryId, latest: true, limit: 100, offset: 0 }),
     ]);
     const byNumber = new Map(latest.rows.map((row) => [row.prNumber, row]));
     const items: PullRequestListItem[] = cached.pulls.map((pull) => {
@@ -112,7 +112,7 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
   });
 
   router.get("/repositories/:repositoryId/branches", requireOrganization, async (req: Request<{ repositoryId: string }>, res: GatewayResponse) => {
-    const repository = await loadRepository(res.locals.principal!.organizationId!, req.params.repositoryId);
+    const repository = await loadRepository(scopeOf(res.locals.principal!), req.params.repositoryId);
 
     let cached = branchesCache.get(repository.repositoryId);
     if (!cached || now().getTime() - cached.at > BRANCHES_CACHE_MS) {
@@ -136,9 +136,9 @@ export function createPullRequestsRouter(deps: PullRequestsRouterDeps): Router {
     if (!parsed.success) {
       throw badRequest("invalid_body", "Send { repositoryId, pullRequestNumber }", { issues: parsed.error.issues });
     }
-    const { userId, organizationId } = res.locals.principal!;
+    const { userId } = res.locals.principal!;
     const requestId = res.locals.requestId;
-    const repository = await loadRepository(organizationId!, parsed.data.repositoryId);
+    const repository = await loadRepository(scopeOf(res.locals.principal!), parsed.data.repositoryId);
     const logFields: Record<string, unknown> = { ...res.locals.logFields, repository: repository.fullName, pullRequestNumber: parsed.data.pullRequestNumber };
     res.locals.logFields = logFields;
 

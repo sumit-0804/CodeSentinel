@@ -99,12 +99,12 @@ export function describeStoresContract(
     it("finds a repository by id only within its own organization", async () => {
       const { stores, ids } = await build();
 
-      await expect(stores.repositories.findForOrganization(ids.organizationId, ids.repositoryId)).resolves.toMatchObject({
+      await expect(stores.repositories.findForOrganization({ organizationId: ids.organizationId }, ids.repositoryId)).resolves.toMatchObject({
         repositoryId: ids.repositoryId,
         githubInstallationNumber: ids.githubInstallationId,
       });
-      await expect(stores.repositories.findForOrganization(randomUUID(), ids.repositoryId)).resolves.toBeUndefined();
-      await expect(stores.repositories.findForOrganization(ids.organizationId, randomUUID())).resolves.toBeUndefined();
+      await expect(stores.repositories.findForOrganization({ organizationId: randomUUID() }, ids.repositoryId)).resolves.toBeUndefined();
+      await expect(stores.repositories.findForOrganization({ organizationId: ids.organizationId }, randomUUID())).resolves.toBeUndefined();
     });
   });
 
@@ -267,16 +267,16 @@ export function describeStoresContract(
         seed.reviews.push(...reviews);
       });
 
-      const all = await stores.reviews.list(ids.organizationId, { latest: false, limit: 2, offset: 0 });
+      const all = await stores.reviews.list({ organizationId: ids.organizationId }, { latest: false, limit: 2, offset: 0 });
       expect(all.total).toBe(3);
       expect(all.rows.map((r) => r.reviewId)).toEqual([reviews[1]!.reviewId, reviews[2]!.reviewId]);
       expect(all.rows[0]).toMatchObject({ repositoryFullName: seed.repositories[0]!.fullName, prTitle: "PR 7 again", confidenceThreshold: 0.8 });
 
-      const latest = await stores.reviews.list(ids.organizationId, { latest: true, limit: 25, offset: 0 });
+      const latest = await stores.reviews.list({ organizationId: ids.organizationId }, { latest: true, limit: 25, offset: 0 });
       expect(latest.total).toBe(2);
       expect(latest.rows.map((r) => r.prNumber)).toEqual([7, 8]);
 
-      const running = await stores.reviews.list(ids.organizationId, { status: ["running"], latest: false, limit: 25, offset: 0 });
+      const running = await stores.reviews.list({ organizationId: ids.organizationId }, { status: ["running"], latest: false, limit: 25, offset: 0 });
       expect(running.rows.map((r) => r.prNumber)).toEqual([8]);
     });
 
@@ -288,7 +288,7 @@ export function describeStoresContract(
         seed.reviews.push(review(ids, 7, 30), rerun, noPullRequest);
       });
 
-      const latest = await stores.reviews.list(ids.organizationId, { latest: true, limit: 25, offset: 0 });
+      const latest = await stores.reviews.list({ organizationId: ids.organizationId }, { latest: true, limit: 25, offset: 0 });
 
       expect(latest.rows.map((r) => r.reviewId)).toEqual([rerun!.reviewId]);
       expect(latest.total).toBe(1);
@@ -303,9 +303,9 @@ export function describeStoresContract(
       });
       const mine = await build();
 
-      await expect(theirs.stores.reviews.get(mine.ids.organizationId, theirId)).resolves.toBeUndefined();
-      await expect(theirs.stores.reviews.list(mine.ids.organizationId, { latest: false, limit: 25, offset: 0 })).resolves.toEqual({ rows: [], total: 0 });
-      await expect(theirs.stores.reviews.get(theirs.ids.organizationId, theirId)).resolves.toMatchObject({ prNumber: 1 });
+      await expect(theirs.stores.reviews.get({ organizationId: mine.ids.organizationId }, theirId)).resolves.toBeUndefined();
+      await expect(theirs.stores.reviews.list({ organizationId: mine.ids.organizationId }, { latest: false, limit: 25, offset: 0 })).resolves.toEqual({ rows: [], total: 0 });
+      await expect(theirs.stores.reviews.get({ organizationId: theirs.ids.organizationId }, theirId)).resolves.toMatchObject({ prNumber: 1 });
     });
 
     it("records the Check Run's conclusion, and ignores an unknown review", async () => {
@@ -319,7 +319,7 @@ export function describeStoresContract(
       await stores.reviews.recordCheckRun(reviewId, { checkRunId: 4242, conclusion: "fail" });
       await stores.reviews.recordCheckRun(randomUUID(), { checkRunId: 1, conclusion: "pass" });
 
-      await expect(stores.reviews.get(ids.organizationId, reviewId)).resolves.toMatchObject({ checkConclusion: "fail" });
+      await expect(stores.reviews.get({ organizationId: ids.organizationId }, reviewId)).resolves.toMatchObject({ checkConclusion: "fail" });
     });
 
     it("finds a review by its Check Run id", async () => {
@@ -407,9 +407,9 @@ export function describeStoresContract(
         prNumber: 9,
         headSha: fixture.headSha,
       });
-      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toEqual(listed);
-      await expect(stores.suggestions.findByFinding(randomUUID(), fixture.suggestion.findingId)).resolves.toBeUndefined();
-      await expect(stores.suggestions.findByFinding(ids.organizationId, randomUUID())).resolves.toBeUndefined();
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, fixture.suggestion.findingId)).resolves.toEqual(listed);
+      await expect(stores.suggestions.findByFinding({ organizationId: randomUUID() }, fixture.suggestion.findingId)).resolves.toBeUndefined();
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, randomUUID())).resolves.toBeUndefined();
     });
 
     it("records posted comment ids", async () => {
@@ -418,7 +418,7 @@ export function describeStoresContract(
 
       await stores.suggestions.recordPosted([{ suggestionId: fixture.suggestion.suggestionId, commentId: 987654321 }]);
 
-      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ githubCommentId: 987654321 });
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, fixture.suggestion.findingId)).resolves.toMatchObject({ githubCommentId: 987654321 });
     });
 
     it("records one decision only: accept with the commit, then any later decision is refused", async () => {
@@ -431,7 +431,7 @@ export function describeStoresContract(
       await expect(stores.suggestions.reject(suggestionId, { userId: ids.userId, reason: "other", at })).resolves.toBe(false);
       await expect(stores.suggestions.accept(suggestionId, { userId: ids.userId, at })).resolves.toBe(false);
 
-      await expect(stores.suggestions.findByFinding(ids.organizationId, findingId)).resolves.toMatchObject({
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, findingId)).resolves.toMatchObject({
         state: "accepted",
         resolutionCommitSha: "c".repeat(40),
         resolvedAt: at,
@@ -445,7 +445,7 @@ export function describeStoresContract(
 
       await expect(stores.suggestions.accept(fixture.suggestion.suggestionId, { commitSha: "c".repeat(40), at })).resolves.toBe(false);
 
-      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "proposed" });
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "proposed" });
     });
 
     it("accepts an exact fix without a person, as the Check Run button does", async () => {
@@ -458,7 +458,7 @@ export function describeStoresContract(
 
       await expect(stores.suggestions.accept(fixture.suggestion.suggestionId, { commitSha: "c".repeat(40), at })).resolves.toBe(true);
 
-      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "accepted" });
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, fixture.suggestion.findingId)).resolves.toMatchObject({ state: "accepted" });
     });
 
     it("records a rejection with its reason", async () => {
@@ -470,7 +470,7 @@ export function describeStoresContract(
         stores.suggestions.reject(fixture.suggestion.suggestionId, { userId: ids.userId, reason: "false_positive", comment: "test code", at }),
       ).resolves.toBe(true);
 
-      await expect(stores.suggestions.findByFinding(ids.organizationId, fixture.suggestion.findingId)).resolves.toMatchObject({
+      await expect(stores.suggestions.findByFinding({ organizationId: ids.organizationId }, fixture.suggestion.findingId)).resolves.toMatchObject({
         state: "rejected",
         rejectionReason: "false_positive",
         resolvedAt: at,
@@ -617,7 +617,7 @@ export function describeStoresContract(
 
   const repo = (githubRepoId: number, fullName: string) => ({ githubRepoId, fullName, defaultBranch: "main", isPrivate: true });
   const names = async (stores: Stores, organizationId: string) =>
-    (await stores.repositories.listForOrganization(organizationId)).map((r) => r.fullName);
+    (await stores.repositories.listForOrganization({ organizationId })).map((r) => r.fullName);
 
   describe("GitHub accounts and memberships", () => {
     it("links a GitHub account, re-links it to the same user, and refuses it for another user", async () => {
@@ -652,6 +652,50 @@ export function describeStoresContract(
       await stores.users.setMembership(ids.organizationId, ids.userId, "member");
       expect(await roleIn(ids.organizationId)).toBe("member");
       await cleanUp?.({ githubOrgIds: [githubOrgId] });
+    });
+
+    it("scopes a member to the repositories they can open on GitHub; an admin sees all", async () => {
+      const otherRepoId = randomUUID();
+      const otherGithubRepoId = randomInt(1, 2 ** 47);
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.repositories.push({ ...seed.repositories[0]!, repositoryId: otherRepoId, githubRepoId: otherGithubRepoId, fullName: `${ids.orgLogin}/other-${otherGithubRepoId}` });
+        seed.reviews.push(
+          ...[ids.repositoryId, otherRepoId].map((repositoryId, i) => ({
+            reviewId: randomUUID(),
+            organizationId: ids.organizationId,
+            repositoryId,
+            trigger: "github_pull_request" as const,
+            prNumber: i + 1,
+            headSha: randomUUID().replaceAll("-", "").slice(0, 40),
+            status: "completed" as const,
+            confidenceThreshold: 0.8,
+            createdAt: new Date(),
+          })),
+        );
+      });
+      const scope = async () => {
+        const membership = (await stores.users.findById(ids.userId))!.memberships.find((m) => m.organizationId === ids.organizationId)!;
+        return { organizationId: ids.organizationId, ...(membership.repositoryIds ? { repositoryIds: membership.repositoryIds } : {}) };
+      };
+      const visible = async () => (await stores.repositories.listForOrganization(await scope())).map((r) => r.repositoryId);
+      const reviewed = async () => (await stores.reviews.list(await scope(), { latest: false, limit: 25, offset: 0 })).rows.map((r) => r.repositoryId).sort();
+
+      // Admin: everything, without any rows.
+      expect((await visible()).sort()).toEqual([ids.repositoryId, otherRepoId].sort());
+      await stores.users.setMembership(ids.organizationId, ids.userId, "member");
+      // A member who hasn't synced sees nothing, never everything.
+      expect(await visible()).toEqual([]);
+
+      await stores.users.setRepositoryAccess(ids.organizationId, ids.userId, [ids.githubRepoId, randomInt(1, 2 ** 47)]);
+      expect(await visible()).toEqual([ids.repositoryId]);
+      expect(await reviewed()).toEqual([ids.repositoryId]);
+      await expect(stores.repositories.findForOrganization(await scope(), otherRepoId)).resolves.toBeUndefined();
+      await expect(stores.repositories.findForOrganization(await scope(), ids.repositoryId)).resolves.toMatchObject({ repositoryId: ids.repositoryId });
+
+      await stores.users.setRepositoryAccess(ids.organizationId, ids.userId, [otherGithubRepoId]);
+      expect(await visible()).toEqual([otherRepoId]);
+      await stores.users.setRepositoryAccess(ids.organizationId, ids.userId, undefined);
+      expect(await visible()).toEqual([]);
     });
   });
 

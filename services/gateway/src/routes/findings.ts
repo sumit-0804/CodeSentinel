@@ -5,11 +5,11 @@ import { z } from "zod";
 
 import type { AuditLog } from "../audit/audit-log.js";
 import { assertStepUp, requireOrganization, type StepUpPolicy } from "../auth/guards.js";
-import type { GatewayResponse } from "../auth/principal.js";
+import { scopeOf, type GatewayResponse } from "../auth/principal.js";
 import { applyAllFixes } from "../github/apply-all-fixes.js";
 import { commitSuggestion } from "../github/apply-suggestion.js";
 import type { GitHubClient, PullRequestInfo } from "../github/github-client.js";
-import type { Stores, SuggestionRecord } from "../persistence/stores.js";
+import type { RepositoryScope, Stores, SuggestionRecord } from "../persistence/stores.js";
 
 export interface FindingsRouterDeps {
   stores: Pick<Stores, "suggestions" | "repositories" | "reviews">;
@@ -35,10 +35,10 @@ const githubUnavailable = () => badGateway("github_unavailable", "GitHub did not
 export function createFindingsRouter({ stores, github, logger, stepUp, dashboardUrl, audit }: FindingsRouterDeps): Router {
   const router = Router();
 
-  // Another organization's finding answers 404, like an unknown one.
-  const loadSuggestion = async (organizationId: string, findingId: string): Promise<SuggestionRecord> => {
+  // A finding outside the caller's scope answers 404, like an unknown one.
+  const loadSuggestion = async (scope: RepositoryScope, findingId: string): Promise<SuggestionRecord> => {
     const id = FindingIdSchema.safeParse(findingId);
-    const suggestion = id.success ? await stores.suggestions.findByFinding(organizationId, id.data) : undefined;
+    const suggestion = id.success ? await stores.suggestions.findByFinding(scope, id.data) : undefined;
     if (!suggestion) throw notFound("finding_not_found", "No such finding with a fix in this organization");
     return suggestion;
   };
@@ -48,11 +48,11 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
     requireOrganization,
     async (req: Request<{ findingId: string }>, res: GatewayResponse) => {
       const principal = res.locals.principal!;
-      const suggestion = await loadSuggestion(principal.organizationId!, req.params.findingId);
+      const suggestion = await loadSuggestion(scopeOf(principal), req.params.findingId);
       if (suggestion.state !== "proposed") throw decided();
       assertStepUp(principal, stepUp);
 
-      const repository = await stores.repositories.findForOrganization(principal.organizationId!, suggestion.repositoryId);
+      const repository = await stores.repositories.findForOrganization(scopeOf(principal), suggestion.repositoryId);
       if (!repository || suggestion.prNumber === undefined) throw conflict("pull_request_closed", "This fix has no open pull request to commit to");
       const [owner = "", repo = ""] = repository.fullName.split("/");
       const ref = { ...(repository.githubInstallationNumber !== undefined ? { installationId: repository.githubInstallationNumber } : {}), owner, repo };
@@ -106,11 +106,11 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
   router.post("/reviews/:reviewId/apply-all-fixes", requireOrganization, async (req: Request<{ reviewId: string }>, res: GatewayResponse) => {
     const principal = res.locals.principal!;
     const id = ReviewIdSchema.safeParse(req.params.reviewId);
-    const review = id.success ? await stores.reviews.get(principal.organizationId!, id.data) : undefined;
+    const review = id.success ? await stores.reviews.get(scopeOf(principal), id.data) : undefined;
     if (!review) throw notFound("review_not_found", "No such review in this organization");
     assertStepUp(principal, stepUp);
 
-    const repository = await stores.repositories.findForOrganization(principal.organizationId!, review.repositoryId);
+    const repository = await stores.repositories.findForOrganization(scopeOf(principal), review.repositoryId);
     if (!repository) throw conflict("pull_request_closed", "This review's repository is no longer connected");
     let outcome;
     try {
@@ -146,7 +146,7 @@ export function createFindingsRouter({ stores, github, logger, stepUp, dashboard
       const parsed = RejectSuggestionRequestSchema.safeParse(req.body ?? {});
       if (!parsed.success) throw badRequest("invalid_body", "Send { reason?, comment? }", { issues: parsed.error.issues });
       const principal = res.locals.principal!;
-      const suggestion = await loadSuggestion(principal.organizationId!, req.params.findingId);
+      const suggestion = await loadSuggestion(scopeOf(principal), req.params.findingId);
 
       const at = new Date(stepUp.now());
       const recorded = await stores.suggestions.reject(suggestion.suggestionId, {

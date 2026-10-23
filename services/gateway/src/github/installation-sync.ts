@@ -104,6 +104,9 @@ export class InstallationSync {
             : "member"
           : await githubUsers.getOrgRole(accessToken, installation.account.login);
       await users.setMembership(organizationId, userId, role);
+      // A member reads only what they can open on GitHub; an admin reads the whole organization.
+      const access = role === "admin" ? undefined : await githubUsers.listInstallationRepositoryIds(accessToken, installation.id);
+      await users.setRepositoryAccess(organizationId, userId, access);
       synced.push({ organizationId, accountLogin: installation.account.login, accountType: installation.account.type, repositoryCount });
     }
     return synced;

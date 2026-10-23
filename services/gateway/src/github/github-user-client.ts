@@ -33,6 +33,8 @@ export interface GitHubUserClient {
   refresh(refreshToken: string): Promise<GitHubUserTokens>;
   getUser(accessToken: string): Promise<{ id: number; login: string }>;
   listInstallations(accessToken: string): Promise<UserInstallation[]>;
+  /** GitHub ids of the installation's repositories this user can open (not every repository the App covers). */
+  listInstallationRepositoryIds(accessToken: string, installationId: number): Promise<number[]>;
   /** The user's role in a GitHub organization, or undefined when GitHub won't say (not a member, no permission). */
   getOrgRole(accessToken: string, org: string): Promise<"admin" | "member" | undefined>;
 }
@@ -111,6 +113,14 @@ export class OctokitGitHubUserClient implements GitHubUserClient {
           ]
         : [],
     );
+  }
+
+  async listInstallationRepositoryIds(accessToken: string, installationId: number): Promise<number[]> {
+    const repos: { id: number | bigint }[] = await this.as(accessToken).paginate("GET /user/installations/{installation_id}/repositories", {
+      installation_id: installationId,
+      per_page: 100,
+    });
+    return repos.map((repo) => Number(repo.id));
   }
 
   async getOrgRole(accessToken: string, org: string): Promise<"admin" | "member" | undefined> {

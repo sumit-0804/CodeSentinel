@@ -10,7 +10,8 @@ import type { StoreSeed } from "../persistence/in-memory.js";
 import { seededStores, testAppDeps, TEST_USER_ID } from "../test-support/fixtures.js";
 import { stepUpClaims, testSupabase } from "../test-support/supabase-tokens.js";
 
-type Caller = "admin" | "member";
+/** `member` can open the seeded repository on GitHub; `outsider` is a member who can't. */
+type Caller = "admin" | "member" | "outsider";
 
 /** Calls the gateway as the seeded admin (Supabase session, stepped up unless `stepUp: false`) or as a plain member. */
 async function call(
@@ -19,7 +20,8 @@ async function call(
   { as = "admin", body, edit, stepUp = true }: { as?: Caller; body?: unknown; edit?: (seed: StoreSeed) => void; stepUp?: boolean } = {},
 ) {
   const seeded = await seededStores((seed) => {
-    if (as === "member") seed.users[0]!.memberships[0]!.role = "member";
+    if (as !== "admin") seed.users[0]!.memberships[0]!.role = "member";
+    if (as === "member") seed.repositoryMembers = [{ repositoryId: EXAMPLE_REPOSITORY_ID, userId: TEST_USER_ID }];
     edit?.(seed);
   });
   const supabase = await testSupabase();
@@ -59,6 +61,14 @@ describe("GET /v1/repositories/{id}/config", () => {
     });
     expect(other.status).toBe(404);
     expect(other.body.code).toBe("repository_not_found");
+  });
+
+  it("answers 404 to a member who can't open the repository on GitHub, and leaves it out of their list", async () => {
+    const outsider = await call("GET", CONFIG_PATH, { as: "outsider", stepUp: false });
+    expect([outsider.status, outsider.body.code]).toEqual([404, "repository_not_found"]);
+
+    expect((await call("GET", "/v1/repositories", { as: "outsider", stepUp: false })).body.items).toEqual([]);
+    expect((await call("GET", "/v1/repositories", { as: "member", stepUp: false })).body.items).toMatchObject([{ repositoryId: EXAMPLE_REPOSITORY_ID }]);
   });
 });
 

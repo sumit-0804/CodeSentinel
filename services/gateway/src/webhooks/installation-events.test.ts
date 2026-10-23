@@ -36,7 +36,7 @@ async function setup() {
 
   const installed = async () => {
     const found = await stores.repositories.findByGithubRepoId(501);
-    return found ? (await stores.repositories.listForOrganization(found.organizationId)).map((r) => r.fullName) : [];
+    return found ? (await stores.repositories.listForOrganization({ organizationId: found.organizationId })).map((r) => r.fullName) : [];
   };
 
   return { stores, github, lines, deliver, installed };

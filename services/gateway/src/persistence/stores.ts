@@ -106,6 +106,20 @@ export class GithubAccountTakenError extends Error {
   }
 }
 
+/**
+ * Which repositories of one organization a caller may read (NFR-13). `repositoryIds` is set for a
+ * `member`: only the repositories they can open on GitHub. Absent for an admin: every repository.
+ */
+export interface RepositoryScope {
+  organizationId: string;
+  repositoryIds?: readonly string[];
+}
+
+/** An `organization_members` row; a member's `repositoryIds` come from `repository_members`. */
+export interface MembershipRecord extends OrganizationMembership {
+  repositoryIds?: string[];
+}
+
 /** A `users` row with its `organization_members` rows. */
 export interface UserRecord {
   userId: string;
@@ -115,7 +129,7 @@ export interface UserRecord {
   email?: string;
   name?: string;
   avatarUrl?: string;
-  memberships: OrganizationMembership[];
+  memberships: MembershipRecord[];
 }
 
 /** Profile fields from a verified Supabase token, written to `users` when the user signs in. */
@@ -129,10 +143,10 @@ export interface SignInProfile {
 export interface RepositoryStore {
   /** Skips removed repositories and those whose installation is uninstalled or suspended: their PRs are not reviewed. */
   findByGithubRepoId(githubRepoId: number): Promise<RepositoryRecord | undefined>;
-  /** The same live repository by id, only if it belongs to the organization (NFR-13). */
-  findForOrganization(organizationId: string, repositoryId: string): Promise<RepositoryRecord | undefined>;
-  /** The organization's active repositories, by name. */
-  listForOrganization(organizationId: string): Promise<RepositorySummary[]>;
+  /** The same live repository by id, only if it is in the caller's scope (NFR-13). */
+  findForOrganization(scope: RepositoryScope, repositoryId: string): Promise<RepositoryRecord | undefined>;
+  /** The active repositories in the caller's scope, by name. */
+  listForOrganization(scope: RepositoryScope): Promise<RepositorySummary[]>;
 }
 
 export interface InstallationStore {
@@ -198,10 +212,10 @@ export interface ReviewListFilter {
 }
 
 export interface ReviewStore {
-  /** The organization's reviews, newest first (NFR-13). */
-  list(organizationId: string, filter: ReviewListFilter): Promise<{ rows: ReviewRecord[]; total: number }>;
-  /** `undefined` for an unknown review or one in another organization. */
-  get(organizationId: string, reviewId: string): Promise<ReviewRecord | undefined>;
+  /** The reviews in the caller's scope, newest first (NFR-13). */
+  list(scope: RepositoryScope, filter: ReviewListFilter): Promise<{ rows: ReviewRecord[]; total: number }>;
+  /** `undefined` for an unknown review or one outside the caller's scope. */
+  get(scope: RepositoryScope, reviewId: string): Promise<ReviewRecord | undefined>;
   /** The review whose Check Run this is, for a button clicked on GitHub; `undefined` when none. */
   findByCheckRun(checkRunId: number): Promise<ReviewRecord | undefined>;
   /** Stores the Check Run's id and conclusion; a review that doesn't exist (yet) is left alone. */
@@ -279,6 +293,11 @@ export interface UserStore {
    * wouldn't say) inserts `member` but never changes an existing role.
    */
   setMembership(organizationId: string, userId: string, role: "admin" | "member" | undefined): Promise<void>;
+  /**
+   * Makes `githubRepoIds` exactly the member's repositories in the organization (`repository_members`);
+   * ids the organization doesn't have are ignored. `undefined` clears them, for an admin.
+   */
+  setRepositoryAccess(organizationId: string, userId: string, githubRepoIds: number[] | undefined): Promise<void>;
 }
 
 /** A `suggestions` row with its finding and the review it came from (UC-3). */
@@ -310,8 +329,8 @@ export interface SuggestionRecord {
 export interface SuggestionStore {
   /** Every suggestion of a review, for the review detail and for matching posted comments. */
   forReview(reviewId: string): Promise<SuggestionRecord[]>;
-  /** The suggestion of a finding, only within the organization (NFR-13); `undefined` if it has none. */
-  findByFinding(organizationId: string, findingId: string): Promise<SuggestionRecord | undefined>;
+  /** The suggestion of a finding, only within the caller's scope (NFR-13); `undefined` if it has none. */
+  findByFinding(scope: RepositoryScope, findingId: string): Promise<SuggestionRecord | undefined>;
   /** Marks the suggestions posted as inline comments, with GitHub's comment ids. */
   recordPosted(posted: { suggestionId: string; commentId: number }[]): Promise<void>;
   /**

@@ -107,9 +107,19 @@ How a signed-in user gets organizations and repositories (A6, `seq_onboarding.mm
    upserted with its repositories (as the App), and the user's membership is recorded: **admin** of
    their own account, and for an organization the role GitHub reports (`GET /user/memberships/orgs/{org}`,
    which needs the App's **Members: read** permission). If GitHub won't say, `member` is added but an
-   existing role is never lowered.
+   existing role is never lowered. Someone else's personal account is reached as a collaborator, so its
+   role is `member`.
+   - **A member's repositories:** for a `member`, the sync also asks GitHub which of the installation's
+     repositories this user can open (`GET /user/installations/{id}/repositories`, as the user) and
+     writes them to `repository_members`. Admins have no rows and see every repository.
 4. `GET /v1/installations` lists the user's installations, and `GET /v1/repositories` an organization's
    active repositories (`X-Organization-Id`, or the only membership).
+   - **What a member sees:** only their own repositories. That covers the list, configuration, reviews,
+     pull requests and fixes (`RepositoryScope` from `scopeOf(principal)`); any other repository is 404, like
+     an unknown one.
+   - **Fails safe:** a member who hasn't synced since `repository_members` was added sees none. Access
+     follows GitHub as of the member's last sync, so someone removed as a collaborator keeps access until
+     their next sync, and a repository added to the App later stays hidden from members until then.
 
 Repositories are matched by GitHub id, so a rename updates the name in place. A repository that leaves
 its installation is **marked removed, never deleted**, and comes back with its history if added again.

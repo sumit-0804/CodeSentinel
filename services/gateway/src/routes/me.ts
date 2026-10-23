@@ -39,7 +39,7 @@ export function createMeRouter({ users, sessions, stepUp, audit }: MeRouterDeps)
       ...(user.name !== undefined ? { name: user.name } : {}),
       ...(user.avatarUrl !== undefined ? { avatarUrl: user.avatarUrl } : {}),
       providers: principal.providers,
-      organizations: user.memberships,
+      organizations: user.memberships.map(({ organizationId, displayName, role }) => ({ organizationId, displayName, role })),
     };
     res.json(body);
   });
