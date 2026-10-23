@@ -421,6 +421,10 @@ export class PrismaStores implements Stores {
         if (revoked) await prisma.sessionActivity.deleteMany({ where: { sessionId } });
         return revoked;
       },
+      hasAuthenticator: async (userId) => {
+        const rows = await prisma.$queryRaw<{ has: boolean }[]>`select private.user_has_totp(${userId}::uuid) as has`;
+        return rows[0]?.has === true;
+      },
     };
 
     this.users = {

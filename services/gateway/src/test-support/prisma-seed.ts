@@ -6,9 +6,10 @@ import type { StoreSeed } from "../persistence/in-memory.js";
 
 /**
  * A test database has no Supabase `auth` schema, so it gets stand-ins for the hand-made
- * `private.session_is_active`, `private.user_sessions` and `private.revoke_session`, backed by
- * `private.test_sessions`. A database with the real functions (no `test_sessions` table) is left
- * alone; then `false` is returned and sessions cannot be seeded.
+ * `private.session_is_active`, `private.user_sessions`, `private.revoke_session` and
+ * `private.user_has_totp`, backed by `private.test_sessions` and `private.test_totp_users`. A database
+ * with the real functions (no `test_sessions` table) is left alone; then `false` is returned and
+ * sessions cannot be seeded.
  */
 export async function installSessionStandIn(prisma: PrismaClient): Promise<boolean> {
   const [state] = await prisma.$queryRaw<{ fn: boolean; table: boolean }[]>`
@@ -41,6 +42,11 @@ export async function installSessionStandIn(prisma: PrismaClient): Promise<boole
      as $$ with gone as (delete from private.test_sessions where id = p_session_id and user_id = p_user_id returning 1)
            select exists (select 1 from gone) $$`,
   );
+  await prisma.$executeRawUnsafe(`create table if not exists private.test_totp_users (user_id uuid primary key)`);
+  await prisma.$executeRawUnsafe(
+    `create or replace function private.user_has_totp(p_user_id uuid) returns boolean language sql stable
+     as $$ select exists (select 1 from private.test_totp_users where user_id = p_user_id) $$`,
+  );
   return true;
 }
 
@@ -52,6 +58,9 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
       await prisma.$executeRaw`
         insert into private.test_sessions (id, user_id, created_at, last_active_at, user_agent, ip)
         values (${id}::uuid, ${session?.userId ?? null}::uuid, ${session?.createdAt ?? new Date()}, ${session?.lastActiveAt ?? null}, ${session?.userAgent ?? null}, ${session?.ip ?? null})`;
+    }
+    for (const userId of seed.authenticatorUserIds ?? []) {
+      await prisma.$executeRaw`insert into private.test_totp_users (user_id) values (${userId}::uuid)`;
     }
   }
   const displayNames = new Map(seed.users.flatMap((u) => u.memberships).map((m) => [m.organizationId, m.displayName]));
@@ -209,6 +218,9 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
 export async function deleteSeed(prisma: PrismaClient, seed: StoreSeed, { sessions = false } = {}): Promise<void> {
   if (sessions && seed.activeSessionIds.length > 0) {
     await prisma.$executeRaw`delete from private.test_sessions where id = any(${seed.activeSessionIds}::uuid[])`;
+  }
+  if (sessions && seed.authenticatorUserIds?.length) {
+    await prisma.$executeRaw`delete from private.test_totp_users where user_id = any(${seed.authenticatorUserIds}::uuid[])`;
   }
   await prisma.organization.deleteMany({ where: { id: { in: seed.organizations.map((o) => o.organizationId) } } });
   await prisma.user.deleteMany({ where: { id: { in: seed.users.map((u) => u.userId) } } });

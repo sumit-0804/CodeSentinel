@@ -114,11 +114,18 @@ Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `wh
      select exists (select 1 from gone)
    $$;
 
+   -- Has the user set up an authenticator app? Then sign-in and step-ups need its code (every /v1 request)
+   create or replace function private.user_has_totp(p_user_id uuid) returns boolean
+   language sql stable security definer set search_path = '' as $$
+     select exists (select 1 from auth.mfa_factors f
+                    where f.user_id = p_user_id and f.factor_type = 'totp' and f.status = 'verified')
+   $$;
+
    revoke all on function private.session_is_active(uuid), private.user_sessions(uuid),
-     private.revoke_session(uuid, uuid) from public, anon, authenticated;
+     private.revoke_session(uuid, uuid), private.user_has_totp(uuid) from public, anon, authenticated;
    grant usage on schema private to prisma;
    grant execute on function private.session_is_active(uuid), private.user_sessions(uuid),
-     private.revoke_session(uuid, uuid) to prisma;
+     private.revoke_session(uuid, uuid), private.user_has_totp(uuid) to prisma;
    ```
 
 ## Develop

@@ -278,6 +278,8 @@ export interface SessionStore {
   listForUser(userId: string): Promise<SessionRecord[]>;
   /** Signs that session out at once; `false` when it isn't one of the user's live sessions. */
   revoke(userId: string, sessionId: string): Promise<boolean>;
+  /** Whether the user has a verified authenticator app (a TOTP factor in `auth.mfa_factors`). */
+  hasAuthenticator(userId: string): Promise<boolean>;
 }
 
 export interface UserStore {

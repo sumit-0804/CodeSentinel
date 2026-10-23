@@ -79,6 +79,8 @@ export interface StoreSeed {
   activeSessionIds: string[];
   /** Who each session belongs to and its device, for the signed-in devices list; ids not here are listed for nobody. */
   sessions?: ({ userId: string } & SessionRecord)[];
+  /** Users with a verified authenticator app, like a TOTP row in `auth.mfa_factors`. */
+  authenticatorUserIds?: string[];
   users: UserRecord[];
   /** `repository_members` rows: the repositories a `member` may read. A member with none sees no repositories. */
   repositoryMembers?: { repositoryId: string; userId: string }[];
@@ -391,6 +393,7 @@ export class InMemoryStores implements Stores {
         activity.delete(sessionId);
         return true;
       },
+      hasAuthenticator: async (userId) => (data.authenticatorUserIds ?? []).includes(userId),
     };
 
     // Like the Prisma store: a member's repositories come from `repository_members`, an admin's are all of them.

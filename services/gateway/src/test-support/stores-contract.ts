@@ -567,6 +567,15 @@ export function describeStoresContract(
       await expect(stores.sessions.isActive(randomUUID())).resolves.toBe(false);
     });
 
+    it("knows who has an authenticator app", async () => {
+      const { stores, ids } = await build(({ seed, ids }) => {
+        seed.authenticatorUserIds = [ids.userId];
+      });
+
+      await expect(stores.sessions.hasAuthenticator(ids.userId)).resolves.toBe(true);
+      await expect(stores.sessions.hasAuthenticator(randomUUID())).resolves.toBe(false);
+    });
+
     it("lists a user's devices most recently active first, and signs one out only for its owner", async () => {
       const [laptop, phone, someoneElses] = [randomUUID(), randomUUID(), randomUUID()];
       const otherUser = randomUUID();
