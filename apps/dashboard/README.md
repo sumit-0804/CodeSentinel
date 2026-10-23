@@ -54,8 +54,6 @@ Env is validated with zod the first time it's read (`lib/env.ts`), so `next buil
 | `/settings?section=security` | **Security**: add authenticator apps (QR code or key, then a code to confirm), a second one as the backup, and remove them after a code; **Signed-in devices** (`/v1/me/sessions`): browser and system read from the user agent, IP, last active, "This device", and **Sign out** for any other one after a code |
 | `/settings?section=audit` | **Audit log** for organization admins (`/v1/organizations/{id}/audit-events`): when, who, what (in words, from the action and its details) and from where, newest first, with **Older events** |
 | `/step-up` | Asks for an authenticator code, then continues to `?next=` (a safe same-origin path). Install and Connect send you here when you have an authenticator and your code is too old |
-| `/verify-code` | The second step of signing in for an account with an authenticator app: the code, then on to `?next=`; or **Use a different account** to sign out |
-
 `/` redirects to `/overview`.
 
 **Deciding on a fix (UC-3).** An expanded finding with a posted fix shows `FixActions` (`components/reviews/fix-actions.tsx`):
@@ -85,18 +83,15 @@ organization admins can save: members see the settings read-only, and the gatewa
 every agent off is caught before Save.
 
 **Authenticator codes (A7).** An authenticator app is optional. Without one, nothing asks for a code. Once someone
-adds one in Settings → Security, two things need its code:
-- **Signing in:** `proxy.ts` sends a session that signed in with a password or OAuth only (`aal1` while Supabase
-  says the next level is `aal2`) to `/verify-code?next=…` before any app page. The gateway refuses such a token
-  too (403 `mfa_required`).
-- **Security changes**, with a code from the last 10 minutes (the gateway's `MFA_STEP_UP_MINUTES`): saving
-  repository settings and review defaults, connecting repositories, fixes, and signing out a device.
-  - **Saves** go through `useStepUp()` (`components/auth/step-up.tsx`). When the gateway answers `mfa_required`,
-    one dialog asks for the code, then saves again.
-  - **Install and Connect** check first (`needsStepUp()` in `lib/mfa.ts`: has an authenticator and no fresh code,
-    the same rule as the gateway, shared from `@code-sentinel/contracts`) and send you to `/step-up` when needed.
-    If GitHub took too long and the code ran out, the callback shows "Your authenticator code ran out" with a way
-    back.
+adds one in Settings → Security, only security changes need it, never signing in or reading. Each needs a code from
+the last 10 minutes (the gateway's `MFA_STEP_UP_MINUTES`): saving repository settings and review defaults,
+connecting repositories, fixes, and signing out a device.
+- **Saves** go through `useStepUp()` (`components/auth/step-up.tsx`). When the gateway answers `mfa_required`,
+  one dialog asks for the code, then saves again.
+- **Install and Connect** check first (`needsStepUp()` in `lib/mfa.ts`: has an authenticator and no fresh code,
+  the same rule as the gateway, shared from `@code-sentinel/contracts`) and send you to `/step-up` when needed.
+  If GitHub took too long and the code ran out, the callback shows "Your authenticator code ran out" with a way
+  back.
 - Codes are checked with `mfa.challengeAndVerify` in Server Actions (`app/(app)/settings/security-actions.ts`).
   The session's new token is `aal2` with a fresh `totp` time, and `gatewayFetch` sends it on.
 

@@ -14,13 +14,6 @@ export async function listAuthenticators(): Promise<Authenticator[]> {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-/** True when the user has an authenticator app but signed in without its code: no app page until they enter it. */
-export async function needsSignInCode(): Promise<boolean> {
-  const supabase = await createSupabaseServerClient();
-  const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  return data?.currentLevel === "aal1" && data.nextLevel === "aal2";
-}
-
 /** True when a security change must ask for a code first: the user has an authenticator app and no fresh code. */
 export async function needsStepUp(): Promise<boolean> {
   const [authenticators, fresh] = await Promise.all([listAuthenticators(), hasFreshStepUp()]);

@@ -54,23 +54,8 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   );
 }
 
-const STEP_UP_DESCRIPTION = `Security changes need a fresh code. It counts for ${DEFAULT_MFA_STEP_UP_MINUTES} minutes.`;
-
-/**
- * Asks for the 6-digit code. Used in the dialog, on `/step-up` and on `/verify-code` at sign-in; only
- * someone with an authenticator app is ever asked.
- */
-export function StepUpForm({
-  onVerified,
-  onCancel,
-  inDialog = true,
-  description = STEP_UP_DESCRIPTION,
-}: {
-  onVerified: () => void;
-  onCancel?: () => void;
-  inDialog?: boolean;
-  description?: string;
-}) {
+/** Asks for the 6-digit code, in the dialog and on `/step-up`. Only someone with an authenticator app is ever asked. */
+export function StepUpForm({ onVerified, onCancel, inDialog = true }: { onVerified: () => void; onCancel?: () => void; inDialog?: boolean }) {
   const [code, setCode] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -99,7 +84,9 @@ export function StepUpForm({
         </span>
         <div className="grid gap-1">
           <Title className="font-display text-lg leading-tight font-semibold">Enter your authenticator code</Title>
-          <Description className="text-sm text-ink-2">{description}</Description>
+          <Description className="text-sm text-ink-2">
+            Security changes need a fresh code. It counts for {DEFAULT_MFA_STEP_UP_MINUTES} minutes.
+          </Description>
         </div>
       </div>
       <label className="grid gap-1.5 text-sm font-semibold">
