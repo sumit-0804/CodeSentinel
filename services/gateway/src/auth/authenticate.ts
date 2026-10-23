@@ -61,10 +61,6 @@ export function createAuthMiddleware({ sessions, users, supabase, logger, now = 
 
     const [active, mfaEnrolled] = await Promise.all([sessions.isActive(claims.sessionId), sessions.hasAuthenticator(claims.userId)]);
     if (!active) throw unauthorized("session_revoked", "This session has been signed out; sign in again");
-    // Someone with an authenticator app must have entered a code to sign in; a password alone isn't enough.
-    if (mfaEnrolled && claims.aal !== "aal2") {
-      throw forbidden("mfa_required", "Enter a code from your authenticator app to finish signing in");
-    }
 
     const at = now();
     const last = recordedAt.get(claims.userId);

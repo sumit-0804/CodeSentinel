@@ -168,13 +168,12 @@ describe("POST /v1/github/link", () => {
     expect((await call("POST", "/v1/github/link", { body: { code: "code-1" }, stepUp: false })).status).toBe(200);
   });
 
-  it("refuses every request of someone with an authenticator app who signed in without a code", async () => {
+  it("lets someone with an authenticator app sign in and read without a code; only step-up routes ask", async () => {
     const { call } = await setup({ authenticator: true });
 
-    const { status, body } = await call("GET", "/v1/me", { stepUp: false });
-
-    expect([status, body.code]).toEqual([403, "mfa_required"]);
-    expect((await call("GET", "/v1/me", { stepUp: "stale" })).status).toBe(200);
+    expect((await call("GET", "/v1/me", { stepUp: false })).status).toBe(200);
+    const sync = await call("POST", "/v1/installations/sync", { stepUp: false });
+    expect([sync.status, sync.body.code]).toEqual([403, "mfa_required"]);
   });
 });
 

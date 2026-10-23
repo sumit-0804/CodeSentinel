@@ -386,10 +386,8 @@ The token is checked in this order (`auth/supabase-token.ts`, then the middlewar
    HS256 and unsigned tokens never verify. The reason for a rejection is logged, never returned.
 2. **Session still live:** `private.session_is_active(session_id)`, so signing out (here or "on all
    devices") takes effect immediately, not when the token expires.
-   - **Code at sign-in:** in the same round trip, `private.user_has_totp(sub)` says whether the user has
-     set up an authenticator app. If they have, the token must be `aal2` (a code was entered when signing
-     in), or the request is 403 `mfa_required`, so a password alone isn't enough. The app is optional:
-     without one, `aal1` is fine.
+   - **Authenticator app:** in the same round trip, `private.user_has_totp(sub)` says whether the user has
+     set one up (`principal.mfaEnrolled`). Signing in never needs its code; only the step-up routes below do.
 3. **User row:** the `users` row is inserted or refreshed from the claims (email, name, avatar,
    `last_seen_at`), at most once every 5 minutes per user. An email another row already holds is
    skipped rather than failing the sign-in.
@@ -426,7 +424,7 @@ that. The admin check runs first, so members aren't asked for a code they can't 
 | `organization_forbidden` | 403 | `X-Organization-Id` names an organization the user is not a member of |
 | `organization_required` | 403 | No organization could be resolved (`requireOrganization`) |
 | `admin_required` | 403 | A configuration write by someone who isn't an admin of the organization (`assertOrgAdmin`) |
-| `mfa_required` | 403 | Only for a user with an authenticator app: a token from a sign-in without its code (the middleware), or a step-up route without a code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
+| `mfa_required` | 403 | Only for a user with an authenticator app: a step-up route without a code from the last `MFA_STEP_UP_MINUTES` (`assertStepUp`) |
 | `invalid_signature` | 401 | Webhook signature check failed (webhooks only) |
 
 ## Signed-in devices

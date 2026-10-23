@@ -13,7 +13,7 @@ export interface Principal {
   sessionId: string;
   aal: string;
   amr: { method: string; timestamp: number }[];
-  /** Has a verified authenticator app: the code is then needed at sign-in and for step-ups. Without one, neither. */
+  /** Has a verified authenticator app: step-up routes then need a fresh code. Without one, no code is asked. */
   mfaEnrolled: boolean;
   /** Every sign-in method linked to the account (`email`, `github`, `google`). */
   providers: string[];

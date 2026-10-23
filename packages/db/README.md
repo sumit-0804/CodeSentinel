@@ -114,7 +114,7 @@ Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `wh
      select exists (select 1 from gone)
    $$;
 
-   -- Has the user set up an authenticator app? Then sign-in and step-ups need its code (every /v1 request)
+   -- Has the user set up an authenticator app? Then step-up routes need its code (every /v1 request)
    create or replace function private.user_has_totp(p_user_id uuid) returns boolean
    language sql stable security definer set search_path = '' as $$
      select exists (select 1 from auth.mfa_factors f
