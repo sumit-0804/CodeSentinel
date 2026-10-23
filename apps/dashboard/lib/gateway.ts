@@ -1,5 +1,6 @@
 import "server-only";
 import { headers as requestHeaders } from "next/headers";
+import { connection } from "next/server";
 import type { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { browserOrigin } from "@/lib/browser-origin";
@@ -22,6 +23,8 @@ export async function gatewayFetch<T>(
   schema: z.ZodType<T>,
   { organizationId, ...init }: RequestInit & { organizationId?: string } = {},
 ): Promise<GatewayResult<T>> {
+  // Request time only: prerendered at build, an unset GATEWAY_URL would bake "not configured" into the page.
+  await connection();
   const base = gatewayUrl();
   if (!base) return { ok: false, reason: "unconfigured" };
 
