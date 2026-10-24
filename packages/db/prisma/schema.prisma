@@ -395,8 +395,10 @@ model Review {
   durationMs          Int?             @map("duration_ms")
   errorMessage        String?          @map("error_message")
   report              Json?
+  /// The agents that have answered so far, appended while the review runs (`AgentRunSummary[]`); the report supersedes it.
+  agentProgress       Json?            @map("agent_progress")
   error               Json?
-  deliveryId          String?          @unique(map: "uq_reviews_delivery") @map("delivery_id")
+  deliveryId         String?          @unique(map: "uq_reviews_delivery") @map("delivery_id")
   startedAt           DateTime?        @map("started_at") @db.Timestamptz(6)
   completedAt         DateTime?        @map("completed_at") @db.Timestamptz(6)
   createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)

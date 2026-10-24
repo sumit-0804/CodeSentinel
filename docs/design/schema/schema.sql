@@ -232,6 +232,7 @@ CREATE TABLE "reviews" (
     "duration_ms" INTEGER,
     "error_message" TEXT,
     "report" JSONB,
+    "agent_progress" JSONB,
     "error" JSONB,
     "delivery_id" TEXT,
     "started_at" TIMESTAMPTZ(6),
