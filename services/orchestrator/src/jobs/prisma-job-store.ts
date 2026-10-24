@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentKind, ApiError, CombinedReport, ReviewJob, ReviewJobRequest, ReviewJobStatus } from "@code-sentinel/contracts";
+import type { AgentKind, AgentRunSummary, ApiError, CombinedReport, ReviewJob, ReviewJobRequest, ReviewJobStatus } from "@code-sentinel/contracts";
 import { Prisma, type PrismaClient, type Review } from "@code-sentinel/db";
 
 import { countChangedLines } from "../aggregation/coverage.js";
@@ -79,6 +79,13 @@ export class PrismaJobStore implements JobStore {
     if (count === 0 && !(await this.prisma.review.findUnique({ where: { jobId }, select: { id: true } }))) {
       throw new Error(`Unknown review job ${jobId}`);
     }
+  }
+
+  async recordAgentRun(jobId: string, run: AgentRunSummary): Promise<void> {
+    // One atomic append: agents finish in parallel, so read-then-write would lose some.
+    await this.prisma.$executeRaw`
+      update reviews set agent_progress = coalesce(agent_progress, '[]'::jsonb) || jsonb_build_array(${JSON.stringify(run)}::jsonb)
+      where job_id = ${jobId}::uuid and status = 'running'`;
   }
 
   async complete(job: ReviewJob, request?: ReviewJobRequest): Promise<boolean> {
@@ -234,6 +241,8 @@ function elapsedMs(startedAt: string | undefined, completedAt: string | undefine
 
 function toJob(row: Review): ReviewJob {
   const report = row.report as CombinedReport | null;
+  // While running, the agents that answered so far; the finished report supersedes them.
+  const progress = !report && Array.isArray(row.agentProgress) ? (row.agentProgress as unknown as AgentRunSummary[]) : undefined;
   return {
     jobId: row.jobId ?? row.id,
     reviewId: row.id,
@@ -242,6 +251,7 @@ function toJob(row: Review): ReviewJob {
     ...(row.startedAt ? { startedAt: row.startedAt.toISOString() } : {}),
     ...(row.completedAt ? { completedAt: row.completedAt.toISOString() } : {}),
     ...(report ? { agentRuns: report.agentRuns, report } : {}),
+    ...(progress?.length ? { agentRuns: progress } : {}),
     ...(row.error ? { error: row.error as unknown as ApiError } : {}),
   };
 }

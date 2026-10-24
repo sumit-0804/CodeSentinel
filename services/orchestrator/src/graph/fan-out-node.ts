@@ -23,9 +23,13 @@ import type { ReviewState } from "./review-state.js";
 export type ReviewClient = Pick<AgentClient, "review"> & Partial<Pick<AgentClient, "health">>;
 export type ReviewClients = Partial<Record<AgentKind, ReviewClient>>;
 
-/** The slice of the LangGraph node config the fan-out reads: the run's abort signal. */
+/** Called with each agent's run as soon as that agent is done, for live progress. */
+export type OnAgentRun = (run: AgentRunSummary) => void;
+
+/** The slice of the LangGraph node config the fan-out reads: the run's abort signal and progress callback. */
 export interface NodeRunConfig {
   signal?: AbortSignal;
+  configurable?: { onAgentRun?: OnAgentRun };
 }
 
 interface AgentOutcome {
@@ -46,14 +50,25 @@ type BatchResult = { ok: true; response: AgentReviewResponse } | { ok: false; er
 export function createFanOutNode(clients: ReviewClients, routing?: LlmRouting, wakeMs = 0) {
   return async function fanOut(state: ReviewState, config?: NodeRunConfig): Promise<Partial<ReviewState>> {
     const signal = config?.signal;
+    const onAgentRun = config?.configurable?.onAgentRun;
+    const runAgent = async (agent: AgentKind): Promise<AgentOutcome> => {
+      const client = clients[agent];
+      if (!client) return { run: { agent, status: "skipped", errorCode: "agent_not_configured" }, findings: [], skipped: [] };
+      // An agent that never wakes fails on the review call below, as it does today.
+      if (wakeMs > 0 && client.health) await wakeAgent({ health: client.health.bind(client) }, wakeMs, signal);
+      if (routing && LLM_AGENTS.has(agent)) return runLlmAgent(agent, client, state, routing, signal);
+      return runOnce(agent, client, state, signal);
+    };
     const outcomes = await Promise.all(
-      state.enabledAgents.map(async (agent): Promise<AgentOutcome> => {
-        const client = clients[agent];
-        if (!client) return { run: { agent, status: "skipped", errorCode: "agent_not_configured" }, findings: [], skipped: [] };
-        // An agent that never wakes fails on the review call below, as it does today.
-        if (wakeMs > 0 && client.health) await wakeAgent({ health: client.health.bind(client) }, wakeMs, signal);
-        if (routing && LLM_AGENTS.has(agent)) return runLlmAgent(agent, client, state, routing, signal);
-        return runOnce(agent, client, state, signal);
+      state.enabledAgents.map(async (agent) => {
+        const outcome = await runAgent(agent);
+        // Progress is best effort: a failing callback must never fail the review.
+        try {
+          onAgentRun?.(outcome.run);
+        } catch {
+          /* ignored */
+        }
+        return outcome;
       }),
     );
 

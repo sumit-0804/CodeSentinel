@@ -72,6 +72,28 @@ export function describeJobStoreContract(setup: () => Promise<JobStoreHarness>):
     await expect(store.get(job.jobId)).resolves.toEqual({ ...job, status: "running", startedAt: "2026-10-11T10:00:01.000Z" });
   });
 
+  it("records each agent as it answers while running, in parallel without losing any, and stops once finished", async () => {
+    const { store, request } = await setup();
+    const job = queuedJob();
+    await store.insert(job, request());
+    const agents = ["security", "style", "performance", "logic", "documentation"] as const;
+
+    await store.recordAgentRun(job.jobId, { agent: "security", status: "succeeded" });
+    expect((await store.get(job.jobId))?.agentRuns).toBeUndefined();
+
+    await store.markRunning(job.jobId, "2026-10-11T10:00:01.000Z");
+    await Promise.all(agents.map((agent, i) => store.recordAgentRun(job.jobId, { agent, status: "succeeded", findingsCount: i, latencyMs: 100 * i })));
+    const running = await store.get(job.jobId);
+    expect(running?.agentRuns?.map((run) => run.agent).sort()).toEqual([...agents].sort());
+    expect(running?.agentRuns?.find((run) => run.agent === "logic")).toEqual({ agent: "logic", status: "succeeded", findingsCount: 3, latencyMs: 300 });
+
+    const report = { ...exampleCombinedReport, reviewId: job.reviewId };
+    await store.complete({ ...job, status: report.status, startedAt: "2026-10-11T10:00:01.000Z", completedAt: "2026-10-11T10:00:09.000Z", agentRuns: report.agentRuns, report });
+    await store.recordAgentRun(job.jobId, { agent: "style", status: "failed" });
+    // The report supersedes the progress.
+    expect((await store.get(job.jobId))?.agentRuns).toEqual(report.agentRuns);
+  });
+
   it("completes an active job with its report", async () => {
     const { store, request } = await setup();
     const job = queuedJob();

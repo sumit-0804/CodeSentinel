@@ -69,6 +69,14 @@ every agent call, and the request log line carries `jobId`, `reviewId` and `crea
 | set | `PrismaJobStore` over [`@code-sentinel/db`](../../packages/db/README.md) | one `reviews` row per job (`reviews.id` = `reviewId`, `job_id`, `idempotency_key`); kept as history and readable after a restart |
 | unset | `InMemoryJobStore` | lost on restart; finished jobs are dropped after `JOB_RETENTION_MS` |
 
+**Live progress.** While a job runs, the fan-out calls `onAgentRun` as each agent finishes (passed through
+`ReviewRunOptions` as LangGraph `configurable`). The controller then calls `recordAgentRun`:
+- `PrismaJobStore` appends the run to `reviews.agent_progress` in one atomic `jsonb ||` update, only while the
+  status is `running`. Agents finish in parallel, so a read-then-write would lose some.
+- `InMemoryJobStore` adds it to the job's `agentRuns`.
+- Polls of a running job get those runs in `agentRuns`.
+- A failed write is logged (`agent progress not recorded`) and never fails the review.
+
 When a job finishes, `PrismaJobStore.complete()` writes in one transaction:
 - the status, timestamps and `duration_ms`
 - the full `CombinedReport` as `report` JSON (what the API returns)

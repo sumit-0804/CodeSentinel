@@ -109,7 +109,15 @@ export class ReviewJobController {
       await this.store.markRunning(job.jobId, startedAt);
       const report = await this.run(
         { reviewId: job.reviewId, request, ...(requestId !== undefined ? { requestId } : {}) },
-        { signal: controller.signal },
+        {
+          signal: controller.signal,
+          // Live progress for the dashboard; a failed write is logged and never fails the review.
+          onAgentRun: (run) => {
+            this.store.recordAgentRun(job.jobId, run).catch((error: unknown) => {
+              this.logger.warn("agent progress not recorded", { ...log, agent: run.agent, error });
+            });
+          },
+        },
       );
       await this.finish({ ...job, startedAt, status: report.status, agentRuns: report.agentRuns, report }, request);
       this.logger.info("review job finished", { ...log, status: report.status });

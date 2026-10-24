@@ -22,7 +22,13 @@ function deferredRun() {
       reject = rej;
     });
   });
-  return { run, resolve: (r: CombinedReport) => resolve(r), reject: (e: unknown) => reject(e), signal: () => options?.signal };
+  return {
+    run,
+    resolve: (r: CombinedReport) => resolve(r),
+    reject: (e: unknown) => reject(e),
+    signal: () => options?.signal,
+    onAgentRun: () => options?.onAgentRun,
+  };
 }
 
 function controllerWith(run: RunReview, logger = noopLogger, afterComplete?: ReviewJobControllerDeps["afterComplete"]) {
@@ -57,7 +63,7 @@ describe("ReviewJobController", () => {
     expect((await controller.getJob(job.jobId))?.status).toBe("running");
     expect(run).toHaveBeenCalledWith(
       { reviewId: job.reviewId, requestId: "req-1", request: request() },
-      { signal: expect.any(AbortSignal) },
+      { signal: expect.any(AbortSignal), onAgentRun: expect.any(Function) },
     );
 
     const report = { ...exampleCombinedReport, reviewId: job.reviewId, status: "partial" as const };
@@ -186,6 +192,38 @@ describe("ReviewJobController", () => {
     await settle();
 
     expect(afterComplete).not.toHaveBeenCalled();
+  });
+
+  it("shows each agent on the running job as it answers", async () => {
+    const { run, onAgentRun } = deferredRun();
+    const controller = controllerWith(run);
+    const { job } = await controller.createJob(request());
+    await settle();
+
+    onAgentRun()?.({ agent: "style", status: "succeeded", findingsCount: 2, latencyMs: 900 });
+    await settle();
+
+    await expect(controller.getJob(job.jobId)).resolves.toMatchObject({
+      status: "running",
+      agentRuns: [{ agent: "style", status: "succeeded", findingsCount: 2, latencyMs: 900 }],
+    });
+  });
+
+  it("logs a progress write that fails and still finishes the review", async () => {
+    const { run, resolve, onAgentRun } = deferredRun();
+    const { logger, lines } = captureLogger();
+    const store = new InMemoryJobStore({ retentionMs: 3_600_000, now: () => NOW });
+    vi.spyOn(store, "recordAgentRun").mockRejectedValue(new Error("database away"));
+    const controller = new ReviewJobController({ run, logger, store, now: () => NOW });
+    const { job } = await controller.createJob(request());
+    await settle();
+
+    onAgentRun()?.({ agent: "security", status: "succeeded" });
+    resolve({ ...exampleCombinedReport, status: "completed" });
+    await settle();
+
+    expect(lines.some((line) => line.level === "warn" && String(line.message).includes("agent progress not recorded"))).toBe(true);
+    expect((await controller.getJob(job.jobId))?.status).toBe("completed");
   });
 
   it("warns that callbackUrl is not supported yet", async () => {

@@ -1,4 +1,4 @@
-import type { ApiError, ReviewJob, ReviewJobRequest, ReviewJobStatus } from "@code-sentinel/contracts";
+import type { AgentRunSummary, ApiError, ReviewJob, ReviewJobRequest, ReviewJobStatus } from "@code-sentinel/contracts";
 
 const TERMINAL: ReadonlySet<ReviewJobStatus> = new Set(["completed", "partial", "failed", "cancelled"]);
 
@@ -25,6 +25,8 @@ export interface JobStore {
   /** One GitHub review per repository, pull request and head commit, as `uq_reviews_pr_head` requires. */
   insert(job: ReviewJob, request: ReviewJobRequest, idempotencyKey?: string): Promise<InsertResult>;
   markRunning(jobId: string, startedAt: string): Promise<void>;
+  /** Adds an agent that has answered to a running job's `agentRuns`; ignored once the job is finished. */
+  recordAgentRun(jobId: string, run: AgentRunSummary): Promise<void>;
   /**
    * Writes a terminal job only while the stored one is still queued or running; `false` otherwise.
    * `request` (the job's own) lets a database store record each agent's time budget.
@@ -91,6 +93,11 @@ export class InMemoryJobStore implements JobStore {
     const job = this.jobs.get(jobId);
     if (!job) throw new Error(`Unknown review job ${jobId}`);
     if (!isTerminal(job.status)) this.jobs.set(jobId, { ...job, status: "running", startedAt });
+  }
+
+  async recordAgentRun(jobId: string, run: AgentRunSummary): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (job?.status === "running") this.jobs.set(jobId, { ...job, agentRuns: [...(job.agentRuns ?? []), run] });
   }
 
   async complete(job: ReviewJob): Promise<boolean> {

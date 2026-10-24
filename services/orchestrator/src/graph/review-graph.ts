@@ -5,7 +5,7 @@ import type { SimilarIssueLookup } from "../context/similar-issue-lookup.js";
 import { aggregateNode } from "./aggregate-node.js";
 import { createContextNode } from "./context-node.js";
 import { ALL_AGENTS, DEFAULT_CONFIDENCE_THRESHOLD } from "./defaults.js";
-import { createFanOutNode, type ReviewClients } from "./fan-out-node.js";
+import { createFanOutNode, type OnAgentRun, type ReviewClients } from "./fan-out-node.js";
 import { ReviewStateAnnotation, type ReviewState } from "./review-state.js";
 import type { LlmRouting } from "../budget/llm-routing.js";
 import { thresholdNode } from "./threshold-node.js";
@@ -31,6 +31,8 @@ export interface ReviewRunInput {
 export interface ReviewRunOptions {
   /** Aborting it stops the run and every agent call in flight (cancelled job, NFR-14). */
   signal?: AbortSignal;
+  /** Each agent's run as soon as it is done, before the report exists. */
+  onAgentRun?: OnAgentRun;
 }
 
 /** The `ReviewState` a run starts from, with job defaults applied. */
@@ -71,7 +73,10 @@ export function buildReviewGraph(deps: ReviewGraphDeps) {
     .compile();
 
   async function run(input: ReviewRunInput, options: ReviewRunOptions = {}): Promise<CombinedReport> {
-    const state = await graph.invoke(toInitialState(input), options.signal ? { signal: options.signal } : {});
+    const state = await graph.invoke(toInitialState(input), {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.onAgentRun ? { configurable: { onAgentRun: options.onAgentRun } } : {}),
+    });
     if (!state.report) throw new Error(`Review ${input.reviewId} finished without a report`);
     return state.report;
   }

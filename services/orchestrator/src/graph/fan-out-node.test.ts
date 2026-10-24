@@ -73,6 +73,31 @@ describe("createFanOutNode", () => {
     expect(update.rawFindings?.[0]).not.toHaveProperty("similarPastIssues");
   });
 
+  it("reports each agent's run as soon as it is done, and a throwing callback changes nothing", async () => {
+    let releaseLogic!: () => void;
+    const logicDone = new Promise<void>((resolve) => (releaseLogic = resolve));
+    const seen: string[] = [];
+    const fanOut = createFanOutNode({
+      security: respondingClient("security"),
+      logic: { review: async () => (await logicDone, { ...exampleAgentReviewResponse, agent: "logic" }) },
+    });
+
+    const running = fanOut(state({ enabledAgents: ["security", "logic"] }), {
+      configurable: {
+        onAgentRun: (run) => {
+          seen.push(run.agent);
+          throw new Error("progress store down");
+        },
+      },
+    });
+    await vi.waitFor(() => expect(seen).toEqual(["security"]));
+    releaseLogic();
+    const update = await running;
+
+    expect(seen).toEqual(["security", "logic"]);
+    expect(update.agentRuns?.map((run) => run.status)).toEqual(["succeeded", "succeeded"]);
+  });
+
   it("maps the remaining AgentCallError kinds and unexpected errors", async () => {
     const fanOut = createFanOutNode({
       security: failingClient(new AgentCallError("bad", { agent: "security", kind: "invalid_response", latencyMs: 5 })),
