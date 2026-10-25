@@ -1,4 +1,4 @@
-import { CombinedReportSchema, type AuditTargetType } from "@code-sentinel/contracts";
+import { AgentRunSummarySchema, CombinedReportSchema, type AuditTargetType } from "@code-sentinel/contracts";
 import type { Prisma, PrismaClient } from "@code-sentinel/db";
 
 import { modesOf, resolveEffectiveConfig, type RepositoryConfigInputs } from "./effective-config.js";
@@ -28,6 +28,7 @@ import {
 const isUniqueViolation = (error: unknown) => (error as { code?: unknown }).code === "P2002";
 
 const REVIEW_INCLUDE = { repository: { select: { fullName: true } } } as const;
+const AgentProgressSchema = AgentRunSummarySchema.array();
 
 const USER_INCLUDE = {
   memberships: { orderBy: { addedAt: "asc" }, include: { organization: { select: { displayName: true } } } },
@@ -117,6 +118,7 @@ function toRepositoryRecord(
 function toReviewRecord(row: Prisma.ReviewGetPayload<{ include: typeof REVIEW_INCLUDE }>): ReviewRecord {
   // The orchestrator writes `report`; a row that doesn't parse is shown without one rather than failing the list.
   const report = row.report === null ? undefined : CombinedReportSchema.safeParse(row.report);
+  const progress = row.agentProgress === null ? undefined : AgentProgressSchema.safeParse(row.agentProgress);
   return {
     reviewId: row.id,
     organizationId: row.organizationId,
@@ -134,6 +136,8 @@ function toReviewRecord(row: Prisma.ReviewGetPayload<{ include: typeof REVIEW_IN
     ...(row.durationMs !== null ? { durationMs: row.durationMs } : {}),
     createdAt: row.createdAt,
     ...(report?.success ? { report: report.data } : {}),
+    ...(row.startedAt !== null ? { startedAt: row.startedAt } : {}),
+    ...(progress?.success && progress.data.length ? { agentProgress: progress.data } : {}),
   };
 }
 /** Upserts one repository by GitHub id into an installation; a stale active row holding the same name is marked removed first. */

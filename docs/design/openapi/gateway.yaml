@@ -1190,6 +1190,13 @@ components:
             createdAt:
               type: string
               format: date-time
+            startedAt:
+              type: string
+              format: date-time
+              description: >
+                When the agents started. While the review is queued or running, `agentRuns` lists the
+                agents that have answered so far, each with its status, findings count and latency; the
+                dashboard shows them as live progress.
 
     ReviewListItem:
       type: object

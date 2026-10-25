@@ -1,6 +1,7 @@
 import type {
   AgentKind,
   AgentMode,
+  AgentRunSummary,
   AuditAction,
   AuditEvent,
   AuditTargetType,
@@ -200,6 +201,9 @@ export interface ReviewRecord {
   createdAt: Date;
   /** Absent while the review runs, or when the stored report doesn't parse. */
   report?: CombinedReport;
+  startedAt?: Date;
+  /** The agents that answered so far while the review runs (`reviews.agent_progress`); absent when none or unreadable. */
+  agentProgress?: AgentRunSummary[];
 }
 
 export interface ReviewListFilter {

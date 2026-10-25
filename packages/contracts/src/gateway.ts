@@ -103,6 +103,8 @@ export const ReviewDetailSchema = CombinedReportSchema.extend({
   checkConclusion: CheckConclusionSchema.optional(),
   agentResults: z.array(z.object({ agent: AgentKindSchema, result: AgentResultSchema })),
   createdAt: z.string().datetime(),
+  /** When the agents started; with `agentRuns` (the agents that answered so far) it drives the live progress. */
+  startedAt: z.string().datetime().optional(),
 });
 export type ReviewDetail = z.infer<typeof ReviewDetailSchema>;
 

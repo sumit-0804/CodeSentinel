@@ -308,6 +308,21 @@ export function describeStoresContract(
       await expect(theirs.stores.reviews.get({ organizationId: theirs.ids.organizationId }, theirId)).resolves.toMatchObject({ prNumber: 1 });
     });
 
+    it("reads a running review's start time and the agents that answered so far", async () => {
+      const progress = [{ agent: "security" as const, status: "succeeded" as const, findingsCount: 1, latencyMs: 1200 }];
+      let reviewId = "";
+      const { stores, ids } = await build(({ seed, ids }) => {
+        const row = review(ids, 9, 1, { status: "running", startedAt: new Date("2026-10-26T10:00:05Z"), agentProgress: progress });
+        reviewId = row.reviewId;
+        seed.reviews.push(row);
+      });
+
+      await expect(stores.reviews.get({ organizationId: ids.organizationId }, reviewId)).resolves.toMatchObject({
+        startedAt: new Date("2026-10-26T10:00:05Z"),
+        agentProgress: progress,
+      });
+    });
+
     it("records the Check Run's conclusion, and ignores an unknown review", async () => {
       let reviewId = "";
       const { stores, ids } = await build(({ seed, ids }) => {

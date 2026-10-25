@@ -89,6 +89,16 @@ describe("toListItem / toDetail", () => {
     expect(toListItem(running).summary.criticalCount).toBe(0);
   });
 
+  it("shows a running review's agents that answered so far, with when it started", () => {
+    const { report: _report, ...rest } = record({ status: "running" });
+    const progress = [{ agent: "style" as const, status: "succeeded" as const, findingsCount: 2, latencyMs: 900 }];
+    const running = { ...rest, startedAt: new Date("2026-10-12T10:00:05Z"), agentProgress: progress };
+
+    expect(toDetail(running)).toMatchObject({ agentRuns: progress, startedAt: "2026-10-12T10:00:05.000Z" });
+    // Once finished, the report's runs win and leftover progress is ignored.
+    expect(toDetail({ ...running, status: "failed" }).agentRuns).toEqual([]);
+  });
+
   it("takes the threshold and identity from the row, not the report", () => {
     const detail = toDetail(record({ confidenceThreshold: 0.65 }));
     expect(detail).toMatchObject({ confidenceThreshold: 0.65, repositoryFullName: "octo/api", headSha: "f3326e0", createdAt: "2026-10-12T10:00:00.000Z" });

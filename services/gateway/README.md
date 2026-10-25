@@ -217,7 +217,8 @@ them back for the dashboard; both routes take a Supabase session and only ever s
   - a bad filter is 400 `invalid_query`
 - **`GET /v1/reviews/{id}`**: the `CombinedReport` plus the repository, trigger, PR title, refs, conclusion and
   `createdAt`. While a review is still running it has no report yet, so the answer is an empty one with the row's
-  status.
+  status. `agentRuns` then lists the agents that have answered so far (`reviews.agent_progress`, written by the
+  orchestrator), and `startedAt` says when the agents started, so the dashboard can show live progress.
 - **The database's `cancelled` status** is reported as `failed`, since the API has no `cancelled`.
 
 When the publisher completes a Check Run it also stores its id and conclusion on the review

@@ -146,6 +146,8 @@ export async function writeSeed(prisma: PrismaClient, seed: StoreSeed, { session
         durationMs: review.durationMs ?? null,
         createdAt: review.createdAt,
         ...(review.report ? { report: review.report as unknown as Prisma.InputJsonValue } : {}),
+        startedAt: review.startedAt ?? null,
+        ...(review.agentProgress ? { agentProgress: review.agentProgress as unknown as Prisma.InputJsonValue } : {}),
       },
     });
   }

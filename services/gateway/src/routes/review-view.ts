@@ -86,12 +86,13 @@ function withDecisions(findings: Finding[], suggestions: readonly SuggestionReco
 }
 
 export function toDetail(record: ReviewRecord, suggestions: readonly SuggestionRecord[] = []): ReviewDetail {
+  // Still running: no report yet, and `agentRuns` lists the agents that have answered so far.
   const report: CombinedReport = record.report ?? {
     reviewId: record.reviewId,
     status: apiStatus(record.status),
     summary: EMPTY_SUMMARY,
     findings: [],
-    agentRuns: [],
+    agentRuns: running(record.status) ? (record.agentProgress ?? []) : [],
   };
   return {
     ...report,
@@ -111,5 +112,6 @@ export function toDetail(record: ReviewRecord, suggestions: readonly SuggestionR
     ...(record.checkConclusion ? { checkConclusion: record.checkConclusion } : {}),
     agentResults: agentResults(record),
     createdAt: record.createdAt.toISOString(),
+    ...(record.startedAt ? { startedAt: record.startedAt.toISOString() } : {}),
   };
 }
