@@ -96,6 +96,7 @@ async function ReviewContent({ params }: PageProps<"/pull-requests/[reviewId]">)
         agentRuns={review.agentRuns}
         threshold={threshold}
         running={running}
+        runningSince={review.startedAt ?? review.createdAt}
         repositoryHref={`/repositories/${review.repositoryFullName}`}
       />
     </div>

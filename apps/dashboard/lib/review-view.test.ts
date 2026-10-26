@@ -1,6 +1,32 @@
 import { describe, expect, it } from "vitest";
 import type { Finding, ReviewListItem } from "@code-sentinel/contracts";
-import { exactTime, groupByFile, lanesOf, openFixes, overviewOf, postedCount, timeAgo, verdictOf, verdictSentence } from "./review-view";
+import {
+  elapsedLabel,
+  exactTime,
+  groupByFile,
+  lanesOf,
+  openFixes,
+  overviewOf,
+  postedCount,
+  progressLine,
+  timeAgo,
+  verdictOf,
+  verdictSentence,
+} from "./review-view";
+
+describe("elapsedLabel / progressLine", () => {
+  it("shows minutes and padded seconds, never negative", () => {
+    expect(elapsedLabel(7_400)).toBe("0:07");
+    expect(elapsedLabel(92_000)).toBe("1:32");
+    expect(elapsedLabel(-500)).toBe("0:00");
+  });
+
+  it("counts the agents that have reported", () => {
+    expect(progressLine(0)).toBe("Waiting for the first agent");
+    expect(progressLine(1)).toBe("1 agent has reported");
+    expect(progressLine(4)).toBe("4 agents have reported");
+  });
+});
 
 const summary = (criticalCount: number) => ({ criticalCount, warningCount: 0, infoCount: 0, autoFixedCount: 0, suggestedFixCount: 0 });
 

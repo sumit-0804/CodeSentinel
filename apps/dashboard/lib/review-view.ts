@@ -100,6 +100,21 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
+/** After this long with no agent answering, the agents are probably waking up on the free hosting plan. */
+export const WAKE_HINT_AFTER_MS = 25_000;
+
+/** "0:07", "1:32": how long a running review has taken so far. */
+export function elapsedLabel(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** The headline of a running review: how many agents have answered so far. */
+export function progressLine(reported: number): string {
+  if (reported === 0) return "Waiting for the first agent";
+  return reported === 1 ? "1 agent has reported" : `${reported} agents have reported`;
+}
+
 const EXACT = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 
 /** "12 Oct 2026, 07:03 UTC": fixed locale and zone, so server and browser render the same text. */

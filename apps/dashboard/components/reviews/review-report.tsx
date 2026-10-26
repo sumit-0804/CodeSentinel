@@ -7,6 +7,7 @@ import type { AgentRunSummary, Finding, Severity } from "@code-sentinel/contract
 import { AGENTS, AgentGlyph } from "@/components/brand/agents";
 import { SeverityDot } from "@/components/brand/verdict-pill";
 import { FixActions } from "@/components/reviews/fix-actions";
+import { ReviewProgress } from "@/components/reviews/review-progress";
 import { cn } from "@/lib/utils";
 import { groupByFile } from "@/lib/review-view";
 
@@ -86,12 +87,15 @@ export function ReviewReport({
   agentRuns,
   threshold,
   running,
+  runningSince,
   repositoryHref,
 }: {
   findings: Finding[];
   agentRuns: AgentRunSummary[];
   threshold: number;
   running: boolean;
+  /** When the agents started (or the review was queued), for the live timer. */
+  runningSince?: string;
   repositoryHref?: string;
 }) {
   const [filter, setFilter] = useState<"all" | Severity>("all");
@@ -135,7 +139,9 @@ export function ReviewReport({
         </div>
 
         <div className="panel">
-          {findings.length === 0 ? (
+          {findings.length === 0 && running && runningSince ? (
+            <ReviewProgress since={runningSince} reported={agentRuns.length} />
+          ) : findings.length === 0 ? (
             <p className="p-6 text-ink-2">{running ? "Findings appear when the agents finish." : "No findings. Nothing in this pull request needs a change."}</p>
           ) : shown.length === 0 ? (
             <p className="p-6 text-ink-2">No findings at this severity.</p>
