@@ -62,6 +62,7 @@ Partial indexes such as `uq_reviews_pr_head` are declared in the schema with `wh
 | --- | --- |
 | `createPrismaClient(url)` | A `PrismaClient` over `node-postgres` (`@prisma/adapter-pg`, required by Prisma 7) |
 | `SecretBox` | AES-256-GCM `seal` / `open` for OAuth tokens, keyed by `FIELD_ENCRYPTION_KEY` (32 bytes, base64); output `v1.<iv>.<tag>.<ciphertext>` |
+| `seedMeaningfulDatabase`, `deleteSeededDatabase`, `SEED_IDS` | The dev demo data (see Seed below) and its fixed ids |
 | Prisma types and enums | Re-exported from the generated client (`src/generated/prisma`, gitignored, rebuilt by `prisma generate` in every build) |
 
 ## Supabase setup (once per project)
@@ -153,9 +154,14 @@ with the gateway's `DATABASE_URL`. That's why `prisma` and `dotenv` are runtime 
 Use `migrate deploy` rather than `migrate dev` to apply: `migrate dev` can stop at an interactive
 prompt and hold Prisma's advisory lock until it's killed.
 
-**Seed:** the same ids as `@code-sentinel/contracts/examples` and the gateway's in-memory dev seed:
-organization `code-sentinel`, repository `code-sentinel/consumer-api` (GitHub id 123456789), user
-`octo-dev`. Dev data only.
+**Seed** ([`src/seed-data.ts`](src/seed-data.ts), run by `prisma/seed.ts`): demo records in all 18
+tables, so every dashboard screen has data. It keeps the ids of `@code-sentinel/contracts/examples`
+and the gateway's in-memory dev seed (organization `code-sentinel`, repository
+`code-sentinel/consumer-api` with GitHub id 123456789, user `octo-dev`) and adds a second
+organization, 4 reviews with 15 agent runs, 12 findings (one clubbed), 6 suggestions, embeddings
+with "seen before" links, devices and audit events. Rerunning it changes nothing;
+`deleteSeededDatabase` removes it. Tokens are sealed with `FIELD_ENCRYPTION_KEY`, or a fixed dev key
+when it is unset. Dev data only.
 Set `SEED_GITHUB_REPOSITORY=owner/name:githubRepoId` (e.g. the test playground) to seed that
 repository instead, so its pull requests are reviewed by a gateway running with `DATABASE_URL`.
 Rerunning the seed with or without it switches the repository back and forth.
