@@ -5,8 +5,13 @@ Written 15-Sep-2026. Provider decision changed 27-Sep-2026: Groq primary, Gemini
 
 ## Decisions
 
-- **Large diffs are skipped, never split.** A file is reviewed whole if it fits the limits;
-  otherwise it is listed as skipped in the report.
+- **Files are never split** (updated 15-Oct). Every agent gets each changed file whole (up to the
+  gateway's 36 KB `FILE_CONTENT_MAX_BYTES`) next to its diff and reports only on added lines. A whole
+  file over `LLM_MAX_FILE_TOKENS` goes as its diff; a diff over it is listed as `too_large`. Files that
+  import one another are reviewed in one call, and every call carries the rest of the PR's diffs as
+  context (`LLM_OTHER_CHANGES_TOKENS`).
+- **Groq budgets are per account** (15-Oct): Groq limits apply per organization, so LLM agents may use
+  their own account's key, named in the orchestrator's `GROQ_ACCOUNT_<AGENT>`.
 - **Groq is the primary review provider, Gemini the secondary** (27-Sep; replaces "Gemini only").
   Groq runs `openai/gpt-oss-120b`; Gemini runs Gemini 3.5 Flash Lite. A batch goes to Groq when
   Groq's quota fits it now, otherwise to Gemini, and Gemini retries a Groq call that fails (429,
@@ -46,12 +51,13 @@ batch a minute. Everything else goes to Gemini.
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Secondary review model (confirm the id in AI Studio) |
 | `GEMINI_RPM` / `GEMINI_TPM` / `GEMINI_RPD` | 15 / 250000 / 500 | Limits of **this environment's** Gemini key |
 | `LLM_QUOTA_HEADROOM` | 0.8 | Share of each limit we use |
-| `LLM_MAX_FILE_TOKENS` | 6000 | Larger file ⇒ `too_large` |
-| `LLM_MAX_BATCH_TOKENS` | 12000 | Diff tokens per call (≈ 36 KB, ≈ 900 changed lines); Groq batches are further capped by its TPM |
-| `LLM_REVIEW_MAX_TOKENS` | 24000 | Diff tokens per LLM agent per review; the rest ⇒ `over_budget` |
+| `LLM_MAX_FILE_TOKENS` | 12000 | Larger whole file ⇒ sent as its diff; larger diff ⇒ `too_large` |
+| `LLM_MAX_BATCH_TOKENS` | 40000 | File tokens per call, so linked files fit together; Groq batches are further capped by its TPM (bigger ones go to Gemini). Agents need the same value |
+| `LLM_REVIEW_MAX_TOKENS` | 80000 | File tokens per LLM agent per review; the rest ⇒ `over_budget` |
+| `LLM_OTHER_CHANGES_TOKENS` | 4000 | Diffs of the PR's other files sent with each call as context, then paths only. Agents need the same value |
 | `LLM_PROMPT_RESERVE_TOKENS` | 1000 | System prompt per call |
 | `LLM_MAX_OUTPUT_TOKENS` | 2000 | Sent as `max_completion_tokens` (Groq) / `maxOutputTokens` (Gemini); counts against TPM |
-| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Sent with `outputDimensionality: 768`; vectors come back L2-normalised (`embedding-config.ts`) |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Sent with `outputDimensionality: 768` (pinned in `packages/llm/src/gemini-embedder.ts`); vectors come back L2-normalised |
 | `GEMINI_EMBED_RPM` / `TPM` / `RPD` | from the key's quota page | Set in each environment's `.env` from the AI Studio quota page |
 
 Tokens are estimated as `ceil(bytes / 3)` (pessimistic, no tokenizer); reservations are settled with
@@ -104,12 +110,13 @@ GitHub PR files
       `estimateTokens` and `QuotaBudget` live in `packages/llm`.
 - [x] `aggregate()` accepts `skippedFiles` + `files`; `mergeSkippedFiles`, `buildCoverage`;
       `llm_quota_exhausted` ⇒ `partial` (+ tests).
-- [ ] `embedding-config.ts` pins `gemini-embedding-2`, `outputDimensionality` 768.
+- [x] `gemini-embedding-2` at `outputDimensionality` 768, pinned in `packages/llm/src/gemini-embedder.ts`
+      (no separate `embedding-config.ts`).
 - [x] Fan-out: plan per LLM agent, reserve, queue until deadline, send batches with `deadlineMs`,
       settle with returned token counts. A batch is reserved just before it is sent, so a cancelled
       job holds no unsent reservation; calls aborted in flight keep their estimate.
-- [x] One `QuotaBudget` each for Groq and Gemini generation, created at startup from `loadLlmLimits`
-      (`createLlmRouting`).
+- [x] One `QuotaBudget` for Gemini and one per Groq account (`GROQ_ACCOUNT_<AGENT>`, 15-Oct), created
+      at startup from `loadLlmLimits` (`createLlmRouting`).
 - [ ] The Gemini embeddings budget, created with the vector-store work.
 
 ### `packages/llm`
@@ -130,20 +137,19 @@ GitHub PR files
       `InputTooLargeError`, is logged and the rule findings are still returned; the orchestrator's
       planner keeps batches under the input limit, so `too_large` is decided there.
 
-### Mock agent
-- [ ] `MOCK_MAX_FILE_TOKENS` skip path (+ tests).
-
 ### Gateway
 - [x] File filter module (binary, missing `patch`, generated/vendored globs, deleted, pure rename).
       `services/gateway/src/webhooks/file-filter.ts`.
 - [x] Send gateway skips in `ReviewJobRequest.skippedFiles`.
 - [x] Paginate PR files (Octokit client, `github/octokit-github-client.ts`).
-- [ ] Every file filtered ⇒ finish the review with an empty report, no orchestrator call
-      (gateway already skips the orchestrator call; the empty report needs the review store).
+- [x] Every file filtered ⇒ a neutral "Nothing to review" Check Run listing the skipped files, no
+      orchestrator call (Phase B gateway, 14-Oct).
 
 ### GitHub and dashboard
-- [ ] Check Run summary: coverage line + skipped-files list; "LLM analysis deferred" for quota skips.
-- [ ] Dashboard: coverage strip, "Skipped files" section, deferred-agent state.
+- [x] Check Run summary: coverage line + skipped-files list; "LLM analysis deferred" for quota skips
+      (`services/gateway/src/github/review-output.ts`).
+- [ ] Dashboard: coverage strip, "Skipped files" section (the deferred-agent state, "Deferred (quota)",
+      is done in `components/reviews/review-report.tsx`).
 
 ### Fixtures and tests
 - [ ] Large-PR fixture: one oversized file, a lockfile, a binary, normal files.
@@ -163,6 +169,5 @@ GitHub PR files
       comments updated for Groq primary / Gemini secondary.
 - [x] System Design Document §2 and §4.3 updated for Groq primary / Gemini secondary and re-exported
       to PDF.
-- [ ] System Design Document (§4.3) still names `gemini-embedding-001`; the model is now
-      `gemini-embedding-2` at the same 768 dimensions. Update the `.docx` and re-export the PDF with
-      the next revision, or note it in the next status report.
+- [x] System Design Document (§4.3) names `gemini-embedding-2`; on 15-Oct it was also updated for
+      pgvector, whole-file review and per-account Groq budgets, and re-exported to PDF.

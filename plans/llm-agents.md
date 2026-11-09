@@ -175,7 +175,7 @@ Author: Nevil. Covers FR-STY-01..04 and NFR-07 (no LLM).
 - **`LinterDispatcher`**, by language:
   - JS/TS: `eslint --format json` + `prettier`
   - Python: `ruff check --output-format json` + `black`
-- **Input:** each hunk's new-side text from `parsePatch`, because agents never see whole files (NFR-06).
+- **Input:** the whole file when the gateway sent it (15-Oct), else each hunk's new-side text from `parsePatch`.
   - Diagnostics are kept only when they fall on added lines, and are mapped back to real line numbers.
   - A hunk that doesn't parse as a fragment is left out, with a count in the log.
 - **Fixes:** when the formatter or `ruff --fix` changes an added block, the agent returns a `suggestion { kind: "deterministic", originalSnippet, suggestedSnippet }` (FR-STY-03). Anything it can't fix is reported as a normal finding (FR-STY-04).
