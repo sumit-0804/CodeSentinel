@@ -1,8 +1,10 @@
 # Code-Sentinel
 
-[![CI](https://github.com/sumit-0804/Code-Sentinel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sumit-0804/Code-Sentinel/actions/workflows/ci.yml)
+[![CI](https://github.com/sumit-0804/CodeSentinel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sumit-0804/CodeSentinel/actions/workflows/ci.yml)
 
 A multi-agent code review platform built on a service-oriented architecture.
+
+**Live app:** <https://codesentinel.scribly.fun> (dashboard) · <https://api.codesentinel.scribly.fun/healthz> (API status)
 
 Review work is split across five independent agent services — **Security, Style, Performance,
 Logic, Documentation**. A LangGraph orchestrator fans a review request out to the agents in
@@ -11,7 +13,86 @@ report. The platform is reachable from a GitHub App and a Next.js dashboard.
 
 See [`docs/`](docs/) for the Proposal, Plan, Requirements Specification (BRD) and System Design
 Document, and [`docs/design/`](docs/design/) for the architecture diagrams, OpenAPI contracts and
-database schema.
+database schema. Hosting, CI/CD and security settings are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+## Features
+
+**Pull request review (GitHub App)**
+
+- Opening or updating a pull request starts a review. A **Code-Sentinel Check Run** shows "in
+  progress" within seconds and finishes as pass, fail or neutral.
+- Five agents run in parallel, each with its own timeout: Security (rules + AI), Style (ESLint,
+  Prettier, Ruff, Black; no AI), Performance, Logic and Documentation.
+- Findings from different agents on the same lines are **clubbed into one comment** ("Flagged by
+  Security and Logic"), ranked by severity and posted as inline review comments.
+- Fixes are one click: a committable suggestion on each comment, and **Apply all fixes** on the Check
+  Run, which makes one commit. The new commit is reviewed again.
+- **"Seen before"**: a finding similar to an earlier one in the same organization links to it
+  (pgvector similarity search over Gemini embeddings).
+- Large pull requests are handled without failing: generated, binary and oversized files are
+  skipped and listed, and the Check Run says how many files were reviewed.
+- A redelivered webhook is ignored, and a new push cancels the review of the older commit.
+
+**Dashboard**
+
+- Sign in with email and password, GitHub or Google. Optional authenticator app (TOTP); once added,
+  settings changes, fixes and signing out a device ask for a code.
+- Connect repositories by installing the GitHub App; organizations and repositories sync on their own.
+- **Overview**: what is blocked or being reviewed, agent health notices, recent reviews.
+- **Repositories**: reviews on or off, each agent Off / Comment / Block merge, confidence threshold,
+  branches to review, open pull requests with **Review now** / **Re-run**.
+- **Pull requests**: every pull request's latest review; the review page shows live progress while
+  agents run, findings by file, and **Commit fix** / **Dismiss** / **Apply all fixes**.
+- **Settings**: profile and linked accounts, organization review defaults, signed-in devices
+  (sign any of them out), and the audit log for admins.
+
+**Operations**
+
+- Rate limits per installation, per user and per IP; an audit log of every sensitive action.
+- Prometheus metrics, a Grafana dashboard and four alerts ([`docs/monitoring/`](docs/monitoring/)).
+- LLM quota is reserved before each call (Groq first, then Gemini), so the free tiers are never exceeded.
+
+| | |
+| --- | --- |
+| ![Check Run](docs/screenshots/github-check-run.jpg) | ![Inline comment with a fix](docs/screenshots/github-inline-comment.jpg) |
+| ![Overview](docs/screenshots/overview.jpg) | ![Review page](docs/screenshots/review-detail.jpg) |
+
+## How it fits together
+
+![Architecture](docs/design/diagrams/architecture.png)
+
+| Layer | What | Where it lives |
+| --- | --- | --- |
+| Frontend | Next.js 16 dashboard (Tailwind v4, shadcn/ui). The browser only talks to the dashboard's own server, which calls the gateway with the user's Supabase token | [`apps/dashboard`](apps/dashboard/README.md) |
+| Backend | Express gateway (webhooks, auth, `/v1` API, publishing to GitHub) → LangGraph orchestrator (fan-out, timeouts, aggregation, context) → five agent services | [`services/`](services/) |
+| Database | Supabase Postgres with pgvector, 18 tables, through Prisma 7. Gateway and orchestrator share it; reviews survive restarts | [`packages/db`](packages/db/README.md), [schema diagram](docs/design/diagrams/database_schema.png) |
+| Auth | Supabase Auth (email, GitHub, Google, TOTP). The gateway verifies each access token against Supabase's JWKS and checks the session is still live | [gateway README](services/gateway/README.md#authentication) |
+
+One review, end to end: GitHub sends a webhook → the gateway checks its signature, stores the
+review and creates the Check Run → the orchestrator plans the LLM budget and calls the agents in
+parallel → it merges, de-duplicates and ranks the findings and saves the report → the gateway posts
+the comments and completes the Check Run → the dashboard reads the same rows through the gateway.
+
+## APIs and integrations
+
+**Our own APIs** are specified in OpenAPI and mirrored as zod schemas in
+[`packages/contracts`](packages/contracts/README.md), which every service imports:
+
+| API | Spec | Used by |
+| --- | --- | --- |
+| Gateway `/v1` (reviews, repositories, config, fixes, sessions, audit log, agent health) and `/webhooks/github` | [`gateway.yaml`](docs/design/openapi/gateway.yaml) | dashboard, GitHub |
+| Orchestrator `/internal/v1/review-jobs` | [`orchestrator.yaml`](docs/design/openapi/orchestrator.yaml) | gateway |
+| Agent `/v1/review`, `/v1/capabilities` (the same contract for all five) | [`agent.yaml`](docs/design/openapi/agent.yaml) | orchestrator |
+
+**External services:**
+
+| Service | Used for |
+| --- | --- |
+| GitHub App (webhooks, Checks, Pull Request Reviews, Git Data, OAuth) | Receiving PR events, posting the Check Run and comments, committing fixes, connecting repositories |
+| Groq (`openai/gpt-oss-120b`) and Google Gemini | The agents' AI reviews (Groq first, Gemini as fallback); Gemini embeddings for "Seen before" |
+| Supabase | Postgres + pgvector, and sign-in (email, GitHub, Google, TOTP) |
+| Resend | Sign-up and password-reset emails, sent through Supabase Auth |
+| Grafana Cloud | Metrics, dashboard and alerts |
 
 ## Repository layout
 
@@ -136,7 +217,7 @@ Branch protection is a repository setting, not a file. A repository admin enable
 Or with the GitHub CLI:
 
 ```bash
-gh api -X PUT repos/sumit-0804/Code-Sentinel/branches/main/protection --input - <<< '{"required_status_checks":{"strict":true,"contexts":["ci"]},"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}'
+gh api -X PUT repos/sumit-0804/CodeSentinel/branches/main/protection --input - <<< '{"required_status_checks":{"strict":true,"contexts":["ci"]},"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}'
 ```
 
 A pull request whose `ci` check fails then shows "Merging is blocked".
@@ -164,69 +245,11 @@ No output and exit code 0 means the workflow is valid.
 | Five agents | Render, workspace C | their `onrender.com` URLs, called only by the orchestrator |
 | Database and sign-in | Supabase (dev project) | |
 
-Everything runs on free plans:
+Everything runs on free plans. Each service redeploys after CI passes on `main`, and the gateway
+applies database migrations when it starts. Metrics and alerts are on Grafana Cloud.
 
-- **Three Render workspaces.** Render gives each workspace 750 free hours a month, and a free
-  service sleeps after 15 idle minutes. GitHub waits only about 10 s for a webhook answer, so the
-  gateway and the orchestrator have a workspace each and stay awake (about 720 hours each).
-- **Keep-warm job.** A [cron-job.org](https://cron-job.org) job requests both `/healthz` URLs every
-  10 minutes.
-- **Agents sleep.** The orchestrator wakes each one through `/healthz` before its review call
-  (`AGENT_WAKE_TIMEOUT_MS=90000`).
-- **Public calls between services.** Workspaces don't share a private network, so each hop is a
-  public HTTPS call with `SERVICE_TOKEN`.
-
-**Images.** The root [`Dockerfile`](Dockerfile) builds any service from its pruned workspace
-(`turbo prune`). Render passes the `SERVICE` env var as the build arg:
-
-```bash
-docker build --build-arg SERVICE=gateway -t cs/gateway .
-```
-
-The style-agent has its own [`Dockerfile`](services/style-agent/Dockerfile), with the linters
-installed and `SANDBOX_MODE=process`. Render can't run Docker inside a service; see the
-[style-agent README](services/style-agent/README.md#process-mode-render).
-
-**Blueprints.** One per workspace: [`render/gateway.yaml`](render/gateway.yaml),
-[`render/orchestrator.yaml`](render/orchestrator.yaml) and [`render/agents.yaml`](render/agents.yaml).
-In each workspace: **New → Blueprint**, pick this repo and the file, then type the values marked
-`sync: false`:
-
-- **Secrets:** `SERVICE_TOKEN` (the same everywhere), `DATABASE_URL`, the GitHub App and LLM keys,
-  and `METRICS_TOKEN`.
-- **Service URLs:** the other workspaces' `onrender.com` URLs.
-- **The gateway also needs** the Secret File `github-app.pem`.
-
-**Deploys.** Each service redeploys after CI passes on `main` (`autoDeployTrigger: checksPass`), and
-only when its own paths change. The gateway runs `prisma migrate deploy` before it starts, because
-free services have no pre-deploy step.
-
-**Monitoring** is on Grafana Cloud (free stack), from [`docs/monitoring/`](docs/monitoring/):
-
-- **Scraping:** two **Metrics Endpoint** scrape jobs read `/metrics` once a minute with `METRICS_TOKEN`
-  as the bearer token: `https://api.codesentinel.scribly.fun/metrics` (gateway) and the
-  orchestrator's `https://….onrender.com/metrics`.
-- **The agents aren't scraped:** a scrape every minute would keep all five awake and use up their
-  workspace's free hours. The orchestrator reports their runs, latency, last known health
-  (`agent_health`) and LLM quota instead.
-- **Dashboard:** [`code-sentinel.json`](docs/monitoring/code-sentinel.json), imported with Dashboards → New
-  → Import. It covers scrape status, requests, the 5xx share, latency, webhooks, rate limits, agent runs,
-  latency and health, LLM quota, similar-issue lookups, memory and event-loop lag.
-- **Alerts:** [`alerts.yaml`](docs/monitoring/alerts.yaml), imported with Alert rules → More → Import →
-  Prometheus YAML file. They email the default policy's contact point:
-
-  | Alert | Fires when |
-  | --- | --- |
-  | `CodeSentinelServiceDown` | `/metrics` unreadable for 5 min |
-  | `CodeSentinelAgentDown` | an agent's runs failed or timed out for 30 min with no success (learned from reviews, so a sleeping agent never counts) |
-  | `CodeSentinelGatewayErrors` | over 5% of gateway requests are 5xx for 5 min |
-  | `CodeSentinelLlmQuotaLow` | any LLM key under 15% of its quota |
-
-**The dashboard** is on Vercel; see the
-[dashboard README](apps/dashboard/README.md#deploy-vercel). The DNS records are in Hostinger:
-
-- `api.codesentinel`: CNAME to the gateway's `onrender.com` host
-- `codesentinel`: CNAME to Vercel's target
+The full notes are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md): hosting, setup steps, CI/CD,
+security configuration, monitoring and the latest live check.
 
 ## Team
 
