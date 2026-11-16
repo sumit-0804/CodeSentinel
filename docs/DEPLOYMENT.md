@@ -148,7 +148,7 @@ On Grafana Cloud (free stack), from [`docs/monitoring/`](monitoring/):
   | `CodeSentinelGatewayErrors` | over 5% of gateway requests are 5xx for 5 min |
   | `CodeSentinelLlmQuotaLow` | any LLM key under 15% of its quota |
 
-## Live check (11 Nov 2026)
+## Live check (16 Nov 2026)
 
 | Check | Result |
 | --- | --- |
