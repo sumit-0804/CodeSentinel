@@ -93,6 +93,32 @@ every push to `main`:
 - The workflow token is read-only (`permissions: contents: read`), and a newer run on the same
   branch cancels the older one.
 
+Each run gets a throwaway `pgvector/pgvector:pg16` Postgres service, so the migrations are applied
+fresh and the database tests run on every push. The `ci` job runs even when a leg fails or is
+skipped (`if: always()`), because GitHub counts a skipped required check as passing.
+
+**Branch protection** is a repository setting, not a file. A repository admin enables it once:
+
+1. Settings → Branches → Add branch ruleset (or classic branch protection rule) for `main`.
+2. Turn on "Require status checks to pass before merging" and add `ci`.
+3. Turn on "Require branches to be up to date before merging".
+
+Or with the GitHub CLI:
+
+```bash
+gh api -X PUT repos/sumit-0804/CodeSentinel/branches/main/protection --input - <<< '{"required_status_checks":{"strict":true,"contexts":["ci"]},"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}'
+```
+
+**Checking the workflow locally.** [actionlint](https://github.com/rhysd/actionlint) checks the
+workflow without pushing. From the repo root, with Docker running (on Windows PowerShell use
+`"${PWD}:/repo"` as the volume):
+
+```bash
+docker run --rm -v "$(pwd):/repo" -w /repo rhysd/actionlint:latest -color
+```
+
+No output and exit code 0 means the workflow is valid.
+
 **CD:**
 
 - **Render** redeploys a service only after CI passes on `main` (`autoDeployTrigger: checksPass`)

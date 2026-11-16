@@ -1,0 +1,52 @@
+<mxfile host="app.diagrams.net" scale="2" border="0">
+  <diagram name="Page-1" id="FvlIBh3U8SjNFOLAEJh8">
+    <mxGraphModel dx="2512" dy="1149" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="t0" parent="1" style="shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=40;fontSize=16;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;Live&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="200" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="d0" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;" value="Real pull requests with seeded bugs on the deployed system" vertex="1">
+          <mxGeometry height="80" width="470" x="560" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" parent="1" style="shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=40;fontSize=16;fillColor=#ffe6cc;strokeColor=#d79b00;" value="&lt;b&gt;Database&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="240" x="160" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="d1" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;" value="Migrations on a fresh Postgres with pgvector: constraints, cascades, vector search, seed data in all 18 tables" vertex="1">
+          <mxGeometry height="80" width="470" x="560" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" parent="1" style="shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=40;fontSize=16;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;Integration&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="320" x="120" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="d2" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;" value="Gateway to orchestrator to agents with stubbed GitHub and LLM calls: full review, cancel, timeouts, fixes, tenant isolation" vertex="1">
+          <mxGeometry height="80" width="470" x="560" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" parent="1" style="shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=40;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;Service and API&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="400" x="80" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="d3" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;" value="Each service over HTTP: authentication, roles, 2FA step-up, rate limits, webhooks, every route against its contract" vertex="1">
+          <mxGeometry height="80" width="470" x="560" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" parent="1" style="shape=trapezoid;perimeter=trapezoidPerimeter;whiteSpace=wrap;html=1;fixedSize=1;size=40;fontSize=16;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;Unit&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="480" x="40" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="d4" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;" value="Pure logic in every workspace: diff parsing, security rules, quota budget, merging and ranking, encryption, config" vertex="1">
+          <mxGeometry height="80" width="470" x="560" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="br" parent="1" style="shape=curlyBracket;whiteSpace=wrap;html=1;rounded=1;flipH=1;size=0.5;" value="" vertex="1">
+          <mxGeometry height="350" width="20" x="1040" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="brl" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=13;fontStyle=1;" value="Automated:&lt;br&gt;run by CI on&lt;br&gt;every push&lt;br&gt;(Node 22 and 24)" vertex="1">
+          <mxGeometry height="80" width="130" x="1070" y="255" as="geometry" />
+        </mxCell>
+        <mxCell id="man" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=13;fontStyle=1;" value="Manual,&lt;br&gt;before each demo" vertex="1">
+          <mxGeometry height="60" width="130" x="1070" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="nf" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" value="Alongside every level: non-functional checks (interface, performance, reliability, security, monitoring)" vertex="1">
+          <mxGeometry height="50" width="1160" x="40" y="490" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
