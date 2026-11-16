@@ -14,6 +14,8 @@ import { lanesOf, openFixes, timeAgo, verdictOf, verdictSentence } from "@/lib/r
 import { getReview } from "@/lib/reviews";
 
 export const metadata: Metadata = { title: "Pull request" };
+// Commit fix and Apply all fixes wait on GitHub for up to 30 seconds.
+export const maxDuration = 60;
 
 const UNAVAILABLE = {
   unconfigured: "The API isn't configured for this dashboard (GATEWAY_URL).",

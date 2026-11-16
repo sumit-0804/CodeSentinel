@@ -39,6 +39,8 @@ export async function rerunReview(repositoryId: string, pullRequestNumber: numbe
 export type FixDecisionResult = { ok: true; commitSha?: string } | { ok: false; message: string; code?: string };
 
 const FindingIdSchema = z.string().uuid();
+// Committing makes several GitHub calls; giving up early showed "Couldn't reach the API" for a fix that landed.
+const COMMIT_TIMEOUT_MS = 30_000;
 
 async function decide(findingId: string, action: "accept" | "reject", body: unknown): Promise<FixDecisionResult> {
   if (!FindingIdSchema.safeParse(findingId).success) return { ok: false, message: "That finding isn't valid." };
@@ -50,6 +52,7 @@ async function decide(findingId: string, action: "accept" | "reject", body: unkn
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
     organizationId: account.current.organizationId,
+    ...(action === "accept" ? { timeoutMs: COMMIT_TIMEOUT_MS } : {}),
   });
   if (!result.ok) return { ok: false, message: fixFailureMessage(result), ...(result.code ? { code: result.code } : {}) };
   revalidatePath("/pull-requests", "layout");
@@ -74,6 +77,7 @@ export async function applyAllFixes(reviewId: string): Promise<ApplyAllResult> {
     body: "{}",
     headers: { "Content-Type": "application/json" },
     organizationId: account.current.organizationId,
+    timeoutMs: COMMIT_TIMEOUT_MS,
   });
   if (!result.ok) return { ok: false, message: fixFailureMessage(result), ...(result.code ? { code: result.code } : {}) };
   revalidatePath("/pull-requests", "layout");

@@ -21,7 +21,7 @@ export type GatewayResult<T> = { ok: true; data: T } | { ok: false; reason: Gate
 export async function gatewayFetch<T>(
   path: `/${string}`,
   schema: z.ZodType<T>,
-  { organizationId, ...init }: RequestInit & { organizationId?: string } = {},
+  { organizationId, timeoutMs = TIMEOUT_MS, ...init }: RequestInit & { organizationId?: string; timeoutMs?: number } = {},
 ): Promise<GatewayResult<T>> {
   // Request time only: prerendered at build, an unset GATEWAY_URL would bake "not configured" into the page.
   await connection();
@@ -45,7 +45,7 @@ export async function gatewayFetch<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${base}${path}`, { ...init, headers, cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
+    response = await fetch(`${base}${path}`, { ...init, headers, cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     return { ok: false, reason: "unreachable" };
   }
