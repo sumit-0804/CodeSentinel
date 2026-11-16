@@ -7,9 +7,10 @@ and [`plans/llm-agents.md`](../../plans/llm-agents.md).
 
 | Export | What it does |
 | --- | --- |
-| `LlmClient` | `complete(request, { provider, signal?, deadlineAt? })` calls the provider whose quota the orchestrator reserved. When that is Groq and the call fails on a 429, a 5xx, the network or a timeout, it retries once on Gemini (`fallbackDepth: 1`) if at least 2 s remain. A Groq call is cut at `groqTimeoutMs` (15 s) to leave room for that; a Gemini call may use all the time left before `deadlineAt` (60 s without one), because the free tier took 15–22 s per call in the 27-Sep live check. A prompt over `maxInputTokens` throws `InputTooLargeError` before any request |
+| `LlmClient` | `complete(request, { provider, signal?, deadlineAt? })` calls the provider whose quota the orchestrator reserved. When the call fails on a 429, a 5xx, the network or a timeout, it tries the next provider if at least 2 s remain: Gemini after Groq, then Cloudflare when it is configured (`fallbackDepth` counts the fallbacks tried). Cloudflare is never the assigned provider and has no quota budget. A Groq call is cut at `groqTimeoutMs` (15 s) to leave room for that; a Gemini call may use all the time left before `deadlineAt` (60 s without one), because the free tier took 15–22 s per call in the 27-Sep live check. A prompt over `maxInputTokens` throws `InputTooLargeError` before any request |
 | `createLlmClient(limits)` | The client an agent uses, from `loadLlmLimits()`: whichever of Groq and Gemini has a key, `maxInputTokens` = batch + prompt reserve. Undefined when neither key is set |
 | `GroqProvider` | `POST https://api.groq.com/openai/v1/chat/completions` with `response_format: json_schema` (`strict: true`), `max_completion_tokens`, `reasoning_effort: "low"`. Reads `usage` |
+| `CloudflareProvider` | `POST https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions` (Workers AI, OpenAI-compatible), same request as Groq. The last fallback, added on 16-Nov-2026 after Gemini answered 503 for hours |
 | `GeminiProvider` | `POST …/v1beta/models/{model}:generateContent` with `responseMimeType: application/json` + `responseJsonSchema`, `maxOutputTokens`. Reads `usageMetadata` (thinking tokens count as output) |
 | `QuotaBudget` | `tryReserve({ requests, tokens })` → a `Reservation`, or `{ retryAt }` (`null` when the cost can never fit). `settle()` swaps the estimate for the reported tokens; `release()` returns an unused reservation. Sliding 60 s and rolling 24 h windows, at `headroom` × each limit |
 | `GeminiEmbedder` | `embedMany(texts)`: one `embedContent` per text, `outputDimensionality: 768`, each reserved on the embedding budget |
@@ -38,6 +39,8 @@ them. The caller still validates the returned JSON (with zod): the model output 
 | `GEMINI_RPM` / `GEMINI_TPM` / `GEMINI_RPD` | 15 / 250000 / 500 | Limits of this environment's Gemini key |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | 768-dimension vectors |
 | `GEMINI_EMBED_RPM` / `TPM` / `RPD` | unset | From the key's quota page; embeddings stay off until all three are set |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | unset | Enable the Cloudflare fallback on an agent; set both or neither (one alone is a config error). The token needs Workers AI access |
+| `CLOUDFLARE_MODEL` | `@cf/openai/gpt-oss-120b` | Fallback model |
 | `LLM_QUOTA_HEADROOM` | `0.8` | Share of every limit we use, in (0, 1] |
 | `LLM_MAX_OUTPUT_TOKENS` | `2000` | Output cap per call; counts against TPM |
 | `LLM_MAX_FILE_TOKENS` | `12000` | A larger whole file is sent as its diff; a larger diff is `too_large` |

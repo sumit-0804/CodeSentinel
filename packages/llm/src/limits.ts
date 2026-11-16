@@ -15,6 +15,8 @@ export interface LlmLimits {
   gemini?: ProviderSettings;
   /** Gemini embeddings; absent without a Gemini key or any of `GEMINI_EMBED_RPM/TPM/RPD`. */
   embedding?: ProviderSettings;
+  /** Last fallback when Groq and Gemini fail; needs both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. */
+  cloudflare?: { apiToken: string; accountId: string; model: string };
   headroom: number;
   maxOutputTokens: number;
   maxFileTokens: number;
@@ -61,6 +63,9 @@ const EnvSchema = z.object({
   GEMINI_EMBED_RPM: optionalInt(),
   GEMINI_EMBED_TPM: optionalInt(),
   GEMINI_EMBED_RPD: optionalInt(),
+  CLOUDFLARE_API_TOKEN: optionalString(),
+  CLOUDFLARE_ACCOUNT_ID: optionalString(),
+  CLOUDFLARE_MODEL: stringOr("@cf/openai/gpt-oss-120b"),
   LLM_QUOTA_HEADROOM: z.preprocess(
     blankAsUndefined,
     z.coerce.number({ invalid_type_error: "must be a number" }).gt(0, "must be in (0, 1]").max(1, "must be in (0, 1]").default(0.8),
@@ -83,6 +88,10 @@ export function loadLlmLimits(env: Record<string, string | undefined> = process.
     throw new LlmConfigError(parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`));
   }
   const v = parsed.data;
+  // Half a Cloudflare setup is a mistake, not "off": the fallback would silently never run.
+  if (Boolean(v.CLOUDFLARE_API_TOKEN) !== Boolean(v.CLOUDFLARE_ACCOUNT_ID)) {
+    throw new LlmConfigError(["CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set together"]);
+  }
 
   const limits: LlmLimits = {
     headroom: v.LLM_QUOTA_HEADROOM,
@@ -113,6 +122,9 @@ export function loadLlmLimits(env: Record<string, string | undefined> = process.
         limits: { requestsPerMinute: v.GEMINI_EMBED_RPM, tokensPerMinute: v.GEMINI_EMBED_TPM, requestsPerDay: v.GEMINI_EMBED_RPD },
       };
     }
+  }
+  if (v.CLOUDFLARE_API_TOKEN && v.CLOUDFLARE_ACCOUNT_ID) {
+    limits.cloudflare = { apiToken: v.CLOUDFLARE_API_TOKEN, accountId: v.CLOUDFLARE_ACCOUNT_ID, model: v.CLOUDFLARE_MODEL };
   }
   return limits;
 }

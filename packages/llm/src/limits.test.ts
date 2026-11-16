@@ -35,6 +35,16 @@ describe("loadLlmLimits", () => {
     expect(withEmbed.embedding).toMatchObject({ model: "gemini-embedding-2", limits: { requestsPerMinute: 100 } });
   });
 
+  it("enables Cloudflare only with both its token and account id", () => {
+    expect(loadLlmLimits({}).cloudflare).toBeUndefined();
+    expect(loadLlmLimits({ CLOUDFLARE_API_TOKEN: "ct", CLOUDFLARE_ACCOUNT_ID: "acc" }).cloudflare).toEqual({
+      apiToken: "ct",
+      accountId: "acc",
+      model: "@cf/openai/gpt-oss-120b",
+    });
+    expect(() => loadLlmLimits({ CLOUDFLARE_API_TOKEN: "ct" })).toThrow(/must be set together/);
+  });
+
   it("reports every invalid variable at once", () => {
     let error: unknown;
     try {

@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { InputTooLargeError, LlmProviderError, LlmQuotaError, LlmUnavailableError } from "./errors.js";
 import { loadLlmLimits } from "./limits.js";
 import { createLlmClient, LlmClient } from "./llm-client.js";
-import type { LlmProvider, LlmProviderName, LlmRequest, ProviderResponse } from "./types.js";
+import type { LlmBackendName, LlmProvider, LlmRequest, ProviderResponse } from "./types.js";
 
 const REQUEST: LlmRequest = { systemPrompt: "sys", prompt: "diff", schemaName: "s", responseSchema: {} };
 
-function provider(name: LlmProviderName, result: ProviderResponse | Error) {
+function provider(name: LlmBackendName, result: ProviderResponse | Error) {
   return {
     name,
     model: `${name}-model`,
@@ -18,12 +18,18 @@ function provider(name: LlmProviderName, result: ProviderResponse | Error) {
   };
 }
 
-const answer = (name: LlmProviderName): ProviderResponse => ({ text: "{}", provider: name, model: `${name}-model`, promptTokens: 5, completionTokens: 2 });
+const answer = (name: LlmBackendName): ProviderResponse => ({ text: "{}", provider: name, model: `${name}-model`, promptTokens: 5, completionTokens: 2 });
 
-function client(groq: ReturnType<typeof provider> | undefined, gemini: ReturnType<typeof provider> | undefined, now = () => 0) {
+function client(
+  groq: ReturnType<typeof provider> | undefined,
+  gemini: ReturnType<typeof provider> | undefined,
+  now = () => 0,
+  cloudflare?: ReturnType<typeof provider>,
+) {
   return new LlmClient({
     ...(groq ? { groq } : {}),
     ...(gemini ? { gemini } : {}),
+    ...(cloudflare ? { cloudflare } : {}),
     maxInputTokens: 100,
     maxOutputTokens: 300,
     now,
@@ -68,6 +74,40 @@ describe("LlmClient", () => {
     await expect(
       client(provider("groq", quota), gemini(), () => 9_000).complete(REQUEST, { provider: "groq", deadlineAt: 10_000 }),
     ).rejects.toBe(quota);
+  });
+
+  // 16-Nov: Gemini answered 503 all afternoon and large pull requests lost three agents.
+  it("falls back to Cloudflare when Gemini is down, as the assigned provider or after Groq", async () => {
+    const geminiDown = () => provider("gemini", new LlmProviderError("down", { provider: "gemini", kind: "http", status: 503 }));
+    const groqFull = provider("groq", new LlmQuotaError("full", { provider: "groq", status: 429 }));
+    const cloudflare = provider("cloudflare", answer("cloudflare"));
+
+    const assigned = await client(undefined, geminiDown(), undefined, cloudflare).complete(REQUEST, { provider: "gemini" });
+    const afterGroq = await client(groqFull, geminiDown(), undefined, cloudflare).complete(REQUEST, { provider: "groq" });
+
+    expect(assigned).toEqual({ ...answer("cloudflare"), fallbackDepth: 1 });
+    expect(afterGroq).toEqual({ ...answer("cloudflare"), fallbackDepth: 2 });
+  });
+
+  it("leaves Cloudflare alone when a provider answers, on a 4xx, and without time left", async () => {
+    const cloudflare = provider("cloudflare", answer("cloudflare"));
+    const badRequest = new LlmProviderError("bad", { provider: "gemini", kind: "http", status: 400 });
+    const down = new LlmProviderError("down", { provider: "gemini", kind: "http", status: 503 });
+
+    await client(undefined, provider("gemini", answer("gemini")), undefined, cloudflare).complete(REQUEST, { provider: "gemini" });
+    await expect(client(undefined, provider("gemini", badRequest), undefined, cloudflare).complete(REQUEST, { provider: "gemini" })).rejects.toBe(badRequest);
+    await expect(
+      client(undefined, provider("gemini", down), () => 9_000, cloudflare).complete(REQUEST, { provider: "gemini", deadlineAt: 10_000 }),
+    ).rejects.toBe(down);
+
+    expect(cloudflare.complete).not.toHaveBeenCalled();
+  });
+
+  it("reports the last failure when every provider is down", async () => {
+    const cloudflareDown = new LlmProviderError("down", { provider: "cloudflare", kind: "http", status: 500 });
+    const gemini = provider("gemini", new LlmProviderError("down", { provider: "gemini", kind: "http", status: 503 }));
+
+    await expect(client(undefined, gemini, undefined, provider("cloudflare", cloudflareDown)).complete(REQUEST, { provider: "gemini" })).rejects.toBe(cloudflareDown);
   });
 
   it("refuses an oversized prompt before any call, and an unconfigured provider", async () => {
@@ -121,6 +161,8 @@ describe("createLlmClient", () => {
 
     expect(client?.has("groq")).toBe(true);
     expect(client?.has("gemini")).toBe(false);
+    expect(client?.has("cloudflare")).toBe(false);
+    expect(createLlmClient(loadLlmLimits({ GROQ_API_KEY: "gk", CLOUDFLARE_API_TOKEN: "ct", CLOUDFLARE_ACCOUNT_ID: "acc" }))?.has("cloudflare")).toBe(true);
     expect(createLlmClient(loadLlmLimits({}))).toBeUndefined();
   });
 });

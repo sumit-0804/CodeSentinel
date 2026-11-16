@@ -29,6 +29,11 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Last LLM fallback (Cloudflare Workers AI); set both or neither
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
       - key: METRICS_TOKEN
         sync: false
 
@@ -78,6 +83,11 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Last LLM fallback (Cloudflare Workers AI); set both or neither
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
       - key: METRICS_TOKEN
         sync: false
 
@@ -105,6 +115,11 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Last LLM fallback (Cloudflare Workers AI); set both or neither
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
       - key: METRICS_TOKEN
         sync: false
 
@@ -131,6 +146,11 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      # Last LLM fallback (Cloudflare Workers AI); set both or neither
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: METRICS_TOKEN
         sync: false

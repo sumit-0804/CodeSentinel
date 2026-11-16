@@ -56,7 +56,7 @@ export type AgentReviewRequest = z.infer<typeof AgentReviewRequestSchema>;
 export const AgentLlmUsageSchema = z.object({
   provider: z.string().optional(),
   model: z.string().optional(),
-  /** 0 when the assigned provider answered; 1 when a Groq call failed and Gemini answered instead. */
+  /** 0 when the assigned provider answered; otherwise the fallbacks tried (Gemini after Groq, then Cloudflare). */
   fallbackDepth: z.number().int().min(0).optional(),
   promptTokens: z.number().int().min(0).optional(),
   completionTokens: z.number().int().min(0).optional(),

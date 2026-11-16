@@ -1,13 +1,16 @@
+import { CloudflareProvider } from "./cloudflare-provider.js";
 import { InputTooLargeError, LlmProviderError, LlmUnavailableError } from "./errors.js";
 import { GeminiProvider } from "./gemini-provider.js";
 import { GroqProvider } from "./groq-provider.js";
 import type { LlmLimits } from "./limits.js";
 import { estimateTokens } from "./tokens.js";
-import type { FetchLike, LlmProvider, LlmProviderName, LlmRequest, LlmResponse } from "./types.js";
+import type { FetchLike, LlmBackendName, LlmProvider, LlmProviderName, LlmRequest, LlmResponse } from "./types.js";
 
 export interface LlmClientOptions {
   groq?: LlmProvider;
   gemini?: LlmProvider;
+  /** Tried last, after Groq and Gemini have failed; never the assigned provider. */
+  cloudflare?: LlmProvider;
   /** Largest prompt (system + user) accepted, in estimated tokens; bigger inputs never reach a provider. */
   maxInputTokens: number;
   /** Default output cap when a request sets none (`LLM_MAX_OUTPUT_TOKENS`). */
@@ -30,15 +33,16 @@ export interface CompleteOptions {
 const DEFAULT_GROQ_TIMEOUT_MS = 15_000;
 /** Gemini's free tier took 15–22 s per call on 27-Sep, so it is not held to Groq's cap. */
 const DEFAULT_MAX_CALL_MS = 60_000;
-/** A Gemini retry is only attempted with at least this much time left. */
+/** A fallback is only attempted with at least this much time left. */
 const MIN_FALLBACK_MS = 2_000;
 
 /**
- * `LlmClient` from `class_llm.mmd`: calls the assigned provider, and when that is Groq and the call
- * fails on quota, a 5xx, the network or a timeout, retries once on Gemini (`fallbackDepth: 1`).
+ * `LlmClient` from `class_llm.mmd`: calls the assigned provider, and when the call fails on quota, a
+ * 5xx, the network or a timeout, tries Gemini (after Groq) and then Cloudflare (`fallbackDepth` 1, 2).
  */
 export class LlmClient {
   private readonly providers: Partial<Record<LlmProviderName, LlmProvider>>;
+  private readonly cloudflare: LlmProvider | undefined;
   private readonly maxInputTokens: number;
   private readonly maxOutputTokens: number;
   private readonly groqTimeoutMs: number;
@@ -50,6 +54,7 @@ export class LlmClient {
       ...(options.groq ? { groq: options.groq } : {}),
       ...(options.gemini ? { gemini: options.gemini } : {}),
     };
+    this.cloudflare = options.cloudflare;
     this.maxInputTokens = options.maxInputTokens;
     this.maxOutputTokens = options.maxOutputTokens;
     this.groqTimeoutMs = options.groqTimeoutMs ?? DEFAULT_GROQ_TIMEOUT_MS;
@@ -57,8 +62,8 @@ export class LlmClient {
     this.now = options.now ?? Date.now;
   }
 
-  has(provider: LlmProviderName): boolean {
-    return this.providers[provider] !== undefined;
+  has(provider: LlmBackendName): boolean {
+    return provider === "cloudflare" ? this.cloudflare !== undefined : this.providers[provider] !== undefined;
   }
 
   async complete(request: LlmRequest, options: CompleteOptions): Promise<LlmResponse> {
@@ -69,18 +74,22 @@ export class LlmClient {
     if (!primary) throw new LlmUnavailableError(options.provider);
     const resolved = { ...request, maxOutputTokens: request.maxOutputTokens ?? this.maxOutputTokens };
 
-    try {
-      return { ...(await primary.complete(resolved, { signal: this.callSignal(options, primary.name) })), fallbackDepth: 0 };
-    } catch (error) {
-      const fallback = this.providers.gemini;
-      if (options.provider !== "groq" || !fallback || !shouldFallBack(error) || !this.hasTimeForFallback(options)) {
-        throw error;
+    const fallbacks = [options.provider === "groq" ? this.providers.gemini : undefined, this.cloudflare].filter(
+      (provider): provider is LlmProvider => provider !== undefined,
+    );
+    let failure: unknown;
+    for (const [depth, provider] of [primary, ...fallbacks].entries()) {
+      if (depth > 0 && (!shouldFallBack(failure) || !this.hasTimeForFallback(options))) break;
+      try {
+        return { ...(await provider.complete(resolved, { signal: this.callSignal(options, provider.name) })), fallbackDepth: depth };
+      } catch (error) {
+        failure = error;
       }
-      return { ...(await fallback.complete(resolved, { signal: this.callSignal(options, fallback.name) })), fallbackDepth: 1 };
     }
+    throw failure;
   }
 
-  private callSignal(options: CompleteOptions, provider: LlmProviderName): AbortSignal {
+  private callSignal(options: CompleteOptions, provider: LlmBackendName): AbortSignal {
     const remaining = options.deadlineAt === undefined ? this.maxCallMs : options.deadlineAt - this.now();
     const cap = provider === "groq" ? Math.min(this.groqTimeoutMs, remaining) : remaining;
     const timeout = AbortSignal.timeout(Math.max(1, cap));
@@ -117,6 +126,7 @@ export function createLlmClient(limits: LlmLimits, options: { fetch?: FetchLike 
   return new LlmClient({
     ...(limits.groq ? { groq: new GroqProvider({ ...limits.groq, ...fetchOption }) } : {}),
     ...(limits.gemini ? { gemini: new GeminiProvider({ ...limits.gemini, ...fetchOption }) } : {}),
+    ...(limits.cloudflare ? { cloudflare: new CloudflareProvider({ ...limits.cloudflare, ...fetchOption }) } : {}),
     maxInputTokens: limits.maxBatchTokens + limits.otherChangesTokens + limits.promptReserveTokens,
     maxOutputTokens: limits.maxOutputTokens,
   });

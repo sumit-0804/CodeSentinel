@@ -1,5 +1,5 @@
 /**
- * @code-sentinel/llm: Groq (primary) and Gemini (secondary) review clients, the per-provider quota
+ * @code-sentinel/llm: Groq (primary), Gemini (secondary) and Cloudflare (last fallback) review clients, the per-provider quota
  * budget, the token estimate and Gemini embeddings (`plans/large-diffs.md`, `class_llm.mmd`).
  */
 
@@ -10,6 +10,7 @@ export {
   LlmUnavailableError,
   type LlmErrorKind,
 } from "./errors.js";
+export { CLOUDFLARE_BASE_URL, CloudflareProvider, type CloudflareProviderOptions } from "./cloudflare-provider.js";
 export { GeminiEmbedder, type GeminiEmbedderOptions } from "./gemini-embedder.js";
 export { GEMINI_BASE_URL, GeminiProvider, type GeminiProviderOptions } from "./gemini-provider.js";
 export { GROQ_BASE_URL, GroqProvider, type GroqProviderOptions } from "./groq-provider.js";
@@ -27,6 +28,7 @@ export { estimateTokens } from "./tokens.js";
 export type {
   FetchLike,
   JsonSchema,
+  LlmBackendName,
   LlmProvider,
   LlmProviderName,
   LlmRequest,

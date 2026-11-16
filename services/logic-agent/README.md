@@ -10,7 +10,7 @@ impossible conditions, and functions used against what they now return. Built on
 ## How a request is analyzed
 
 It has no rules: the work is one LLM call per request through agent-kit's `runLlmPass` and the
-shared LLM layer, so a Groq failure falls back to Gemini (FR-LOG-02).
+shared LLM layer, so a Groq failure falls back to Gemini, and a Gemini failure to Cloudflare when it is configured (FR-LOG-02).
 
 1. **What the model sees:** each file numbered line by line, with `+` on the lines this PR added
    (`ChangedFile.content`). A bug usually depends on code around the change, such as a helper

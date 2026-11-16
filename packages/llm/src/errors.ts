@@ -1,9 +1,9 @@
-import type { LlmProviderName } from "./types.js";
+import type { LlmBackendName, LlmProviderName } from "./types.js";
 
 export type LlmErrorKind = "rate_limited" | "http" | "network" | "timed_out" | "aborted" | "invalid_response";
 
 interface LlmProviderErrorOptions {
-  provider: LlmProviderName;
+  provider: LlmBackendName;
   kind: LlmErrorKind;
   status?: number;
   /** From `retry-after` (Groq) or `RetryInfo.retryDelay` (Gemini) on a 429. */
@@ -13,7 +13,7 @@ interface LlmProviderErrorOptions {
 
 /** A provider call that did not produce a usable answer. Never carries the prompt or the key. */
 export class LlmProviderError extends Error {
-  readonly provider: LlmProviderName;
+  readonly provider: LlmBackendName;
   readonly kind: LlmErrorKind;
   readonly status?: number;
   readonly retryAfterMs?: number;

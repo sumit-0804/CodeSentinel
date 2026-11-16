@@ -257,7 +257,7 @@ components:
           properties:
             provider:
               type: string
-              description: The provider that answered, groq or gemini.
+              description: The provider that answered - groq, gemini, or cloudflare (the last fallback).
               example: groq
             model:
               type: string
@@ -266,8 +266,8 @@ components:
               type: integer
               minimum: 0
               description: >
-                0 when the assigned provider answered; 1 when a Groq call failed and Gemini answered
-                instead. Stored in agent_runs.llm_fallback_depth.
+                0 when the assigned provider answered; otherwise how many fallbacks were tried
+                (Gemini after Groq, then Cloudflare). Stored in agent_runs.llm_fallback_depth.
             promptTokens:
               type: integer
             completionTokens:

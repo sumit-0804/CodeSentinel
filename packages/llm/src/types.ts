@@ -1,4 +1,7 @@
+/** The providers the orchestrator reserves quota on and assigns to a call. */
 export type LlmProviderName = "groq" | "gemini";
+/** Anything that can answer: Cloudflare is only the last fallback, never assigned. */
+export type LlmBackendName = LlmProviderName | "cloudflare";
 
 /** A JSON Schema object. For Groq strict mode every property must be required and objects closed. */
 export type JsonSchema = Record<string, unknown>;
@@ -19,14 +22,14 @@ export interface LlmRequest {
 export interface ProviderResponse {
   /** The JSON text the model produced; the caller parses and validates it. */
   text: string;
-  provider: LlmProviderName;
+  provider: LlmBackendName;
   model: string;
   promptTokens: number;
   completionTokens: number;
 }
 
 export interface LlmResponse extends ProviderResponse {
-  /** 0 when the requested provider answered; 1 when Gemini answered after Groq failed. */
+  /** 0 when the requested provider answered; otherwise how many fallbacks were tried (Gemini, then Cloudflare). */
   fallbackDepth: number;
 }
 
@@ -38,7 +41,7 @@ export interface ProviderCallOptions {
 export type ProviderRequest = LlmRequest & { maxOutputTokens: number };
 
 export interface LlmProvider {
-  readonly name: LlmProviderName;
+  readonly name: LlmBackendName;
   readonly model: string;
   complete(request: ProviderRequest, options?: ProviderCallOptions): Promise<ProviderResponse>;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { CloudflareProvider } from "./cloudflare-provider.js";
 import { LlmProviderError, LlmQuotaError } from "./errors.js";
 import { GeminiProvider } from "./gemini-provider.js";
 import { GroqProvider } from "./groq-provider.js";
@@ -54,6 +55,7 @@ describe("GroqProvider", () => {
       max_completion_tokens: 500,
       temperature: 0,
       reasoning_effort: "low",
+      include_reasoning: false,
     });
   });
 
@@ -88,6 +90,42 @@ describe("GroqProvider", () => {
 
     expect(await caught(refused.complete(REQUEST))).toMatchObject({ kind: "network" });
     expect(await caught(slow.complete(REQUEST))).toMatchObject({ kind: "timed_out" });
+  });
+});
+
+describe("CloudflareProvider", () => {
+  // The shape Workers AI answered with on 16-Nov, extra fields included.
+  const ok = {
+    model: "@cf/openai/gpt-oss-120b",
+    choices: [{ index: 0, message: { role: "assistant", content: '{"findings":[]}', reasoning_content: "thinking" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 92, completion_tokens: 112, total_tokens: 204, neurons: 10.5 },
+  };
+
+  it("calls the account's OpenAI-compatible endpoint with the token and returns text and usage", async () => {
+    const fetchImpl = respond(200, ok);
+    const cloudflare = new CloudflareProvider({ apiToken: "ct", accountId: "acc 1", model: "@cf/openai/gpt-oss-120b", fetch: fetchImpl });
+
+    const result = await cloudflare.complete(REQUEST);
+
+    expect(result).toEqual({ text: '{"findings":[]}', provider: "cloudflare", model: "@cf/openai/gpt-oss-120b", promptTokens: 92, completionTokens: 112 });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://api.cloudflare.com/client/v4/accounts/acc%201/ai/v1/chat/completions");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer ct");
+    const body = JSON.parse(String(init?.body));
+    expect(body).toMatchObject({
+      model: "@cf/openai/gpt-oss-120b",
+      response_format: { type: "json_schema", json_schema: { name: "findings", strict: true } },
+      max_completion_tokens: 500,
+    });
+    expect(body).not.toHaveProperty("include_reasoning");
+  });
+
+  it("names itself in errors", async () => {
+    const down = new CloudflareProvider({ apiToken: "ct", accountId: "acc", model: "m", fetch: respond(500, { errors: [] }) });
+    const full = new CloudflareProvider({ apiToken: "ct", accountId: "acc", model: "m", fetch: respond(429, { errors: [] }) });
+
+    expect(await caught(down.complete(REQUEST))).toMatchObject({ provider: "cloudflare", kind: "http", status: 500 });
+    expect(await caught(full.complete(REQUEST))).toBeInstanceOf(LlmQuotaError);
   });
 });
 

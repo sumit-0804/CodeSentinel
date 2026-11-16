@@ -1,5 +1,5 @@
 import { LlmProviderError, LlmQuotaError } from "./errors.js";
-import type { FetchLike, LlmProviderName } from "./types.js";
+import type { FetchLike, LlmBackendName } from "./types.js";
 
 export interface JsonResponse {
   status: number;
@@ -10,7 +10,7 @@ export interface JsonResponse {
 /** POSTs JSON and maps transport failures to `LlmProviderError`; non-2xx bodies are returned. */
 export async function postJson(
   fetchImpl: FetchLike,
-  provider: LlmProviderName,
+  provider: LlmBackendName,
   url: string,
   headers: Record<string, string>,
   body: unknown,
@@ -51,13 +51,13 @@ export async function postJson(
 }
 
 /** The error for a non-2xx answer; 429 becomes `LlmQuotaError` with the provider's retry hint. */
-export function httpError(provider: LlmProviderName, status: number, retryAfterMs: number | undefined): LlmProviderError {
+export function httpError(provider: LlmBackendName, status: number, retryAfterMs: number | undefined): LlmProviderError {
   const options = { provider, status, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
   if (status === 429) return new LlmQuotaError(`${provider} rate limit reached`, options);
   return new LlmProviderError(`${provider} returned HTTP ${status}`, { ...options, kind: "http" });
 }
 
-export function invalid(provider: LlmProviderName, reason: string, cause?: unknown): LlmProviderError {
+export function invalid(provider: LlmBackendName, reason: string, cause?: unknown): LlmProviderError {
   return new LlmProviderError(`${provider} sent an unusable answer: ${reason}`, {
     provider,
     kind: "invalid_response",

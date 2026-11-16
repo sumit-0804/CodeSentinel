@@ -38,7 +38,7 @@ export function startAgentService(agent: ReviewAgent, options: StartOptions): vo
     logger.info("agent listening", {
       port: config.port,
       version: agent.version,
-      llmProviders: (["groq", "gemini"] as const).filter((provider) => config.llm?.has(provider)),
+      llmProviders: (["groq", "gemini", "cloudflare"] as const).filter((provider) => config.llm?.has(provider)),
       nodeEnv: env.NODE_ENV,
       envFile: file,
     });
